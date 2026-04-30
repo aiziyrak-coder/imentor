@@ -339,24 +339,30 @@ export default function App() {
   const authShell = (
     <div className="flex h-screen w-full relative overflow-hidden text-[#1c1c1e]">
       <div className="absolute inset-0 futuristic-gradient opacity-95" />
-      <div className="absolute top-[-10%] left-[-8%] w-[35%] h-[45%] bg-cyan-200/30 rounded-full blur-[120px] pointer-events-none orb-float" />
-      <div className="absolute bottom-[-18%] right-[-8%] w-[42%] h-[55%] bg-fuchsia-200/25 rounded-full blur-[140px] pointer-events-none orb-float" />
+      <div className="absolute top-[-10%] left-[-8%] w-[35%] h-[45%] bg-cyan-100/60 rounded-full blur-[120px] pointer-events-none orb-float" />
+      <div className="absolute bottom-[-18%] right-[-8%] w-[42%] h-[55%] bg-emerald-100/55 rounded-full blur-[140px] pointer-events-none orb-float" />
 
       <div className="relative z-10 w-full h-full overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] h-full">
           <section className="relative p-8 md:p-10 lg:p-12 text-white overflow-hidden">
             <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl orb-float" />
-            <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-cyan-200/20 blur-3xl orb-float" />
+            <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-emerald-100/30 blur-3xl orb-float" />
+            <img
+              src="/imentor-logo.png"
+              alt=""
+              aria-hidden="true"
+              className="absolute right-[-120px] top-1/2 -translate-y-1/2 w-[520px] max-w-none opacity-[0.10] blur-[2px] pointer-events-none select-none"
+            />
             <div className="relative z-10 h-full flex flex-col">
               <div className="flex items-center gap-4">
                 <img
                   src="/imentor-logo.png"
                   alt="iMentor"
-                  className="w-20 h-20 rounded-3xl object-cover border border-white/70 shadow-xl bg-white"
+                  className="w-24 h-24 rounded-3xl object-cover border border-white/70 shadow-xl bg-white"
                 />
                 <div>
-                  <h1 className="text-4xl font-black tracking-tight">iMentor</h1>
-                  <p className="text-white/80 text-sm font-medium">AI Medical Education Platform</p>
+                  <h1 className="text-5xl font-black tracking-tight">iMentor</h1>
+                  <p className="text-white/85 text-base font-semibold">AI Medical Education Platform</p>
                 </div>
               </div>
 

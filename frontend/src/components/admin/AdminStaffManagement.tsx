@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Users, Plus, Pencil, Trash2, Loader2, AlertCircle, Shield } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Users, Plus, Pencil, Trash2, Loader2, AlertCircle, Shield, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   listAllStaffUsers,
@@ -38,8 +38,13 @@ const emptyForm = {
   role: 'hodim' as UserRole,
 };
 
+type SortKey = 'displayName' | 'phoneDisplay' | 'role' | 'faculty' | 'lastActiveAt';
+type SortDirection = 'asc' | 'desc';
+
 export default function AdminStaffManagement() {
   const [rows, setRows] = useState<LocalStaffUser[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey>('lastActiveAt');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -168,6 +173,67 @@ export default function AdminStaffManagement() {
     }
   };
 
+  const sortedRows = useMemo(() => {
+    const list = [...rows];
+    list.sort((a, b) => {
+      let left: string | number = '';
+      let right: string | number = '';
+
+      switch (sortKey) {
+        case 'displayName':
+          left = (a.displayName || '').toLocaleLowerCase();
+          right = (b.displayName || '').toLocaleLowerCase();
+          break;
+        case 'phoneDisplay':
+          left = (a.phoneDisplay || '').toLocaleLowerCase();
+          right = (b.phoneDisplay || '').toLocaleLowerCase();
+          break;
+        case 'role':
+          left = normalizeUserRole(a);
+          right = normalizeUserRole(b);
+          break;
+        case 'faculty':
+          left = (a.faculty || '').toLocaleLowerCase();
+          right = (b.faculty || '').toLocaleLowerCase();
+          break;
+        case 'lastActiveAt':
+          left = a.lastActiveAt ?? 0;
+          right = b.lastActiveAt ?? 0;
+          break;
+        default:
+          break;
+      }
+
+      if (left < right) return sortDirection === 'asc' ? -1 : 1;
+      if (left > right) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [rows, sortDirection, sortKey]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection('asc');
+  };
+
+  const sortLabel = (key: SortKey, label: string) => (
+    <button
+      type="button"
+      onClick={() => handleSort(key)}
+      className="inline-flex items-center gap-1.5 hover:text-black/80 transition-colors"
+      title={`${label} bo‘yicha saralash`}
+    >
+      <span>{label}</span>
+      {sortKey !== key && <ArrowUpDown size={13} className="text-black/40" />}
+      {sortKey === key && sortDirection === 'asc' && <ArrowUp size={13} className="text-indigo-600" />}
+      {sortKey === key && sortDirection === 'desc' && <ArrowDown size={13} className="text-indigo-600" />}
+    </button>
+  );
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-16 px-2 sm:px-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -206,11 +272,11 @@ export default function AdminStaffManagement() {
           <table className="w-full text-left text-[13px]">
             <thead className="bg-black/[0.04] text-black/55 font-semibold">
               <tr>
-                <th className="px-4 py-3">FIO</th>
-                <th className="px-4 py-3">Telefon</th>
-                <th className="px-4 py-3">Rol</th>
-                <th className="px-4 py-3">Fakultet</th>
-                <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">Oxirgi faollik</th>
+                <th className="px-4 py-3">{sortLabel('displayName', 'FIO')}</th>
+                <th className="px-4 py-3">{sortLabel('phoneDisplay', 'Telefon')}</th>
+                <th className="px-4 py-3">{sortLabel('role', 'Rol')}</th>
+                <th className="px-4 py-3">{sortLabel('faculty', 'Fakultet')}</th>
+                <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">{sortLabel('lastActiveAt', 'Oxirgi faollik')}</th>
                 <th className="px-4 py-3 w-28"></th>
               </tr>
             </thead>
@@ -223,7 +289,7 @@ export default function AdminStaffManagement() {
                   </td>
                 </tr>
               ) : (
-                rows.map((u) => (
+                sortedRows.map((u) => (
                   <tr key={u.uid} className="hover:bg-black/[0.02]">
                     <td className="px-4 py-2.5 font-medium text-black/90">{u.displayName}</td>
                     <td className="px-4 py-2.5 font-mono text-[12px]">{u.phoneDisplay}</td>

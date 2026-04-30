@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    function isValidCaseStudy(data) {
+      return data.keys().hasAll(['topic', 'questions', 'createdAt', 'authorUid']) 
+          && data.keys().size() == 4
+          && data.topic is string && data.topic.size() <= 200 && data.topic.size() > 0
+          && data.questions is list && data.questions.size() <= 20
+          && data.createdAt == request.time
+          && data.authorUid is string && data.authorUid == request.auth.uid;
+    }
+
+    function isValidSyllabus(data) {
+      return data.keys().hasAll(['fileName', 'topics', 'createdAt', 'authorUid'])
+          && data.keys().size() == 4
+          && data.fileName is string && data.fileName.size() <= 500
+          && data.topics is list && data.topics.size() <= 100
+          && data.createdAt == request.time
+          && data.authorUid is string && data.authorUid == request.auth.uid;
+    }
+
+    function isValidTestSession(data) {
+      return data.keys().hasAll(['topic', 'questions', 'createdAt', 'authorUid'])
+          && data.keys().size() == 4
+          && data.topic is string && data.topic.size() <= 1000
+          && data.questions is list && data.questions.size() <= 100
+          && data.createdAt == request.time
+          && data.authorUid is string && data.authorUid == request.auth.uid;
+    }
+
+    function isValidLectureNote(data) {
+      return data.keys().hasAll(['topic', 'content', 'createdAt', 'authorUid'])
+          && data.keys().size() == 4
+          && data.topic is string && data.topic.size() <= 600
+          && data.content is string && data.content.size() <= 100000
+          && data.createdAt == request.time
+          && data.authorUid is string && data.authorUid == request.auth.uid;
+    }
+
+    function isValidStaffProfileCreate(data) {
+      return data.keys().hasAll(['phoneDigits', 'phoneDisplay', 'faculty', 'department', 'firstName', 'lastName', 'direction', 'createdAt'])
+          && data.keys().size() == 8
+          && data.phoneDigits is string && data.phoneDigits.size() >= 9 && data.phoneDigits.size() <= 16
+          && data.phoneDisplay is string && data.phoneDisplay.size() <= 40
+          && data.faculty is string && data.faculty.size() <= 200
+          && data.department is string && data.department.size() <= 200
+          && data.firstName is string && data.firstName.size() <= 80
+          && data.lastName is string && data.lastName.size() <= 80
+          && data.direction is string && data.direction.size() <= 300
+          && data.createdAt is int;
+    }
+
+    match /staffProfiles/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn()
+                    && request.auth.uid == uid
+                    && isValidStaffProfileCreate(incoming());
+      allow update: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /cases/{caseId} {
+      allow read: if true;
+      allow create: if isSignedIn() 
+                    && isValidId(caseId) 
+                    && isValidCaseStudy(incoming());
+      allow update, delete: if false;
+    }
+
+    match /syllabuses/{syllabusId} {
+      allow read: if isSignedIn() && existing().authorUid == request.auth.uid;
+      allow create: if isSignedIn()
+                    && isValidId(syllabusId)
+                    && isValidSyllabus(incoming());
+      allow delete: if isSignedIn() && existing().authorUid == request.auth.uid;
+      allow update: if false;
+      allow list: if isSignedIn() && resource.data.authorUid == request.auth.uid;
+    }
+
+    match /tests/{testId} {
+      allow read: if true;
+      allow create: if isSignedIn() 
+                    && isValidId(testId) 
+                    && isValidTestSession(incoming());
+      allow update, delete: if false;
+    }
+
+    match /testLiveSessions/{sessionId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    match /testLiveSubmissions/{submissionId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    match /lectures/{lectureId} {
+      allow read: if isSignedIn() && existing().authorUid == request.auth.uid;
+      allow create: if isSignedIn() 
+                    && isValidId(lectureId) 
+                    && isValidLectureNote(incoming());
+      allow update, delete: if false;
+      allow list: if isSignedIn() && resource.data.authorUid == request.auth.uid;
+    }
+  }
+}

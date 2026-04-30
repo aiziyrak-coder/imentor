@@ -1,0 +1,28 @@
+# Production overlay for imentor.uz + api.imentor.uz
+# Uses localhost-only ports so other host services and existing nginx vhosts are not touched.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production up -d --build
+#
+# See deploy/.env.production.example for required variables.
+
+services:
+  backend:
+    ports:
+      - "127.0.0.1:${IMENTOR_BACKEND_PORT:-31002}:8000"
+    environment:
+      DJANGO_BEHIND_PROXY: "True"
+      DJANGO_SQLITE_PATH: /data/db.sqlite3
+    volumes:
+      - imentor_sqlite_data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.imentor.uz/api}
+    ports:
+      - "127.0.0.1:${IMENTOR_FRONTEND_PORT:-31001}:80"
+
+volumes:
+  imentor_sqlite_data:

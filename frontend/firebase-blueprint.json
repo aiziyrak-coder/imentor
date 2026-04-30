@@ -1,0 +1,123 @@
+{
+  "entities": {
+    "case_study": {
+      "title": "Case Study",
+      "description": "A generated clinical case study session containing questions and options.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "topic": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": { "$ref": "#/entities/case_question" }
+        },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["topic", "questions", "createdAt", "authorUid"]
+    },
+    "case_question": {
+      "title": "Case Question",
+      "description": "A single clinical case question.",
+      "type": "object",
+      "properties": {
+        "scenario": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "correctOptionIndex": { "type": "integer" },
+        "explanation": { "type": "string" },
+        "imagePrompt": { "type": "string" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["scenario", "options", "correctOptionIndex", "explanation"]
+    },
+    "test_question": {
+      "title": "Test Question",
+      "description": "A single multiple choice question.",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "options": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "correctOptionIndex": { "type": "number" },
+        "explanation": { "type": "string" }
+      },
+      "required": ["question", "options", "correctOptionIndex", "explanation"]
+    },
+    "test_session": {
+      "title": "Test Session",
+      "description": "A generated batch of tests.",
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "questions": {
+          "type": "array",
+          "items": { "$ref": "#/entities/test_question" }
+        },
+        "createdAt": { "type": "number" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["topic", "questions", "createdAt", "authorUid"]
+    },
+    "lecture_note": {
+      "title": "Lecture Note",
+      "description": "A generated lecture content using markdown.",
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["topic", "content", "createdAt", "authorUid"]
+    },
+    "syllabus": {
+      "title": "Syllabus",
+      "description": "A generated or uploaded syllabus detailing topics.",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string" },
+        "topics": {
+          "type": "array",
+          "items": { "$ref": "#/entities/syllabus_topic" }
+        },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "authorUid": { "type": "string" }
+      },
+      "required": ["fileName", "topics", "createdAt", "authorUid"]
+    },
+    "syllabus_topic": {
+      "title": "Syllabus Topic",
+      "description": "A single topic defined within a syllabus.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["lecture", "practical"] }
+      },
+      "required": ["id", "title", "type"]
+    }
+  },
+  "firestore": {
+    "/cases/{caseId}": {
+      "schema": "#/entities/case_study",
+      "description": "Global collection of generated medical case studies"
+    },
+    "/syllabuses/{syllabusId}": {
+      "schema": "#/entities/syllabus",
+      "description": "Global collection of syllabuses uploaded by users"
+    },
+    "/tests/{testId}": {
+      "schema": "#/entities/test_session",
+      "description": "Global collection of generated medical tests"
+    },
+    "/lectures/{lectureId}": {
+      "schema": "#/entities/lecture_note",
+      "description": "Global collection of generated lectures"
+    }
+  }
+}

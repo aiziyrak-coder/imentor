@@ -1,0 +1,49 @@
+# Copy to /etc/nginx/sites-available/imentor (do not overwrite default).
+# Adjust upstream ports if you changed IMENTOR_*_PORT in .env.production.
+# Enable: ln -s /etc/nginx/sites-available/imentor /etc/nginx/sites-enabled/imentor
+# Test: nginx -t && systemctl reload nginx
+# TLS: use certbot (certonly or --nginx) for imentor.uz, www, and api.
+
+upstream imentor_frontend {
+    server 127.0.0.1:31001;
+    keepalive 8;
+}
+
+upstream imentor_api {
+    server 127.0.0.1:31002;
+    keepalive 8;
+}
+
+# After certificates exist, use real server blocks with ssl_certificate.
+# HTTP → HTTPS redirect (certbot may inject these; merge carefully).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name imentor.uz www.imentor.uz;
+
+    location / {
+        proxy_pass http://imentor_frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.imentor.uz;
+
+    location / {
+        proxy_pass http://imentor_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}

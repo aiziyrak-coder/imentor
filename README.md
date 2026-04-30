@@ -58,7 +58,7 @@ Stack listens only on **127.0.0.1:31001** (frontend) and **127.0.0.1:31002** (AP
 
 1. On GitHub, create an empty repo (e.g. `imentor`) and push this project (`git init`, `git remote add`, `git push`).
 2. On the server: install Docker + Compose; clone the repo (SSH deploy key recommended).
-3. `cp deploy/.env.production.example deploy/.env.production` and set `DJANGO_SECRET_KEY` and hosts/CORS values.
+3. `cp deploy/.env.production.example deploy/.env.production` and set `DJANGO_SECRET_KEY`, `GEMINI_API_KEY` (only on the server file — never in git), and hosts/CORS values.
 4. `docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production up -d --build`
 5. Add **new** nginx server blocks from `deploy/nginx/imentor.conf.example` (do not edit existing sites). Point DNS `A` records for `imentor.uz`, `www`, and `api.imentor.uz` to the server.
 6. Issue TLS (e.g. `certbot --nginx -d imentor.uz -d www.imentor.uz -d api.imentor.uz`) and merge HTTPS `listen 443 ssl` blocks as certbot suggests.

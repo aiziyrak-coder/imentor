@@ -32,6 +32,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: /api
+        GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "3000:80"
     depends_on:

@@ -438,15 +438,15 @@ export default function App() {
   );
 
   const platformCredit = (
-    <div className="w-full px-4 pb-3 print:hidden">
-      <div className="mx-auto max-w-[1200px] rounded-2xl border border-white/70 bg-white/80 px-4 py-2 shadow-lg backdrop-blur-md">
-        <p className="text-[11px] leading-tight text-black/60 text-center">
+    <div className="w-full px-3 pb-2 print:hidden">
+      <div className="mx-auto max-w-[980px] rounded-full border border-white/60 bg-white/70 px-3 py-1 shadow-sm backdrop-blur-sm">
+        <p className="text-[10px] leading-snug text-black/55 text-center">
           {'\u00A9'} 2026{' '}
           <a
             href="https://fjsti.uz"
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
+            className="font-medium text-blue-700 hover:text-blue-600 underline decoration-blue-300"
           >
             Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
           </a>
@@ -455,7 +455,7 @@ export default function App() {
             href="https://fjsti.uz"
             target="_blank"
             rel="noopener noreferrer"
-            className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
+            className="font-medium text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
           >
             Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
           </a>

@@ -293,7 +293,8 @@ export default function App() {
   useEffect(() => {
     if (!user || !userRole) return;
     const allowed = navItemsForRole(userRole).map((i) => i.id);
-    setActiveView((current) => (allowed.includes(current) ? current : allowed[0]));
+    // Always open landing after successful login for a guided first screen.
+    setActiveView(allowed.includes('landing') ? 'landing' : allowed[0]);
   }, [user?.uid, user?.role, userRole]);
 
   useEffect(() => {

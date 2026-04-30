@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import * as pdfjsLib from 'pdfjs-dist';
+import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -141,31 +142,52 @@ function enrichSlidesWithVisualLayouts(slides: Slide[]): Slide[] {
 }
 
 export interface SyllabusTopic {
-  id: string; // M1, M2 or A1, A2
+  id: string; // M1/L1/Л1 or A1/P1/П1
   title: string;
   type: 'lecture' | 'practical';
 }
 
+function languageName(lang: AppLanguage): string {
+  if (lang === 'ru') return 'Russian';
+  if (lang === 'en') return 'English';
+  return 'Uzbek';
+}
+
 function normalizeSyllabusTopics(input: SyllabusTopic[]): SyllabusTopic[] {
+  const lecturePrefixes = ['M', 'L', 'Л'];
+  const practicalPrefixes = ['A', 'P', 'П'];
   const topics = input
     .filter((t) => t && typeof t.id === 'string' && typeof t.title === 'string')
     .map((t) => {
       const id = t.id.toUpperCase().replace(/\s+/g, '');
+      const first = id[0] || '';
       const inferredType: 'lecture' | 'practical' =
-        id.startsWith('M') ? 'lecture' : id.startsWith('A') ? 'practical' : t.type;
+        lecturePrefixes.includes(first) ? 'lecture' : practicalPrefixes.includes(first) ? 'practical' : t.type;
       return {
         id,
         title: t.title.trim(),
         type: inferredType,
       } as SyllabusTopic;
     })
-    .filter((t) => /^(M|A)\d+$/i.test(t.id) && t.title.length > 2);
+    .filter((t) => /^([MALPЛП])\d+$/iu.test(t.id) && t.title.length > 2);
 
   const dedup = new Map<string, SyllabusTopic>();
   for (const t of topics) {
     if (!dedup.has(t.id)) dedup.set(t.id, t);
   }
-  return Array.from(dedup.values()).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+  const parseOrder = (id: string): [number, number] => {
+    const prefix = id[0] || '';
+    const num = Number((id.match(/\d+/) || ['0'])[0]);
+    const group = ['M', 'L', 'Л'].includes(prefix) ? 0 : 1;
+    return [group, Number.isFinite(num) ? num : 0];
+  };
+  return Array.from(dedup.values()).sort((a, b) => {
+    const [ga, na] = parseOrder(a.id);
+    const [gb, nb] = parseOrder(b.id);
+    if (ga !== gb) return ga - gb;
+    if (na !== nb) return na - nb;
+    return a.id.localeCompare(b.id, undefined, { numeric: true });
+  });
 }
 
 function needsSyllabusFallback(topics: SyllabusTopic[]): boolean {
@@ -194,16 +216,17 @@ function extractTopicsByRegex(text: string): SyllabusTopic[] {
   const result: SyllabusTopic[] = [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   for (const line of lines) {
-    const match = line.match(/\b([MA])\s*[-.):]?\s*(\d{1,2})\b[\s:.)-]*(.+)$/i);
+    const match = line.match(/\b([MALPЛП])\s*[-.):]?\s*(\d{1,2})\b[\s:.)-]*(.+)$/iu);
     if (!match) continue;
     const prefix = match[1].toUpperCase();
     const num = match[2];
     const title = match[3].trim();
     if (!title || title.length < 3) continue;
+    const isLecture = ['M', 'L', 'Л'].includes(prefix);
     result.push({
       id: `${prefix}${num}`,
       title,
-      type: prefix === 'M' ? 'lecture' : 'practical',
+      type: isLecture ? 'lecture' : 'practical',
     });
   }
   return normalizeSyllabusTopics(result);
@@ -376,9 +399,10 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
 }
 
 export const aiService = {
-  async extractSyllabusTopics(file: File): Promise<SyllabusTopic[]> {
+  async extractSyllabusTopics(file: File, uiLanguage: AppLanguage = 'uz'): Promise<SyllabusTopic[]> {
     let firstPass: SyllabusTopic[] = [];
     let pdfText = '';
+    const uiLangName = languageName(uiLanguage);
 
     try {
       const base64Data = await new Promise<string>((resolve, reject) => {
@@ -405,15 +429,18 @@ export const aiService = {
                     mimeType: file.type
                   }
                 },
-                { text: `Ushbu Syllabus PDF faylini tahlil qiling. Undan "Ma'ruza" (M1, M2...) va "Amaliy mashg'ulot" (A1, A2...) mavzularini ajratib oling. Agar mavzular ingliz yoki rus tilida bo'lsa, ularni O'zbek tiliga tarjima qiling.
-Qaytariladigan ro'yxat faqat JSON formatida bo'lsin.` }
+                { text: `Analyze this syllabus PDF and extract lecture/practical topic list.
+Return only JSON.
+Keep each topic title in the SAME language as the source PDF text.
+Allowed id prefixes: M/L/Л for lecture and A/P/П for practical, preserving the document style when possible.
+If language is ambiguous, default to ${uiLangName}.` }
               ]
             }
           ],
           config: {
             responseMimeType: "application/json",
             maxOutputTokens: 8000,
-            systemInstruction: "Siz ekspert darajadagi tahlilchisiz. Maqsadingiz PDF fan sillabusidan mavzularni ajratib olish. JSON ro'yxatini qaytaring: [{ 'id': 'M1' yaki 'A1', 'title': 'Mavzu nomi', 'type': 'lecture' | 'practical' }].",
+            systemInstruction: "You are an expert syllabus parser. Return JSON list only: [{ 'id': 'M1/L1/Л1 or A1/P1/П1', 'title': 'Topic title', 'type': 'lecture' | 'practical' }]. Keep title language equal to source PDF language.",
             responseSchema: {
               type: Type.ARRAY,
               items: {
@@ -438,18 +465,21 @@ Qaytariladigan ro'yxat faqat JSON formatida bo'lsin.` }
       }
 
       pdfText = await extractPdfText(file);
+      const docLang = inferPdfLanguage(pdfText);
+      const docLangName = languageName(docLang);
       try {
         const fallbackResponse = await ai.models.generateContent({
           model: "gemini-3.1-pro-preview",
-          contents: `Quyidagi syllabus matnidan M1, M2... (lecture) va A1, A2... (practical) mavzularini maksimal to'liq ajrating.
-Natija faqat JSON massiv bo'lsin.
+          contents: `Extract as many syllabus topics as possible from the text below.
+Lecture ids can be M/L/Л and practical ids can be A/P/П.
+Keep title language in ${docLangName}. Return only JSON array.
 
 Syllabus matni:
 ${pdfText.slice(0, 120000)}`,
           config: {
             responseMimeType: "application/json",
             maxOutputTokens: 12000,
-            systemInstruction: "Siz syllabus parserisiz. Faqat aniq topilgan mavzularni qaytaring. ID format: M1/A1. type faqat lecture yoki practical.",
+            systemInstruction: "You are a strict syllabus parser. Return only detected topics. id format: M/L/Л + number for lecture, A/P/П + number for practical. type must be lecture or practical.",
             responseSchema: {
               type: Type.ARRAY,
               items: {
@@ -480,8 +510,9 @@ ${pdfText.slice(0, 120000)}`,
     }
   },
 
-  async generatePresentation(topic: string, description: string = '', count: number = 12): Promise<Slide[]> {
+  async generatePresentation(topic: string, description: string = '', count: number = 12, language: AppLanguage = 'uz'): Promise<Slide[]> {
     try {
+      const outLang = languageName(language);
       const safeCount = Math.min(30, Math.max(8, count));
       const plan = buildPedagogicSlidePlan(topic, safeCount);
       const buildPrompt = (strict: boolean): string => `Mavzu: "${topic}".
@@ -492,10 +523,11 @@ Talablar:
 - Jami aynan ${safeCount} ta slayd.
 - Quyidagi didaktik ketma-ketlikni yoping:
 ${plan.map((x, i) => `${i + 1}) ${x}`).join('\n')}
-- Har slayd: 2-3 ta qisqa, aniq punkt (O'zbekcha), maksimal mazmun.
+- Har slayd: 2-3 ta qisqa, aniq punkt, maksimal mazmun.
 - Har slayd uchun: notes (o'qituvchi uchun 3-5 gaplik tushuntirish).
 - Rasm/diagramma/infografika umuman ishlatmang. Faqat matnli, minimalistik, professional lecture slayd bo'lsin.
 - Uzun paragraf, umumiy gap, "..." va suvli matn taqiqlanadi.
+- Output language must be ${outLang}.
 ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatishga tayyor daraja." : ""}`;
 
       const requestDeck = async (model: string, strict: boolean): Promise<Slide[]> => {
@@ -506,7 +538,7 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
             responseMimeType: "application/json",
             maxOutputTokens: 32000,
             systemInstruction:
-              "Siz klinik professor va tibbiy taqdimot arxitektorisiz. Natija real dars o'tishga tayyor bo'lishi kerak. Har slaydda: title, content (2-3 bullet), notes (teacher script). Minimalistik text-only uslub; rasm, diagramma, infografika yo'q. JSON massivdan boshqa narsa qaytarmang.",
+              `Siz klinik professor va tibbiy taqdimot arxitektorisiz. Natija real dars o'tishga tayyor bo'lishi kerak. Har slaydda: title, content (2-3 bullet), notes (teacher script). Minimalistik text-only uslub; rasm, diagramma, infografika yo'q. Output language: ${outLang}. JSON massivdan boshqa narsa qaytarmang.`,
             responseSchema: {
               type: Type.ARRAY,
               items: {
@@ -536,7 +568,8 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
     }
   },
 
-  async generatePresentationFromFile(file: File): Promise<Slide[]> {
+  async generatePresentationFromFile(file: File, language: AppLanguage = 'uz'): Promise<Slide[]> {
+    const outLang = languageName(language);
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -557,7 +590,7 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
                   { text: `Fayldan asosiy ma'lumotlarni ajratib oling va taqdimot slaydlariga aylantiring. 8-14 ta slayd.
 Birinchi slayd: sarlavha. Qolganlari: har birida 2-3 ta JUDA QISQA punkt (O'zbek tilida).
 Har bir slayd uchun 'notes' ham yozing: o'qituvchi nimani gapirishi kerak (3-5 gap).
-Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun tez o'qiladigan tezislar.` }
+Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun tez o'qiladigan tezislar. Output language: ${outLang}.` }
                 ]
               }
             ],
@@ -565,7 +598,7 @@ Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun t
               responseMimeType: "application/json",
               maxOutputTokens: 8000,
               systemInstruction:
-                "Siz professional taqdimot dizayneri va tibbiyot o'qituvchisisiz. Fayldan ixcham, real darsga tayyor, text-only taqdimot JSON qaytaring. Har slayd: title, content (2-3 bullet), notes (3-5 gaplik teacher script).",
+                `Siz professional taqdimot dizayneri va tibbiyot o'qituvchisisiz. Fayldan ixcham, real darsga tayyor, text-only taqdimot JSON qaytaring. Har slayd: title, content (2-3 bullet), notes (3-5 gaplik teacher script). Output language: ${outLang}.`,
               responseSchema: {
                 type: Type.ARRAY,
                 items: {
@@ -597,8 +630,9 @@ Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun t
     });
   },
 
-  async generateCaseStudy(topic: string): Promise<CaseStudySession> {
+  async generateCaseStudy(topic: string, language: AppLanguage = 'uz'): Promise<CaseStudySession> {
     try {
+      const outLang = languageName(language);
       const requestCases = async (strict: boolean): Promise<CaseStudySession> => {
         const response = await ai.models.generateContent({
           model: "gemini-3.1-pro-preview",
@@ -619,13 +653,13 @@ Har bir case quyidagilarni o'z ichiga olsin:
 - amaliy xatolar va ularning oldini olish.
 
 Variantlar bermang. Test formatga o'tmang. Faqat klinik case va yechim.
-Til: O'zbek.
+Til: ${outLang}.
 ${strict ? "Sifat talabi juda yuqori: intern/rezident darsida darhol ishlatishga tayyor bo'lsin; umumiy gaplar, qisqa javoblar qat'iyan taqiqlanadi." : ""}`,
           config: {
             responseMimeType: "application/json",
             maxOutputTokens: 32000,
             systemInstruction:
-              "Siz professor-darajadagi klinik mentor va case-based learning ekspertsiz. Har bir case real hayotiy bo'lishi shart. Qisqa, umumiy, kitobiy gaplardan qoching. Dalilga asoslangan klinik reasoning yozing.",
+              `Siz professor-darajadagi klinik mentor va case-based learning ekspertsiz. Har bir case real hayotiy bo'lishi shart. Qisqa, umumiy, kitobiy gaplardan qoching. Dalilga asoslangan klinik reasoning yozing. Output language: ${outLang}.`,
             responseSchema: {
               type: Type.OBJECT,
               properties: {
@@ -667,7 +701,8 @@ ${strict ? "Sifat talabi juda yuqori: intern/rezident darsida darhol ishlatishga
     }
   },
 
-  async generateTests(topic: string, count: number = 10): Promise<TestSession> {
+  async generateTests(topic: string, count: number = 10, language: AppLanguage = 'uz'): Promise<TestSession> {
+    const outLang = languageName(language);
     const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
@@ -690,7 +725,7 @@ Talablar:
 3) To'g'ri javob matni uzunligi yoki uslubi bilan bilinmasin.
 4) Distraktorlar kuchli bo'lsin: klinik amaliyotda uchrashi mumkin bo'lgan xatolarni aks ettirsin.
 5) 'explanation' ${shortMode ? "2-3 gap" : "3-5 gap"} bo'lsin, nima uchun to'g'ri va nega qolganlari noto'g'riligini qisqa tahlil qilsin.
-6) Til: O'zbek, terminlar tibbiy standartga mos.
+6) Til: ${outLang}, terminlar tibbiy standartga mos.
 7) JSON valid bo'lishi shart; markdown, izoh, prefiks/suffiks matn yozmang.
 Faqat valid JSON qaytaring.`,
           responseSchema: {
@@ -760,14 +795,15 @@ Faqat valid JSON qaytaring.`,
     }
   },
 
-  async generateLectureNotes(topic: string, description: string = ''): Promise<LectureNote> {
+  async generateLectureNotes(topic: string, description: string = '', language: AppLanguage = 'uz'): Promise<LectureNote> {
     try {
+      const outLang = languageName(language);
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
         contents: `Mavzu: "${topic}".\nQo'shimcha ma'lumot (agar mavjud bo'lsa): ${description}\n\nO'qituvchilar uchun mo'ljallangan oliy ta'lim darajasidagi, tibbiyot sohasiga oid batafsil ma'ruza matnini tayyorlang. Ma'ruza mukammal metodik tuzilishga ega bo'lishi kerak. Strukturada: Kirish (mavzuning dolzarbligi), Asosiy qism (kasallik, mexanizm, etiologiya nazariyalari yoki diagnostik kriteriylar tahlili - kamida 3-4 sohalar), Klinik amaliyotda qo'llanilishi va Xulosa (qisqacha qaytariq). Matnni faqat Markdown (MD) formatida qaytaring, ortiqcha izohlarsiz.`,
         config: {
           maxOutputTokens: 8000,
-          systemInstruction: "Siz ekspert tibbiyot professori va metodistsiz. O'qituvchilar darsda to'g'ridan-to'g'ri foydalanishi uchun boy, mukammal va akademik tarzdagi ma'ruza matnlarini Markdown formatida tuzasiz. Iloji boricha batafsil, ilmiy faktlar va oxirgi tibbiy ma'lumotlarga tayaning. O'zbek tilida sifatli va xatosiz yozib bering."
+          systemInstruction: `Siz ekspert tibbiyot professori va metodistsiz. O'qituvchilar darsda to'g'ridan-to'g'ri foydalanishi uchun boy, mukammal va akademik tarzdagi ma'ruza matnlarini Markdown formatida tuzasiz. Iloji boricha batafsil, ilmiy faktlar va oxirgi tibbiy ma'lumotlarga tayaning. Output language: ${outLang}.`
         }
       });
       

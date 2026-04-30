@@ -37,6 +37,12 @@ import {
   type UserRole,
 } from './utils/localStaffAuth';
 import { clearBackendAuthTokens } from './utils/backendAuth';
+import {
+  type AppLanguage,
+  getAppLanguage,
+  setAppLanguage as persistAppLanguage,
+  languageLabel,
+} from './i18n/language';
 
 // Components
 import LoginPage from './components/auth/LoginPage';
@@ -123,6 +129,13 @@ function readStoredLectureDraft(): string {
 
 export const GlobalTopicContext = createContext<SyllabusTopic | null>(null);
 export const GlobalLectureContext = createContext<{content: string, setContent: (c: string) => void}>({content: '', setContent: () => {}});
+export const AppLanguageContext = createContext<{
+  language: AppLanguage;
+  setLanguage: (lang: AppLanguage) => void;
+}>({
+  language: 'uz',
+  setLanguage: () => {},
+});
 
 type AuthScreen = 'login' | 'register';
 
@@ -134,6 +147,7 @@ export default function App() {
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopic | null>(null);
   const [latestLectureContent, setLatestLectureContent] = useState(readStoredLectureDraft);
+  const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
 
   const setLectureContent = useCallback((c: string) => {
     setLatestLectureContent(c);
@@ -143,6 +157,10 @@ export default function App() {
       /* ignore quota */
     }
   }, []);
+
+  useEffect(() => {
+    persistAppLanguage(language);
+  }, [language]);
 
   useEffect(() => {
     const unsub = subscribeLocalAuth(() => {
@@ -254,6 +272,7 @@ export default function App() {
   );
 
   return (
+    <AppLanguageContext.Provider value={{ language, setLanguage }}>
     <GlobalTopicContext.Provider value={selectedTopic}>
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
@@ -347,7 +366,17 @@ export default function App() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as AppLanguage)}
+                className="h-11 rounded-xl border border-white/60 bg-white/70 px-3 text-[12px] font-semibold text-black/70 outline-none"
+                aria-label="Platform language"
+              >
+                <option value="uz">{languageLabel('uz')}</option>
+                <option value="ru">{languageLabel('ru')}</option>
+                <option value="en">{languageLabel('en')}</option>
+              </select>
               <button className="relative w-11 h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors">
                 <Bell size={20} />
                 <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
@@ -400,5 +429,11 @@ export default function App() {
       )}
       </GlobalLectureContext.Provider>
     </GlobalTopicContext.Provider>
+    </AppLanguageContext.Provider>
   );
 }
+
+
+
+
+

@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiService, Slide } from '../services/aiService';
-import { GlobalTopicContext, GlobalLectureContext } from '../App';
+import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../App';
 import {
   loadPresentationArchive,
   addPresentationToArchive,
@@ -106,6 +106,7 @@ const THEMES: Theme[] = [
 export default function PresentationBuilder() {
   const globalTopic = useContext(GlobalTopicContext);
   const globalLectureCtx = useContext(GlobalLectureContext);
+  const { language } = useContext(AppLanguageContext);
   
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const lectureText = globalLectureCtx?.content ?? '';
@@ -293,7 +294,7 @@ export default function PresentationBuilder() {
     setLoading(true);
     setError(null);
     try {
-      const data = await aiService.generatePresentation(topic, lectureText, slideCount);
+      const data = await aiService.generatePresentation(topic, lectureText, slideCount, language);
       setSlides(data);
       setCurrentSlideIndex(0);
       setCustomPrompt('');
@@ -774,7 +775,7 @@ export default function PresentationBuilder() {
                     setError(null);
                     try {
                       // Note: We use the aiService to parse the text/structure. PPTX might not be natively supported perfectly, but the intent is handled.
-                      const data = await aiService.generatePresentationFromFile(file);
+                      const data = await aiService.generatePresentationFromFile(file, language);
                       setSlides(data);
                       setCurrentSlideIndex(0);
                       setCustomPrompt(data[0]?.imagePrompt || '');

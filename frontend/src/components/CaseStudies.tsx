@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { aiService, CaseStudySession } from '../services/aiService';
-import { GlobalTopicContext } from '../App';
+import { AppLanguageContext, GlobalTopicContext } from '../App';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendCaseStudyToLibrary } from '../utils/staffContentLibrary';
 import { loadLatestPreparedContent, savePreparedContent } from '../utils/preparedContentStore';
@@ -21,6 +21,7 @@ import html2canvas from 'html2canvas';
 
 export default function CaseStudies() {
   const globalTopic = useContext(GlobalTopicContext);
+  const { language } = useContext(AppLanguageContext);
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -56,7 +57,7 @@ export default function CaseStudies() {
     setLoading(true);
     setError(null);
     try {
-      const data = await aiService.generateCaseStudy(currentTopic);
+      const data = await aiService.generateCaseStudy(currentTopic, language);
       const withImages = await Promise.all(
         (data.questions || []).map(async (q) => {
           const prompt =

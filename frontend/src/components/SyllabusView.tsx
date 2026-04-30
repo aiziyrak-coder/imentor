@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Upload, FileText, Loader2, BookOpen, FlaskConical, ArrowRight, Trash2, File } from 'lucide-react';
 import { motion } from 'motion/react';
 import { aiService, SyllabusTopic } from '../services/aiService';
+import { AppLanguageContext } from '../App';
+import { localeForLanguage } from '../i18n/language';
 
 interface SyllabusDocument {
   id: string;
@@ -15,6 +17,7 @@ interface SyllabusViewProps {
 }
 
 export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
+  const { language } = React.useContext(AppLanguageContext);
   const LOCAL_SYLLABUS_KEY = 'salomatlik-local-syllabuses-v1';
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -45,7 +48,7 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
     setLoading(true);
     setError(null);
     try {
-      const extractedTopics = await aiService.extractSyllabusTopics(file);
+      const extractedTopics = await aiService.extractSyllabusTopics(file, language);
 
       const newItem: SyllabusDocument = {
         id: `local_syl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -91,8 +94,16 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
     <div className="p-8 h-full flex flex-col gap-8 overflow-y-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-6xl mx-auto w-full bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
         <div>
-          <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Mavzuni tanlang</h2>
-          <p className="text-gray-500 mt-1">Syllabus tarkibidan ajratib olingan mavzular ro'yxati. Qaysi mavzu bo'yicha mashg'ulot o'tmoqchisiz?</p>
+          <h2 className="text-3xl font-bold text-gray-900 tracking-tight">
+            {language === 'ru' ? 'Выберите тему' : language === 'en' ? 'Select a topic' : 'Mavzuni tanlang'}
+          </h2>
+          <p className="text-gray-500 mt-1">
+            {language === 'ru'
+              ? 'Список тем, извлеченных из syllabus. По какой теме провести занятие?'
+              : language === 'en'
+                ? 'List of topics extracted from the syllabus. Which topic do you want to teach?'
+                : "Syllabus tarkibidan ajratib olingan mavzular ro'yxati. Qaysi mavzu bo'yicha mashg'ulot o'tmoqchisiz?"}
+          </p>
         </div>
         <div>
           <label className={`
@@ -102,12 +113,16 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
             {loading ? (
               <div className="flex items-center gap-2">
                 <Loader2 size={20} className="animate-spin text-blue-500" />
-                <span className="font-semibold text-blue-600 text-sm">O'qilmoqda...</span>
+                <span className="font-semibold text-blue-600 text-sm">
+                  {language === 'ru' ? 'Чтение...' : language === 'en' ? 'Reading...' : "O'qilmoqda..."}
+                </span>
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <Upload size={20} className="text-blue-600" />
-                <span className="font-semibold text-blue-700 text-sm">Yangi PDF yuklash</span>
+                <span className="font-semibold text-blue-700 text-sm">
+                  {language === 'ru' ? 'Загрузить новый PDF' : language === 'en' ? 'Upload new PDF' : 'Yangi PDF yuklash'}
+                </span>
               </div>
             )}
             <input 
@@ -168,7 +183,10 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-800 text-lg">{syllabus.fileName}</h3>
-                      <p className="text-xs text-gray-500 font-medium">Yuklangan vaqti: {new Date(syllabus.createdAt).toLocaleString('uz-UZ')}</p>
+                      <p className="text-xs text-gray-500 font-medium">
+                        {language === 'ru' ? 'Загружено: ' : language === 'en' ? 'Uploaded: ' : 'Yuklangan vaqti: '}
+                        {new Date(syllabus.createdAt).toLocaleString(localeForLanguage(language))}
+                      </p>
                     </div>
                   </div>
                   <button 
@@ -188,7 +206,9 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                       <div className="bg-blue-50 text-blue-600 p-1.5 rounded-lg">
                         <BookOpen size={18} />
                       </div>
-                      <h4 className="text-xl font-bold text-gray-800">Ma'ruzalar</h4>
+                      <h4 className="text-xl font-bold text-gray-800">
+                        {language === 'ru' ? 'Лекции' : language === 'en' ? 'Lectures' : "Ma'ruzalar"}
+                      </h4>
                     </div>
                     {lectures.length > 0 ? (
                       <div className="grid gap-3">
@@ -209,7 +229,9 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-gray-400 text-sm italic">Ma'ruzalar topilmadi.</p>
+                      <p className="text-gray-400 text-sm italic">
+                        {language === 'ru' ? 'Лекции не найдены.' : language === 'en' ? 'No lectures found.' : "Ma'ruzalar topilmadi."}
+                      </p>
                     )}
                   </div>
 
@@ -219,7 +241,9 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                       <div className="bg-indigo-50 text-indigo-600 p-1.5 rounded-lg">
                         <FlaskConical size={18} />
                       </div>
-                      <h4 className="text-xl font-bold text-gray-800">Amaliy Mashg'ulotlar</h4>
+                      <h4 className="text-xl font-bold text-gray-800">
+                        {language === 'ru' ? 'Практические занятия' : language === 'en' ? 'Practical sessions' : "Amaliy Mashg'ulotlar"}
+                      </h4>
                     </div>
                     {practicals.length > 0 ? (
                       <div className="grid gap-3">
@@ -240,7 +264,9 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-gray-400 text-sm italic">Amaliy mashg'ulotlar topilmadi.</p>
+                      <p className="text-gray-400 text-sm italic">
+                        {language === 'ru' ? 'Практические занятия не найдены.' : language === 'en' ? 'No practical sessions found.' : "Amaliy mashg'ulotlar topilmadi."}
+                      </p>
                     )}
                   </div>
                 </div>

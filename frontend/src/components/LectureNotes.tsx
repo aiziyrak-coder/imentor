@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiService, LectureNote } from '../services/aiService';
-import { GlobalTopicContext, GlobalLectureContext } from '../App';
+import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../App';
 import Markdown from 'react-markdown';
 
 import { db, auth, handleFirestoreError, OperationType } from '../firebase';
@@ -23,6 +23,7 @@ import { loadLatestPreparedContent, savePreparedContent } from '../utils/prepare
 export default function LectureNotes() {
   const globalTopic = useContext(GlobalTopicContext);
   const globalLecture = useContext(GlobalLectureContext);
+  const { language } = useContext(AppLanguageContext);
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [description, setDescription] = useState(globalTopic ? `${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}` : '');
   
@@ -90,7 +91,7 @@ export default function LectureNotes() {
     setLoading(true);
     setError(null);
     try {
-      const data = await aiService.generateLectureNotes(topic, description);
+      const data = await aiService.generateLectureNotes(topic, description, language);
       
       setLectureSession(data);
       setEditedContent(data.content);

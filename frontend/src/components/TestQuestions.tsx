@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { aiService, TestSession, TestQuestion } from '../services/aiService';
-import { GlobalTopicContext } from '../App';
+import { AppLanguageContext, GlobalTopicContext } from '../App';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendTestToLibrary } from '../utils/staffContentLibrary';
 import { loadLatestPreparedContent, savePreparedContent } from '../utils/preparedContentStore';
@@ -70,6 +70,7 @@ function saveLocalSubmissions(sessionId: string, list: TestSubmissionDoc[]): voi
 
 export default function TestQuestions() {
   const globalTopic = useContext(GlobalTopicContext);
+  const { language } = useContext(AppLanguageContext);
   const queryParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const isStudentMode = queryParams.get('mode') === 'student';
   const studentSessionId = queryParams.get('sid') || '';
@@ -165,7 +166,7 @@ export default function TestQuestions() {
     setLoading(true);
     setError(null);
     try {
-      const data = await aiService.generateTests(topic, 10);
+      const data = await aiService.generateTests(topic, 10, language);
       setVisualLoading(false);
       data.questions = (data.questions || []).map((q) => ({ ...q, imageUrl: undefined, imagePrompt: undefined }));
       setTestSession(data);

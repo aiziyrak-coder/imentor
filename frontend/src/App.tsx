@@ -438,9 +438,9 @@ export default function App() {
   );
 
   const platformCredit = (
-    <div className="fixed bottom-3 left-1/2 z-[60] -translate-x-1/2 pointer-events-none print:hidden">
-      <div className="pointer-events-auto rounded-full border border-white/70 bg-white/80 px-4 py-2 shadow-lg backdrop-blur-md">
-        <p className="text-[11px] leading-tight text-black/60 text-center whitespace-nowrap">
+    <div className="w-full px-4 pb-3 print:hidden">
+      <div className="mx-auto max-w-[1200px] rounded-2xl border border-white/70 bg-white/80 px-4 py-2 shadow-lg backdrop-blur-md">
+        <p className="text-[11px] leading-tight text-black/60 text-center">
           {'\u00A9'} 2026{' '}
           <a
             href="https://fjsti.uz"
@@ -476,7 +476,7 @@ export default function App() {
         </>
       ) : (
       <>
-      <div className="flex h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">
+      <div className="flex flex-col h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">
       
       {/* Background iOS Orbs */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-400/25 rounded-full blur-[120px] pointer-events-none orb-float" />
@@ -484,7 +484,7 @@ export default function App() {
       <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] bg-cyan-300/20 rounded-full blur-[100px] pointer-events-none orb-float" />
 
       {/* Main Layout Container */}
-      <div className="relative z-10 flex w-full h-full p-4 gap-4">
+      <div className="relative z-10 flex w-full flex-1 p-4 gap-4 min-h-0">
         
         {/* Floating Sidebar */}
         <motion.aside 
@@ -684,8 +684,8 @@ export default function App() {
           </div>
         </div>
       </div>
-    </div>
       {platformCredit}
+    </div>
       </>
       )}
       </GlobalLectureContext.Provider>

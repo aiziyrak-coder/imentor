@@ -337,15 +337,16 @@ export default function App() {
   };
 
   const authShell = (
-    <div className="flex min-h-screen w-full items-center justify-center relative overflow-hidden bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-4 md:p-6 text-[#1c1c1e]">
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[45%] bg-blue-400/25 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-15%] right-[-10%] w-[55%] h-[55%] bg-fuchsia-400/20 rounded-full blur-[140px] pointer-events-none" />
+    <div className="flex h-screen w-full relative overflow-hidden text-[#1c1c1e]">
+      <div className="absolute inset-0 futuristic-gradient opacity-95" />
+      <div className="absolute top-[-10%] left-[-8%] w-[35%] h-[45%] bg-cyan-200/30 rounded-full blur-[120px] pointer-events-none orb-float" />
+      <div className="absolute bottom-[-18%] right-[-8%] w-[42%] h-[55%] bg-fuchsia-200/25 rounded-full blur-[140px] pointer-events-none orb-float" />
 
-      <div className="relative z-10 w-full max-w-[1320px] rounded-[2.25rem] border border-white/70 shadow-2xl overflow-hidden bg-white/70 backdrop-blur-xl">
-        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] min-h-[780px]">
-          <section className="relative p-8 md:p-10 lg:p-12 bg-gradient-to-br from-[#1f6bff] via-[#2979ff] to-[#00b6ff] text-white overflow-hidden">
-            <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl" />
-            <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-cyan-200/20 blur-3xl" />
+      <div className="relative z-10 w-full h-full overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] h-full">
+          <section className="relative p-8 md:p-10 lg:p-12 text-white overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl orb-float" />
+            <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-cyan-200/20 blur-3xl orb-float" />
             <div className="relative z-10 h-full flex flex-col">
               <div className="flex items-center gap-4">
                 <img
@@ -371,13 +372,14 @@ export default function App() {
 
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
                 {[
-                  'Syllabus asosida mavzu tanlash',
-                  'Ma’ruza va slaydlarni AI bilan yaratish',
-                  'Klinik case va test generator',
-                  'O‘zbek / Русский / English qo‘llab-quvvatlash',
+                  { icon: BookOpen, text: 'Syllabus asosida mavzu tanlash' },
+                  { icon: Presentation, text: 'Ma’ruza va slaydlarni AI bilan yaratish' },
+                  { icon: ClipboardList, text: 'Klinik case va test generator' },
+                  { icon: Languages, text: 'O‘zbek / Русский / English qo‘llab-quvvatlash' },
                 ].map((item) => (
-                  <div key={item} className="rounded-xl border border-white/35 bg-white/15 px-3 py-2 text-[13px] font-medium">
-                    {item}
+                  <div key={item.text} className="rounded-xl border border-white/35 bg-white/15 px-3 py-2 text-[13px] font-medium flex items-center gap-2">
+                    <item.icon size={15} className="shrink-0 text-white/90" />
+                    {item.text}
                   </div>
                 ))}
               </div>
@@ -388,7 +390,7 @@ export default function App() {
             </div>
           </section>
 
-          <section className="p-6 md:p-8 lg:p-10 flex items-center justify-center bg-white/65">
+          <section className="p-4 md:p-6 lg:p-8 flex items-center justify-center bg-white/80 backdrop-blur-xl h-full overflow-y-auto scrollbar-hide">
             <div className="w-full max-w-[560px]">
               {authScreen === 'login' ? (
                 <LoginPage onSwitchToRegister={() => setAuthScreen('register')} />
@@ -442,12 +444,12 @@ export default function App() {
         </>
       ) : (
       <>
-      <div className="flex h-screen w-full relative overflow-hidden bg-[#f2f2f7] text-[#1c1c1e] selection:bg-sky-500/30">
+      <div className="flex h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">
       
       {/* Background iOS Orbs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-400/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-purple-400/20 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] bg-rose-400/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-400/25 rounded-full blur-[120px] pointer-events-none orb-float" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-purple-400/20 rounded-full blur-[140px] pointer-events-none orb-float" />
+      <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] bg-cyan-300/20 rounded-full blur-[100px] pointer-events-none orb-float" />
 
       {/* Main Layout Container */}
       <div className="relative z-10 flex w-full h-full p-4 gap-4">

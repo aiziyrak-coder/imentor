@@ -54,3 +54,25 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes floatOrb {
+  0% { transform: translateY(0px) translateX(0px); }
+  50% { transform: translateY(-16px) translateX(10px); }
+  100% { transform: translateY(0px) translateX(0px); }
+}
+
+.futuristic-gradient {
+  background: linear-gradient(135deg, #0b5fff 0%, #00a9ff 40%, #7b2cff 100%);
+  background-size: 200% 200%;
+  animation: gradientShift 12s ease-in-out infinite;
+}
+
+.orb-float {
+  animation: floatOrb 8s ease-in-out infinite;
+}

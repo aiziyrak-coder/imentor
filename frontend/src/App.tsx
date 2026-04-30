@@ -344,33 +344,27 @@ export default function App() {
 
       <div className="relative z-10 w-full h-full overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] h-full">
-          <section className="relative p-8 md:p-10 lg:p-12 text-white overflow-hidden">
+          <section className="relative p-8 md:p-10 lg:p-12 text-[#063545] overflow-hidden">
             <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl orb-float" />
             <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-emerald-100/30 blur-3xl orb-float" />
-            <img
-              src="/imentor-logo.png"
-              alt=""
-              aria-hidden="true"
-              className="absolute right-[-120px] top-1/2 -translate-y-1/2 w-[520px] max-w-none opacity-[0.10] blur-[2px] pointer-events-none select-none"
-            />
             <div className="relative z-10 h-full flex flex-col">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col items-center text-center gap-4">
                 <img
                   src="/imentor-logo.png"
                   alt="iMentor"
-                  className="w-24 h-24 rounded-3xl object-cover border border-white/70 shadow-xl bg-white"
+                  className="w-32 h-32 object-contain drop-shadow-xl"
                 />
                 <div>
-                  <h1 className="text-5xl font-black tracking-tight">iMentor</h1>
-                  <p className="text-white/85 text-base font-semibold">AI Medical Education Platform</p>
+                  <h1 className="text-5xl font-black tracking-tight text-[#083047]">iMentor</h1>
+                  <p className="text-[#0b425e]/80 text-base font-semibold">AI Medical Education Platform</p>
                 </div>
               </div>
 
               <div className="mt-10 space-y-4 max-w-xl">
-                <h2 className="text-3xl md:text-4xl leading-tight font-extrabold">
+                <h2 className="text-3xl md:text-4xl leading-tight font-extrabold text-[#083047]">
                   Zamonaviy tibbiy ta&apos;lim uchun aqlli platforma
                 </h2>
-                <p className="text-white/85 leading-relaxed text-[15px] md:text-base">
+                <p className="text-[#0b425e]/80 leading-relaxed text-[15px] md:text-base">
                   iMentor platformasi syllabusdan mavzu ajratish, ma&apos;ruza va taqdimot generatsiyasi,
                   test va klinik case yaratish, hamda tarjima ishlarini bir joyda boshqarishga yordam beradi.
                 </p>
@@ -383,14 +377,14 @@ export default function App() {
                   { icon: ClipboardList, text: 'Klinik case va test generator' },
                   { icon: Languages, text: 'O‘zbek / Русский / English qo‘llab-quvvatlash' },
                 ].map((item) => (
-                  <div key={item.text} className="rounded-xl border border-white/35 bg-white/15 px-3 py-2 text-[13px] font-medium flex items-center gap-2">
-                    <item.icon size={15} className="shrink-0 text-white/90" />
+                  <div key={item.text} className="rounded-xl border border-[#0c5a7e]/20 bg-white/35 px-3 py-2 text-[13px] font-medium flex items-center gap-2 text-[#083047]">
+                    <item.icon size={15} className="shrink-0 text-[#0c5a7e]" />
                     {item.text}
                   </div>
                 ))}
               </div>
 
-              <div className="mt-auto pt-8 text-[12px] text-white/80">
+              <div className="mt-auto pt-8 text-[12px] text-[#0b425e]/75">
                 Farg&apos;ona jamoat salomatligi tibbiyot instituti uchun ishlab chiqilgan.
               </div>
             </div>

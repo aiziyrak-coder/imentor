@@ -440,8 +440,8 @@ export default function App() {
   const platformCredit = (
     <div className="w-full px-0 pb-0 print:hidden">
       <div className="w-full border-t border-white/70 bg-white/80 backdrop-blur-md shadow-[0_-6px_24px_rgba(0,0,0,0.05)]">
-        <div className="mx-auto w-full max-w-[1400px] px-4 py-2.5">
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[10px] md:text-[11px] leading-snug text-black/65">
+        <div className="mx-auto w-full max-w-[1600px] px-3 py-1.5 overflow-x-auto scrollbar-hide">
+          <div className="flex flex-nowrap items-center justify-center gap-x-3 text-[9px] md:text-[10px] leading-tight text-black/65 whitespace-nowrap min-w-max mx-auto">
             <span className="font-medium">{'\u00A9'} 2026 iMentor Platform</span>
             <a
               href="https://fjsti.uz"

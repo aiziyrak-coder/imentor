@@ -13,6 +13,7 @@ import {
   LayoutDashboard, 
   Presentation, 
   Languages, 
+  Sparkles,
   Menu, 
   X,
   Search,
@@ -59,8 +60,10 @@ import AdminDashboardHome from './components/admin/AdminDashboardHome';
 import AdminStaffManagement from './components/admin/AdminStaffManagement';
 import AdminCasesLibrary from './components/admin/AdminCasesLibrary';
 import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
+import LandingShowcase from './components/LandingShowcase';
 
 type View =
+  | 'landing'
   | 'admin-dashboard'
   | 'admin-staff'
   | 'admin-cases'
@@ -77,6 +80,7 @@ type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
 /** Hodim: dars kontenti + keys/test yaratish (bazaga yoziladi) */
 const HODIM_NAV: NavItemDef[] = [
+  { id: 'landing', label: 'Bosh sahifa', icon: Sparkles },
   { id: 'syllabus', label: 'Syllabus (Mavzu tanlash)', icon: BookOpen },
   { id: 'lectures', label: "Ma'ruza matni", icon: FileText },
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
@@ -87,6 +91,7 @@ const HODIM_NAV: NavItemDef[] = [
 
 /** Administrator: faqat nazorat va bazalar (dars modullari yo‘q) */
 const ADMIN_NAV: NavItemDef[] = [
+  { id: 'landing', label: 'Bosh sahifa', icon: Sparkles },
   { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'admin-staff', label: 'Hodimlar', icon: Users },
   { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
@@ -95,6 +100,7 @@ const ADMIN_NAV: NavItemDef[] = [
 ];
 
 const TARJIMON_NAV: NavItemDef[] = [
+  { id: 'landing', label: 'Bosh sahifa', icon: Sparkles },
   { id: 'translator', label: 'Tarjima', icon: Languages },
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
@@ -162,8 +168,8 @@ function readStoredNotifications(): AppNotification[] {
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState<View>('syllabus');
-  const [mountedViews, setMountedViews] = useState<View[]>(['syllabus']);
+  const [activeView, setActiveView] = useState<View>('landing');
+  const [mountedViews, setMountedViews] = useState<View[]>(['landing']);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
@@ -309,6 +315,13 @@ export default function App() {
 
   const renderContent = (view: View) => {
     switch (view) {
+      case 'landing':
+        return (
+          <LandingShowcase
+            role={userRole === 'admin' || userRole === 'tarjimon' || userRole === 'hodim' ? userRole : 'hodim'}
+            onNavigate={(id) => setActiveView(id as View)}
+          />
+        );
       case 'admin-dashboard':
         return <AdminDashboardHome />;
       case 'admin-staff':

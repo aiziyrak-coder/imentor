@@ -348,26 +348,34 @@ export default function App() {
             <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl orb-float" />
             <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-emerald-100/30 blur-3xl orb-float" />
             <div className="relative z-10 h-full flex flex-col">
-              <div className="flex flex-col items-center text-center gap-4">
-                <img
-                  src="/imentor-logo.png"
-                  alt="iMentor"
-                  className="w-32 h-32 object-contain drop-shadow-xl"
-                />
-                <div>
-                  <h1 className="text-5xl font-black tracking-tight text-[#083047]">iMentor</h1>
-                  <p className="text-[#0b425e]/80 text-base font-semibold">AI Medical Education Platform</p>
-                </div>
+              <div className="flex flex-col gap-2">
+                <h1 className="text-5xl font-black tracking-tight text-[#083047]">iMentor</h1>
+                <p className="text-[#0b425e]/80 text-base font-semibold">AI Medical Education Platform</p>
               </div>
 
-              <div className="mt-10 space-y-4 max-w-xl">
+              <div className="mt-10 space-y-5 max-w-2xl">
                 <h2 className="text-3xl md:text-4xl leading-tight font-extrabold text-[#083047]">
                   Zamonaviy tibbiy ta&apos;lim uchun aqlli platforma
                 </h2>
-                <p className="text-[#0b425e]/80 leading-relaxed text-[15px] md:text-base">
-                  iMentor platformasi syllabusdan mavzu ajratish, ma&apos;ruza va taqdimot generatsiyasi,
-                  test va klinik case yaratish, hamda tarjima ishlarini bir joyda boshqarishga yordam beradi.
-                </p>
+                <div className="space-y-3 text-[#0b425e]/85 leading-relaxed text-[15px] md:text-base">
+                  <p>
+                    iMentor — oliy tibbiy ta&apos;lim muassasalari uchun yaratilgan yagona raqamli o&apos;quv-ekotizim bo&apos;lib,
+                    o&apos;qituvchi va talabalar ish jarayonini sun&apos;iy intellekt yordamida tezlashtiradi. Platforma syllabus
+                    asosida mavzularni avtomatik ajratadi, o&apos;qituvchi uchun ma&apos;ruza matni tayyorlaydi, darsga mos
+                    taqdimot ishlab chiqadi va klinik tafakkurni rivojlantiruvchi keys hamda testlar yaratadi.
+                  </p>
+                  <p>
+                    Tizimda kontentni saqlash, qayta ochish, tahrirlash, PDF/PPT formatlarda yuklab olish va
+                    dars jarayonida to&apos;liq ekranda namoyish etish imkoniyatlari mavjud. Syllabus, ma&apos;ruza,
+                    taqdimot, test va case modullari bir-biri bilan uzviy bog&apos;langan: bir bo&apos;limda tayyorlangan
+                    material keyingi bo&apos;limlarda avtomatik ishlatiladi.
+                  </p>
+                  <p>
+                    iMentor ko&apos;p tilli muhitni qo&apos;llab-quvvatlaydi (O&apos;zbek, Rus, English), shu sabab mahalliy va
+                    xorijiy talabalar bilan ishlashda bir xil qulaylik beradi. Platforma interfeysi sodda, tezkor,
+                    zamonaviy va tibbiy ta&apos;lim ehtiyojlariga mos ravishda ishlab chiqilgan.
+                  </p>
+                </div>
               </div>
 
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
@@ -386,6 +394,31 @@ export default function App() {
 
               <div className="mt-auto pt-8 text-[12px] text-[#0b425e]/75">
                 Farg&apos;ona jamoat salomatligi tibbiyot instituti uchun ishlab chiqilgan.
+              </div>
+
+              <div className="mt-4 pb-2 flex justify-center">
+                <div className="rounded-full border border-white/70 bg-white/80 px-4 py-2 shadow-lg backdrop-blur-md">
+                  <p className="text-[11px] leading-tight text-black/60 text-center whitespace-nowrap">
+                    {'\u00A9'} 2026{' '}
+                    <a
+                      href="https://fjsti.uz"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
+                    >
+                      Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
+                    </a>
+                    {' '}•{' '}
+                    <a
+                      href="https://fjsti.uz"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
+                    >
+                      Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
+                    </a>
+                  </p>
+                </div>
               </div>
             </div>
           </section>
@@ -440,7 +473,6 @@ export default function App() {
       {!user ? (
         <>
           {authShell}
-          {platformCredit}
         </>
       ) : (
       <>

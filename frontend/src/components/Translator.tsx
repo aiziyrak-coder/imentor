@@ -13,6 +13,7 @@ import { aiService } from '../services/aiService';
 import Markdown from 'react-markdown';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { pushAppNotification } from '../utils/notifications';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -171,7 +172,11 @@ export default function Translator() {
       pdf.save('Kitob_Tarjima.pdf');
     } catch (err) {
       console.error("PDF yaratish xatosi:", err);
-      alert("PDF yaratishda xatolik yuz berdi.");
+      pushAppNotification({
+        title: 'PDF yaratishda xatolik',
+        body: "Tarjima PDF faylini yaratib bo'lmadi. Iltimos qayta urinib ko'ring.",
+        level: 'error',
+      });
     } finally {
       setGeneratingPDF(false);
     }

@@ -34,6 +34,7 @@ import {
   type ArchivedPresentation,
 } from '../utils/presentationArchive';
 import { loadLatestPreparedContent, savePreparedContent } from '../utils/preparedContentStore';
+import { pushAppNotification } from '../utils/notifications';
 
 export type ThemeId = 'modern-dark' | 'clinical-light' | 'ocean-blue' | 'minimal-glass';
 
@@ -348,7 +349,11 @@ export default function PresentationBuilder() {
           currentSlideIndex + 1
         );
         setSlides(updatedSlides);
-        alert("Rasm servisi javob bermadi. Slayd uchun avtomatik infografika qo'yildi.");
+        pushAppNotification({
+          title: "Rasm servisi javob bermadi",
+          body: "Slayd uchun avtomatik infografika qo'yildi.",
+          level: 'warning',
+        });
       }
     } catch (err) {
       console.error(err);
@@ -358,7 +363,11 @@ export default function PresentationBuilder() {
         currentSlideIndex + 1
       );
       setSlides(updatedSlides);
-      alert("Rasm yaratishda xatolik. Slayd uchun fallback infografika qo'yildi.");
+      pushAppNotification({
+        title: "Rasm yaratishda xatolik",
+        body: "Fallback infografika qo'yildi.",
+        level: 'error',
+      });
     } finally {
       setIsGeneratingImage(false);
     }
@@ -630,7 +639,11 @@ export default function PresentationBuilder() {
       await pres.writeFile({ fileName: `${topic || "Taqdimot"}.pptx` });
     } catch (err) {
       console.error('PPTX yuklashda xatolik:', err);
-      alert('Taqdimotni yuklab olishda xatolik yuz berdi.');
+      pushAppNotification({
+        title: "Yuklab olishda xatolik",
+        body: "Taqdimotni yuklab olish amalga oshmadi.",
+        level: 'error',
+      });
     }
   };
 

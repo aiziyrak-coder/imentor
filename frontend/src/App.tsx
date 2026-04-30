@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useMemo, createContext, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Presentation, 
@@ -43,6 +43,7 @@ import {
   setAppLanguage as persistAppLanguage,
   languageLabel,
 } from './i18n/language';
+import { type AppNotificationEventDetail } from './utils/notifications';
 
 // Components
 import LoginPage from './components/auth/LoginPage';
@@ -138,6 +139,27 @@ export const AppLanguageContext = createContext<{
 });
 
 type AuthScreen = 'login' | 'register';
+type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: number;
+  read: boolean;
+  level?: 'info' | 'success' | 'warning' | 'error';
+};
+
+const NOTIFICATIONS_STORAGE_KEY = 'imentor-notifications-v1';
+
+function readStoredNotifications(): AppNotification[] {
+  try {
+    const raw = localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as AppNotification[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function App() {
   const [activeView, setActiveView] = useState<View>('syllabus');
@@ -148,6 +170,10 @@ export default function App() {
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopic | null>(null);
   const [latestLectureContent, setLatestLectureContent] = useState(readStoredLectureDraft);
   const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
+  const [notifications, setNotifications] = useState<AppNotification[]>(readStoredNotifications);
+  const [isNotificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsPanelRef = useRef<HTMLDivElement | null>(null);
+  const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const setLectureContent = useCallback((c: string) => {
     setLatestLectureContent(c);
@@ -158,9 +184,67 @@ export default function App() {
     }
   }, []);
 
+  const addNotification = useCallback((title: string, body: string, level: AppNotification['level'] = 'info') => {
+    const next: AppNotification = {
+      id: `ntf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      body,
+      createdAt: Date.now(),
+      read: false,
+      level,
+    };
+    setNotifications((prev) => [next, ...prev].slice(0, 80));
+  }, []);
+
+  const markAllNotificationsRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  }, []);
+
   useEffect(() => {
     persistAppLanguage(language);
   }, [language]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(notifications));
+    } catch {
+      /* ignore quota */
+    }
+  }, [notifications]);
+
+  useEffect(() => {
+    const onNotify = (event: Event) => {
+      const custom = event as CustomEvent<AppNotificationEventDetail>;
+      const detail = custom.detail;
+      if (!detail?.title || !detail?.body) return;
+      addNotification(detail.title, detail.body, detail.level);
+    };
+    window.addEventListener('app:notify', onNotify as EventListener);
+    return () => window.removeEventListener('app:notify', onNotify as EventListener);
+  }, [addNotification]);
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    const onClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        notificationsPanelRef.current?.contains(target) ||
+        notificationsButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setNotificationsOpen(false);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNotificationsOpen(false);
+    };
+    window.addEventListener('mousedown', onClickOutside);
+    window.addEventListener('keydown', onEscape);
+    return () => {
+      window.removeEventListener('mousedown', onClickOutside);
+      window.removeEventListener('keydown', onEscape);
+    };
+  }, [isNotificationsOpen]);
 
   useEffect(() => {
     const unsub = subscribeLocalAuth(() => {
@@ -170,6 +254,11 @@ export default function App() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    addNotification('Xush kelibsiz', `${user.displayName || 'Foydalanuvchi'}, tizimga muvaffaqiyatli kirdingiz.`, 'success');
+  }, [user?.uid, user?.displayName, addNotification]);
 
   /** Sessiya bilan kirganda va oynaga qaytishda oxirgi faollik vaqtini yangilash */
   useEffect(() => {
@@ -215,6 +304,7 @@ export default function App() {
   const handleSelectTopic = (topic: SyllabusTopic) => {
     setSelectedTopic(topic);
     setActiveView('lectures');
+    addNotification('Mavzu tanlandi', `${topic.id}: ${topic.title}`);
   };
 
   const renderContent = (view: View) => {
@@ -247,26 +337,67 @@ export default function App() {
   };
 
   const authShell = (
-    <div className="flex min-h-screen w-full items-center justify-center relative overflow-hidden bg-[#f2f2f7] p-6 text-[#1c1c1e]">
-      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-400/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-purple-400/20 rounded-full blur-[140px] pointer-events-none" />
-      <div className="relative z-10 w-full flex flex-col items-center">
-        <div className="mb-8 flex items-center gap-3">
-          <img
-            src="/imentor-logo.png"
-            alt="iMentor"
-            className="w-16 h-16 rounded-2xl object-cover shadow-lg border border-white/70 bg-white"
-          />
-          <div>
-            <p className="font-semibold text-black/90">iMentor Platform</p>
-            <p className="text-xs text-black/45">AI Medical Education</p>
-          </div>
+    <div className="flex min-h-screen w-full items-center justify-center relative overflow-hidden bg-gradient-to-br from-sky-50 via-white to-indigo-50 p-4 md:p-6 text-[#1c1c1e]">
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[45%] bg-blue-400/25 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-15%] right-[-10%] w-[55%] h-[55%] bg-fuchsia-400/20 rounded-full blur-[140px] pointer-events-none" />
+
+      <div className="relative z-10 w-full max-w-[1320px] rounded-[2.25rem] border border-white/70 shadow-2xl overflow-hidden bg-white/70 backdrop-blur-xl">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] min-h-[780px]">
+          <section className="relative p-8 md:p-10 lg:p-12 bg-gradient-to-br from-[#1f6bff] via-[#2979ff] to-[#00b6ff] text-white overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl" />
+            <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-cyan-200/20 blur-3xl" />
+            <div className="relative z-10 h-full flex flex-col">
+              <div className="flex items-center gap-4">
+                <img
+                  src="/imentor-logo.png"
+                  alt="iMentor"
+                  className="w-20 h-20 rounded-3xl object-cover border border-white/70 shadow-xl bg-white"
+                />
+                <div>
+                  <h1 className="text-4xl font-black tracking-tight">iMentor</h1>
+                  <p className="text-white/80 text-sm font-medium">AI Medical Education Platform</p>
+                </div>
+              </div>
+
+              <div className="mt-10 space-y-4 max-w-xl">
+                <h2 className="text-3xl md:text-4xl leading-tight font-extrabold">
+                  Zamonaviy tibbiy ta&apos;lim uchun aqlli platforma
+                </h2>
+                <p className="text-white/85 leading-relaxed text-[15px] md:text-base">
+                  iMentor platformasi syllabusdan mavzu ajratish, ma&apos;ruza va taqdimot generatsiyasi,
+                  test va klinik case yaratish, hamda tarjima ishlarini bir joyda boshqarishga yordam beradi.
+                </p>
+              </div>
+
+              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+                {[
+                  'Syllabus asosida mavzu tanlash',
+                  'Ma’ruza va slaydlarni AI bilan yaratish',
+                  'Klinik case va test generator',
+                  'O‘zbek / Русский / English qo‘llab-quvvatlash',
+                ].map((item) => (
+                  <div key={item} className="rounded-xl border border-white/35 bg-white/15 px-3 py-2 text-[13px] font-medium">
+                    {item}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-auto pt-8 text-[12px] text-white/80">
+                Farg&apos;ona jamoat salomatligi tibbiyot instituti uchun ishlab chiqilgan.
+              </div>
+            </div>
+          </section>
+
+          <section className="p-6 md:p-8 lg:p-10 flex items-center justify-center bg-white/65">
+            <div className="w-full max-w-[560px]">
+              {authScreen === 'login' ? (
+                <LoginPage onSwitchToRegister={() => setAuthScreen('register')} />
+              ) : (
+                <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />
+              )}
+            </div>
+          </section>
         </div>
-        {authScreen === 'login' ? (
-          <LoginPage onSwitchToRegister={() => setAuthScreen('register')} />
-        ) : (
-          <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />
-        )}
       </div>
     </div>
   );
@@ -297,6 +428,8 @@ export default function App() {
       </div>
     </div>
   );
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>
@@ -334,11 +467,7 @@ export default function App() {
               />
               <div className="flex flex-col min-w-max">
                 <span className="font-semibold text-[15px] tracking-tight leading-tight text-black/90">
-                  {userRole === 'tarjimon'
-                    ? 'Tarjimon portali'
-                    : userRole === 'admin'
-                      ? 'iMentor Admin'
-                      : 'iMentor Staff'}
+                  iMentor
                 </span>
                 <span className="text-[11px] text-black/50 font-medium tracking-wide">iMentor Platform</span>
               </div>
@@ -408,9 +537,17 @@ export default function App() {
                 <option value="ru">{languageLabel('ru')}</option>
                 <option value="en">{languageLabel('en')}</option>
               </select>
-              <button className="relative w-11 h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors">
+              <button
+                ref={notificationsButtonRef}
+                onClick={() => setNotificationsOpen((v) => !v)}
+                className="relative w-11 h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors"
+              >
                 <Bell size={20} />
-                <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-rose-500 rounded-full border border-white text-[10px] leading-5 text-white font-bold text-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </button>
               <div className="w-px h-8 bg-black/10"></div>
               <div className="flex items-center gap-4 cursor-pointer group" onClick={() => setActiveView('profile')}>
@@ -436,6 +573,63 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {isNotificationsOpen && (
+            <div
+              ref={notificationsPanelRef}
+              className="absolute top-24 right-8 z-[80] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-white/70 bg-white/90 shadow-2xl backdrop-blur-md overflow-hidden"
+            >
+              <div className="px-4 py-3 border-b border-black/10 flex items-center justify-between">
+                <h3 className="text-[13px] font-bold text-black/80">Bildirishnomalar</h3>
+                <button
+                  onClick={markAllNotificationsRead}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-500"
+                >
+                  Barchasini o&apos;qildi qilish
+                </button>
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-6 text-[12px] text-black/45 text-center">
+                    Hozircha bildirishnoma yo&apos;q.
+                  </div>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() =>
+                        setNotifications((prev) =>
+                          prev.map((x) => (x.id === n.id ? { ...x, read: true } : x))
+                        )
+                      }
+                      className={`px-4 py-3 border-b border-black/5 cursor-pointer ${
+                        n.read
+                          ? 'bg-white/30'
+                          : n.level === 'error'
+                            ? 'bg-rose-50/70'
+                            : n.level === 'warning'
+                              ? 'bg-amber-50/70'
+                              : n.level === 'success'
+                                ? 'bg-emerald-50/70'
+                                : 'bg-blue-50/60'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {!n.read && <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-semibold text-black/80">{n.title}</p>
+                          <p className="text-[12px] text-black/60 mt-0.5 break-words">{n.body}</p>
+                          <p className="text-[10px] text-black/35 mt-1">
+                            {new Date(n.createdAt).toLocaleString('uz-UZ')}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Main View Port */}
           <div className="flex-1 overflow-y-auto scrollbar-hide rounded-[2rem]">

@@ -3,6 +3,13 @@
 # Enable: ln -s /etc/nginx/sites-available/imentor /etc/nginx/sites-enabled/imentor
 # Test: nginx -t && systemctl reload nginx
 # TLS: use certbot (certonly or --nginx) for imentor.uz, www, and api.
+#
+# If the browser still shows "Welcome to nginx!":
+#   1) Confirm symlink exists: ls -la /etc/nginx/sites-enabled/ | grep imentor
+#   2) Reload after edits: sudo nginx -t && sudo systemctl reload nginx
+#   3) On the server: curl -sI -H "Host: imentor.uz" http://127.0.0.1 — expect 200 from your app (not nginx welcome HTML).
+#   4) Ensure Docker is up and listening: ss -tlnp | grep 31001  (frontend must proxy to 127.0.0.1:31001)
+# If curl returns 502: containers are down — run docker compose (see README Deploy section).
 
 upstream imentor_frontend {
     server 127.0.0.1:31001;

@@ -64,3 +64,14 @@ Stack listens only on **127.0.0.1:31001** (frontend) and **127.0.0.1:31002** (AP
 6. Issue TLS (e.g. `certbot --nginx -d imentor.uz -d www.imentor.uz -d api.imentor.uz`) and merge HTTPS `listen 443 ssl` blocks as certbot suggests.
 
 Do **not** commit `.env` files or SSH passwords. Rotate any password that was shared in chat.
+
+### Remote deploy from your PC (password or SSH key)
+
+If OpenSSH to the server is not set up, you can still deploy with Paramiko (no manual SSH session):
+
+1. `pip install -r deploy/requirements-deploy.txt`
+2. Copy `deploy/.env.deploy.local.example` to `deploy/.env.deploy.local` and set `SSH_HOST`, `SSH_USER`, and either `SSH_PASSWORD` or ensure your public key is on the server and use `SSH_KEY_PATH` if the key is not the default.
+3. On the server, create `deploy/.env.production` once (see `deploy/.env.production.example`) with `DJANGO_SECRET_KEY`, `GEMINI_API_KEY`, etc.
+4. From the repo root: `python deploy/remote_deploy.py`
+
+The script runs `git pull`, `docker compose`, uploads the nginx example, and reloads nginx. Use `python deploy/remote_deploy.py --dry-run` to view commands only.

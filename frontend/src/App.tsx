@@ -438,28 +438,32 @@ export default function App() {
   );
 
   const platformCredit = (
-    <div className="w-full px-3 pb-2 print:hidden">
-      <div className="mx-auto max-w-[980px] rounded-full border border-white/60 bg-white/70 px-3 py-1 shadow-sm backdrop-blur-sm">
-        <p className="text-[10px] leading-snug text-black/55 text-center">
-          {'\u00A9'} 2026{' '}
-          <a
-            href="https://fjsti.uz"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-blue-700 hover:text-blue-600 underline decoration-blue-300"
-          >
-            Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
-          </a>
-          {' '}•{' '}
-          <a
-            href="https://fjsti.uz"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
-          >
-            Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
-          </a>
-        </p>
+    <div className="w-full px-0 pb-0 print:hidden">
+      <div className="w-full border-t border-white/70 bg-white/80 backdrop-blur-md shadow-[0_-6px_24px_rgba(0,0,0,0.05)]">
+        <div className="mx-auto w-full max-w-[1400px] px-4 py-2.5">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[10px] md:text-[11px] leading-snug text-black/65">
+            <span className="font-medium">{'\u00A9'} 2026 iMentor Platform</span>
+            <a
+              href="https://fjsti.uz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
+            >
+              Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
+            </a>
+            <a
+              href="https://fjsti.uz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
+            >
+              Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
+            </a>
+            <span className="font-medium text-violet-700">Patent raqami: IM-2026-PAT-001</span>
+            <span className="font-medium text-slate-700">Litsenziyalangan: Medical EdTech Suite</span>
+            <span className="font-medium text-cyan-700">Sertifikatlangan: ISO/IEC yo&apos;riqnomalari asosida</span>
+          </div>
+        </div>
       </div>
     </div>
   );

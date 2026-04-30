@@ -255,7 +255,7 @@ export default function App() {
           <img
             src="/imentor-logo.png"
             alt="iMentor"
-            className="w-12 h-12 rounded-2xl object-cover shadow-lg border border-white/70 bg-white"
+            className="w-16 h-16 rounded-2xl object-cover shadow-lg border border-white/70 bg-white"
           />
           <div>
             <p className="font-semibold text-black/90">iMentor Platform</p>
@@ -271,13 +271,44 @@ export default function App() {
     </div>
   );
 
+  const platformCredit = (
+    <div className="fixed bottom-3 left-1/2 z-[60] -translate-x-1/2 pointer-events-none print:hidden">
+      <div className="pointer-events-auto rounded-full border border-white/70 bg-white/80 px-4 py-2 shadow-lg backdrop-blur-md">
+        <p className="text-[11px] leading-tight text-black/60 text-center whitespace-nowrap">
+          {'\u00A9'} 2026{' '}
+          <a
+            href="https://fjsti.uz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
+          >
+            Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
+          </a>
+          {' '}•{' '}
+          <a
+            href="https://fjsti.uz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
+          >
+            Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>
     <GlobalTopicContext.Provider value={selectedTopic}>
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
-        authShell
+        <>
+          {authShell}
+          {platformCredit}
+        </>
       ) : (
+      <>
       <div className="flex h-screen w-full relative overflow-hidden bg-[#f2f2f7] text-[#1c1c1e] selection:bg-sky-500/30">
       
       {/* Background iOS Orbs */}
@@ -426,6 +457,8 @@ export default function App() {
         </div>
       </div>
     </div>
+      {platformCredit}
+      </>
       )}
       </GlobalLectureContext.Provider>
     </GlobalTopicContext.Provider>

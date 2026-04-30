@@ -29,10 +29,16 @@ export function localeForLanguage(lang: AppLanguage): string {
 export function inferPdfLanguage(text: string): AppLanguage {
   const sample = text.slice(0, 8000).toLowerCase();
 
-  const cyr = (sample.match(/[а-яё]/g) || []).length;
+  const cyr = (sample.match(/[\u0430-\u044f\u0451]/g) || []).length;
   const lat = (sample.match(/[a-z]/g) || []).length;
 
-  const ruHints = ['лекция', 'практика', 'тема', 'содержание', 'дисциплина'];
+  const ruHints = [
+    '\u043b\u0435\u043a\u0446\u0438\u044f',
+    '\u043f\u0440\u0430\u043a\u0442\u0438\u043a\u0430',
+    '\u0442\u0435\u043c\u0430',
+    '\u0441\u043e\u0434\u0435\u0440\u0436\u0430\u043d\u0438\u0435',
+    '\u0434\u0438\u0441\u0446\u0438\u043f\u043b\u0438\u043d\u0430',
+  ];
   const enHints = ['lecture', 'practical', 'topic', 'syllabus', 'course'];
 
   const ruScore = ruHints.reduce((acc, w) => acc + (sample.includes(w) ? 2 : 0), 0) + (cyr > lat ? 2 : 0);
@@ -49,7 +55,7 @@ export function inferPdfLanguage(text: string): AppLanguage {
 }
 
 export function languageLabel(lang: AppLanguage): string {
-  if (lang === 'ru') return 'Русский';
+  if (lang === 'ru') return '\u0420\u0443\u0441\u0441\u043a\u0438\u0439';
   if (lang === 'en') return 'English';
   return 'O\'zbek';
 }

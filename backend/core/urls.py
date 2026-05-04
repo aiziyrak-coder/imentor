@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    AdminCampusBuildingDetailView,
+    AdminCampusBuildingListCreateView,
     AdminStaffLocationAlertsView,
     AdminStaffLocationPingsView,
     AdminStaffScheduleBulkView,
@@ -16,6 +18,7 @@ from .views import (
     PreparedContentView,
     StaffLocationPingView,
     ScheduleWeekInfoView,
+    StaffCampusBuildingListView,
     StaffScheduleSelfView,
     StartupApplicationAdminInboxView,
     StartupApplicationDetailView,
@@ -43,6 +46,9 @@ urlpatterns = [
     path('v1/staff/location-ping/', StaffLocationPingView.as_view(), name='staff-location-ping'),
     path('v1/staff/schedule/', StaffScheduleSelfView.as_view(), name='staff-schedule-self'),
     path('v1/staff/schedule-week-info/', ScheduleWeekInfoView.as_view(), name='staff-schedule-week-info'),
+    path('v1/staff/buildings/', StaffCampusBuildingListView.as_view(), name='staff-buildings'),
+    path('v1/admin/campus-buildings/', AdminCampusBuildingListCreateView.as_view(), name='admin-campus-buildings'),
+    path('v1/admin/campus-buildings/<int:pk>/', AdminCampusBuildingDetailView.as_view(), name='admin-campus-building-detail'),
     path('v1/admin/staff-schedule/bulk/', AdminStaffScheduleBulkView.as_view(), name='admin-staff-schedule-bulk'),
     path('v1/admin/staff-schedule/', AdminStaffScheduleListCreateView.as_view(), name='admin-staff-schedule'),
     path('v1/admin/staff-schedule/<int:pk>/', AdminStaffScheduleDetailView.as_view(), name='admin-staff-schedule-detail'),

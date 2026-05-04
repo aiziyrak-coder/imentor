@@ -3,6 +3,20 @@ import { getBackendAccessToken } from './backendAuth';
 
 export type WeekPhase = 'every' | 'upper' | 'lower';
 
+export type CampusBuildingDto = {
+  id: number;
+  name: string;
+  short_code: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  sort_order: number;
+  notes: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type StaffScheduleSlotDto = {
   id: number;
   owner_key: string;
@@ -12,6 +26,7 @@ export type StaffScheduleSlotDto = {
   weekday: number;
   start_time: string;
   end_time: string;
+  building: CampusBuildingDto | null;
   building_name: string;
   latitude: number;
   longitude: number;
@@ -95,6 +110,53 @@ export async function getScheduleWeekInfo(): Promise<ScheduleWeekInfoDto> {
   });
 }
 
+export async function listCampusBuildings(): Promise<CampusBuildingDto[]> {
+  const rows = await httpJson<CampusBuildingDto[]>(`${apiBaseUrl()}/v1/staff/buildings/`, {
+    headers: await authHeaders(),
+    timeoutMs: 20000,
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function listAdminCampusBuildings(): Promise<CampusBuildingDto[]> {
+  const rows = await httpJson<CampusBuildingDto[]>(`${apiBaseUrl()}/v1/admin/campus-buildings/`, {
+    headers: await authHeaders(),
+    timeoutMs: 20000,
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function createAdminCampusBuilding(
+  body: Partial<Pick<CampusBuildingDto, 'name' | 'short_code' | 'latitude' | 'longitude' | 'radius_m' | 'sort_order' | 'notes' | 'is_active'>>
+): Promise<CampusBuildingDto> {
+  return httpJson(`${apiBaseUrl()}/v1/admin/campus-buildings/`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body,
+    timeoutMs: 20000,
+  });
+}
+
+export async function patchAdminCampusBuilding(
+  id: number,
+  body: Partial<Pick<CampusBuildingDto, 'name' | 'short_code' | 'latitude' | 'longitude' | 'radius_m' | 'sort_order' | 'notes' | 'is_active'>>
+): Promise<CampusBuildingDto> {
+  return httpJson(`${apiBaseUrl()}/v1/admin/campus-buildings/${id}/`, {
+    method: 'PATCH',
+    headers: await authHeaders(),
+    body,
+    timeoutMs: 20000,
+  });
+}
+
+export async function deleteAdminCampusBuilding(id: number): Promise<void> {
+  await httpJson<unknown>(`${apiBaseUrl()}/v1/admin/campus-buildings/${id}/`, {
+    method: 'DELETE',
+    headers: await authHeaders(),
+    timeoutMs: 15000,
+  });
+}
+
 export async function listAdminStaffSchedule(ownerKey?: string): Promise<StaffScheduleSlotDto[]> {
   const q = ownerKey?.trim() ? `?owner_key=${encodeURIComponent(ownerKey.trim())}` : '';
   const rows = await httpJson<StaffScheduleSlotDto[]>(`${apiBaseUrl()}/v1/admin/staff-schedule/${q}`, {
@@ -139,10 +201,11 @@ export type BulkScheduleSlotPayload = {
   weekday: number;
   start_time: string;
   end_time: string;
-  building_name: string;
-  latitude: number;
-  longitude: number;
-  radius_m: number;
+  building_id?: number;
+  building_name?: string;
+  latitude?: number;
+  longitude?: number;
+  radius_m?: number;
   title?: string;
 };
 

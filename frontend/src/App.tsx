@@ -27,6 +27,7 @@ import {
   Rocket,
   FolderOpen,
   MapPin,
+  Building2,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -65,6 +66,7 @@ import AdminCasesLibrary from './components/admin/AdminCasesLibrary';
 import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
 import AdminStartupInbox from './components/admin/AdminStartupInbox';
 import AdminStaffLocationConsole from './components/admin/AdminStaffLocationConsole';
+import AdminCampusBuildingsPage from './components/admin/AdminCampusBuildingsPage';
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import StaffLocationPage from './components/staff/StaffLocationPage';
@@ -75,6 +77,7 @@ type View =
   | 'admin-dashboard'
   | 'admin-staff'
   | 'admin-staff-location'
+  | 'admin-campus-buildings'
   | 'admin-cases'
   | 'admin-tests'
   | 'admin-startups'
@@ -107,6 +110,7 @@ const ADMIN_NAV: NavItemDef[] = [
   { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'admin-staff', label: 'Hodimlar', icon: Users },
   { id: 'admin-staff-location', label: 'Joylashuv (GPS)', icon: MapPin },
+  { id: 'admin-campus-buildings', label: 'Kampus binolari', icon: Building2 },
   { id: 'admin-startups', label: 'Startap arizalar', icon: Rocket },
   { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
   { id: 'admin-tests', label: 'Test bazasi', icon: ClipboardList },
@@ -129,6 +133,7 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-dashboard': 'Panel',
   'admin-staff': 'Hodimlar',
   'admin-staff-location': 'GPS',
+  'admin-campus-buildings': 'Binolar',
   'admin-startups': 'Startap',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
@@ -368,6 +373,8 @@ export default function App() {
         return <AdminStaffManagement />;
       case 'admin-staff-location':
         return <AdminStaffLocationConsole />;
+      case 'admin-campus-buildings':
+        return <AdminCampusBuildingsPage />;
       case 'admin-cases':
         return <AdminCasesLibrary />;
       case 'admin-tests':

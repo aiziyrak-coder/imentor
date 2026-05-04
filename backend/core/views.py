@@ -19,6 +19,7 @@ from .permissions import (
     resolve_user_role,
 )
 from .models import (
+    CampusBuilding,
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
@@ -31,6 +32,7 @@ from .models import (
 from .location_service import record_ping_and_evaluate
 from .week_schedule import current_week_phase_code, iso_week_number, week_phase_label_uz
 from .serializers import (
+    CampusBuildingSerializer,
     LocalLoginSerializer,
     LiveTestSubmissionCreateSerializer,
     LiveTestUpsertSerializer,
@@ -485,10 +487,14 @@ class StaffScheduleSelfView(APIView):
     permission_classes = [IsAuthenticated, IsHodimRole]
 
     def get(self, request):
-        qs = StaffScheduleSlot.objects.filter(
-            owner_key=request.user.username,
-            is_active=True,
-        ).order_by('week_phase', 'weekday', 'start_time')
+        qs = (
+            StaffScheduleSlot.objects.filter(
+                owner_key=request.user.username,
+                is_active=True,
+            )
+            .select_related('building')
+            .order_by('week_phase', 'weekday', 'start_time')
+        )
         return Response(StaffScheduleSlotSerializer(qs, many=True).data)
 
 
@@ -513,6 +519,58 @@ class ScheduleWeekInfoView(APIView):
         )
 
 
+class StaffCampusBuildingListView(APIView):
+    """Barcha tizim rollari: faol bino ro'yxati (jadvalda tanlash uchun)."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def get(self, request):
+        qs = CampusBuilding.objects.filter(is_active=True).order_by('sort_order', 'name')
+        return Response(CampusBuildingSerializer(qs, many=True).data)
+
+
+class AdminCampusBuildingListCreateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        qs = CampusBuilding.objects.all().order_by('sort_order', 'name')
+        return Response(CampusBuildingSerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = CampusBuildingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdminCampusBuildingDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def patch(self, request, pk: int):
+        obj = CampusBuilding.objects.filter(pk=pk).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CampusBuildingSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk: int):
+        obj = CampusBuilding.objects.filter(pk=pk).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if StaffScheduleSlot.objects.filter(building=obj).exists():
+            return Response(
+                {'detail': 'Bu binoga boglangan jadval slotlari bor — avval ularni o‘zgartiring.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class AdminStaffScheduleBulkView(APIView):
     """Bir o‘qituvchi uchun bitta `week_phase` bo‘yicha jadvalni to‘liq almashtirish."""
 
@@ -530,22 +588,43 @@ class AdminStaffScheduleBulkView(APIView):
         with transaction.atomic():
             if replace:
                 StaffScheduleSlot.objects.filter(owner_key=owner, week_phase=phase).delete()
-            to_create = [
-                StaffScheduleSlot(
-                    owner_key=owner,
-                    week_phase=phase,
-                    weekday=x['weekday'],
-                    start_time=x['start_time'],
-                    end_time=x['end_time'],
-                    building_name=x['building_name'].strip(),
-                    latitude=x['latitude'],
-                    longitude=x['longitude'],
-                    radius_m=x['radius_m'],
-                    title=(x.get('title') or '').strip(),
-                    is_active=True,
-                )
-                for x in rows
-            ]
+            to_create = []
+            for x in rows:
+                if x.get('building_id') is not None:
+                    b = CampusBuilding.objects.get(pk=x['building_id'], is_active=True)
+                    to_create.append(
+                        StaffScheduleSlot(
+                            owner_key=owner,
+                            week_phase=phase,
+                            weekday=x['weekday'],
+                            start_time=x['start_time'],
+                            end_time=x['end_time'],
+                            building=b,
+                            building_name=b.name,
+                            latitude=b.latitude,
+                            longitude=b.longitude,
+                            radius_m=b.radius_m,
+                            title=(x.get('title') or '').strip(),
+                            is_active=True,
+                        )
+                    )
+                else:
+                    to_create.append(
+                        StaffScheduleSlot(
+                            owner_key=owner,
+                            week_phase=phase,
+                            weekday=x['weekday'],
+                            start_time=x['start_time'],
+                            end_time=x['end_time'],
+                            building=None,
+                            building_name=(x.get('building_name') or '').strip(),
+                            latitude=x['latitude'],
+                            longitude=x['longitude'],
+                            radius_m=x['radius_m'],
+                            title=(x.get('title') or '').strip(),
+                            is_active=True,
+                        )
+                    )
             if to_create:
                 StaffScheduleSlot.objects.bulk_create(to_create)
         return Response(
@@ -565,7 +644,9 @@ class AdminStaffScheduleListCreateView(APIView):
 
     def get(self, request):
         owner = request.query_params.get('owner_key', '').strip()
-        qs = StaffScheduleSlot.objects.all().order_by('owner_key', 'week_phase', 'weekday', 'start_time')
+        qs = StaffScheduleSlot.objects.all().select_related('building').order_by(
+            'owner_key', 'week_phase', 'weekday', 'start_time'
+        )
         if owner:
             qs = qs.filter(owner_key=owner)
         return Response(StaffScheduleSlotSerializer(qs, many=True).data)

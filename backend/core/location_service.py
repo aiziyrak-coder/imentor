@@ -30,17 +30,22 @@ def record_ping_and_evaluate(
     phase = current_week_phase_code(now_local)
     alerts: list[StaffLocationAlert] = []
 
-    slots = StaffScheduleSlot.objects.filter(
-        owner_key=owner_key,
-        weekday=wd,
-        is_active=True,
-    ).filter(
-        Q(week_phase=StaffScheduleSlot.WEEK_EVERY) | Q(week_phase=phase),
+    slots = (
+        StaffScheduleSlot.objects.filter(
+            owner_key=owner_key,
+            weekday=wd,
+            is_active=True,
+        )
+        .filter(
+            Q(week_phase=StaffScheduleSlot.WEEK_EVERY) | Q(week_phase=phase),
+        )
+        .select_related('building')
     )
     for slot in slots:
         if slot.start_time <= t <= slot.end_time:
-            dist = haversine_m(latitude, longitude, slot.latitude, slot.longitude)
-            if dist > float(slot.radius_m):
+            elat, elng, er, bname = slot.get_expected_point()
+            dist = haversine_m(latitude, longitude, elat, elng)
+            if dist > float(er):
                 date_key = now_local.date()
                 exists = StaffLocationAlert.objects.filter(
                     owner_key=owner_key,
@@ -52,19 +57,19 @@ def record_ping_and_evaluate(
                         StaffLocationAlert.objects.create(
                             owner_key=owner_key,
                             slot=slot,
-                            building_name=slot.building_name,
-                            expected_lat=slot.latitude,
-                            expected_lng=slot.longitude,
+                            building_name=bname,
+                            expected_lat=elat,
+                            expected_lng=elng,
                             actual_lat=latitude,
                             actual_lng=longitude,
                             distance_m=round(dist, 2),
-                            radius_m=slot.radius_m,
+                            radius_m=er,
                             slot_start=slot.start_time,
                             slot_end=slot.end_time,
                             message=(
                                 f"Dars vaqtida kutilgan joydan "
-                                f"{dist:.0f} m uzoq ({slot.building_name}). "
-                                f"Radius: {slot.radius_m} m."
+                                f"{dist:.0f} m uzoq ({bname}). "
+                                f"Radius: {er} m."
                             ),
                         )
                     )

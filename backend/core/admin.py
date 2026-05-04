@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    CampusBuilding,
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
@@ -42,6 +43,13 @@ class StartupProjectApplicationAdmin(admin.ModelAdmin):
     list_display = ('id', 'owner_key', 'title', 'status', 'submitted_at', 'updated_at')
     list_filter = ('status',)
     search_fields = ('owner_key', 'title')
+
+
+@admin.register(CampusBuilding)
+class CampusBuildingAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'short_code', 'is_active', 'sort_order', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'short_code', 'notes')
 
 
 @admin.register(StaffScheduleSlot)

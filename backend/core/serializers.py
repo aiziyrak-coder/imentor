@@ -4,6 +4,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
+    CampusBuilding,
     PreparedContent,
     StaffLocationAlert,
     StaffLocationPing,
@@ -141,9 +142,30 @@ class StartupProjectApplicationSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class CampusBuildingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CampusBuilding
+        fields = [
+            'id',
+            'name',
+            'short_code',
+            'latitude',
+            'longitude',
+            'radius_m',
+            'sort_order',
+            'notes',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
 class StaffScheduleSlotSerializer(serializers.ModelSerializer):
     applies_this_calendar_week = serializers.SerializerMethodField()
     week_phase_label = serializers.SerializerMethodField()
+    building = CampusBuildingSerializer(read_only=True)
+    building_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = StaffScheduleSlot
@@ -155,6 +177,8 @@ class StaffScheduleSlotSerializer(serializers.ModelSerializer):
             'weekday',
             'start_time',
             'end_time',
+            'building',
+            'building_id',
             'building_name',
             'latitude',
             'longitude',
@@ -171,6 +195,7 @@ class StaffScheduleSlotSerializer(serializers.ModelSerializer):
             'applies_this_calendar_week',
             'created_at',
             'updated_at',
+            'building',
         ]
 
     def get_week_phase_label(self, obj: StaffScheduleSlot) -> str:
@@ -181,20 +206,65 @@ class StaffScheduleSlotSerializer(serializers.ModelSerializer):
             return True
         return obj.week_phase == current_week_phase_code(timezone.localtime())
 
+    def _apply_building(self, attrs: dict, building_id) -> None:
+        if building_id is None:
+            attrs['building'] = None
+            return
+        try:
+            b = CampusBuilding.objects.get(pk=building_id, is_active=True)
+        except CampusBuilding.DoesNotExist as exc:
+            raise serializers.ValidationError({'building_id': "Bino topilmadi yoki o'chirilgan."}) from exc
+        attrs['building'] = b
+        attrs['building_name'] = b.name
+        attrs['latitude'] = b.latitude
+        attrs['longitude'] = b.longitude
+        attrs['radius_m'] = b.radius_m
+
+    def create(self, validated_data):
+        if 'building_id' in validated_data:
+            bid = validated_data.pop('building_id')
+            if bid is not None:
+                self._apply_building(validated_data, bid)
+            else:
+                validated_data['building'] = None
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'building_id' in validated_data:
+            bid = validated_data.pop('building_id')
+            if bid is not None:
+                self._apply_building(validated_data, bid)
+            else:
+                validated_data['building'] = None
+        return super().update(instance, validated_data)
+
 
 class StaffScheduleBulkRowSerializer(serializers.Serializer):
+    MAX_INTERVALS_PER_WEEKDAY = 12
+
     weekday = serializers.IntegerField(min_value=0, max_value=6)
     start_time = serializers.TimeField()
     end_time = serializers.TimeField()
-    building_name = serializers.CharField(max_length=255)
-    latitude = serializers.FloatField()
-    longitude = serializers.FloatField()
+    building_id = serializers.IntegerField(required=False, allow_null=True)
+    building_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    latitude = serializers.FloatField(required=False, allow_null=True)
+    longitude = serializers.FloatField(required=False, allow_null=True)
     radius_m = serializers.IntegerField(min_value=30, max_value=50_000, default=1000)
     title = serializers.CharField(max_length=255, allow_blank=True, default='')
 
     def validate(self, attrs):
         if attrs['start_time'] >= attrs['end_time']:
             raise serializers.ValidationError({'end_time': 'Tugash vaqti boshlanishdan keyin bo‘lishi kerak.'})
+        bid = attrs.get('building_id')
+        if bid is not None:
+            if not CampusBuilding.objects.filter(pk=bid, is_active=True).exists():
+                raise serializers.ValidationError({'building_id': "Bino topilmadi yoki o'chirilgan."})
+            return attrs
+        name = (attrs.get('building_name') or '').strip()
+        if attrs.get('latitude') is None or attrs.get('longitude') is None or not name:
+            raise serializers.ValidationError(
+                "Bino ro'yxatidan tanlang (building_id) yoki qo'lda: nom, lat, lng kiriting."
+            )
         return attrs
 
 
@@ -222,11 +292,16 @@ class StaffScheduleBulkSerializer(serializers.Serializer):
         by_day: defaultdict[int, list] = defaultdict(list)
         for row in rows:
             by_day[row['weekday']].append((row['start_time'], row['end_time']))
+        max_iv = StaffScheduleBulkRowSerializer.MAX_INTERVALS_PER_WEEKDAY
+        names = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
         for wd, intervals in by_day.items():
+            if len(intervals) > max_iv:
+                raise serializers.ValidationError(
+                    f"{names[wd]} kunida bir vaqtda maksimal {max_iv} ta vaqt oralig'i."
+                )
             intervals.sort(key=lambda x: x[0])
             for i in range(len(intervals) - 1):
                 if intervals[i][1] > intervals[i + 1][0]:
-                    names = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya']
                     raise serializers.ValidationError(
                         f"{names[wd]} kunida dars vaqtlari ustma-ust tushmasligi kerak."
                     )

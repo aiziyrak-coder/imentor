@@ -142,6 +142,32 @@ class StartupProjectApplication(models.Model):
         return f"{self.owner_key}:{self.title[:40]}"
 
 
+class CampusBuilding(models.Model):
+    """
+    Universitet kampusidagi bino (oldindan kiritiladi, jadvalda tanlanadi).
+    """
+
+    name = models.CharField(max_length=255, db_index=True)
+    short_code = models.CharField(max_length=64, blank=True)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    radius_m = models.PositiveIntegerField(default=1000)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    notes = models.CharField(max_length=512, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        indexes = [
+            models.Index(fields=["is_active", "sort_order", "name"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class StaffScheduleSlot(models.Model):
     """
     O'qituvchi uchun kutilgan joy va vaqt (admin belgilaydi).
@@ -168,6 +194,13 @@ class StaffScheduleSlot(models.Model):
     weekday = models.SmallIntegerField(db_index=True)
     start_time = models.TimeField()
     end_time = models.TimeField()
+    building = models.ForeignKey(
+        CampusBuilding,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="schedule_slots",
+    )
     building_name = models.CharField(max_length=255)
     latitude = models.FloatField()
     longitude = models.FloatField()
@@ -186,6 +219,13 @@ class StaffScheduleSlot(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}:{self.week_phase}:{self.weekday}:{self.start_time}"
+
+    def get_expected_point(self) -> tuple[float, float, int, str]:
+        """Kutilgan nuqta: bog'langan bino (yangilanadi) yoki slotdagi snapshot."""
+        if self.building_id:
+            b = self.building
+            return b.latitude, b.longitude, int(b.radius_m), b.name
+        return self.latitude, self.longitude, int(self.radius_m), self.building_name
 
 
 class StaffLocationPing(models.Model):

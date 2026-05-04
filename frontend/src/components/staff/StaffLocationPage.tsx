@@ -140,7 +140,9 @@ export default function StaffLocationPage() {
                         {formatTime(r.start_time)} — {formatTime(r.end_time)}
                       </span>
                     </div>
-                    <p className="text-[14px] font-medium text-black/80">{r.building_name}</p>
+                    <p className="text-[14px] font-medium text-black/80">
+                      {r.building?.name ?? r.building_name}
+                    </p>
                     {r.title ? <p className="text-[12px] text-black/50">{r.title}</p> : null}
                     {typeof r.applies_this_calendar_week === 'boolean' ? (
                       <p

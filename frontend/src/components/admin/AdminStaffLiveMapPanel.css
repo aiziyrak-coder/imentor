@@ -1,0 +1,21 @@
+/* Leaflet divIcon — fon va ramka yo‘q, faqat pin */
+.staff-leaflet-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.staff-pin-head {
+  animation: staff-pin-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes staff-pin-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  }
+}

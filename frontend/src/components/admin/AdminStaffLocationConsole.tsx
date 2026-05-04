@@ -838,6 +838,8 @@ export default function AdminStaffLocationConsole() {
             buildings={buildings}
             lastUpdated={liveMapUpdated}
             pollIntervalSec={LIVE_MAP_POLL_SEC}
+            staffDirectory={staffOptions}
+            filterOwnerDigits={staffOwnerDigits}
           />
         </div>
       ) : tab === 'pings' ? (

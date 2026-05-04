@@ -55,3 +55,35 @@ class SyllabusDocument(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}:{self.file_name}"
+
+
+class LiveTestSession(models.Model):
+    """
+    Teacher-published live quiz for QR access; payload holds topic + questions (JSON).
+    Students fetch by session_key without auth; teacher owns via owner_key (JWT username).
+    """
+
+    session_key = models.CharField(max_length=160, unique=True, db_index=True)
+    owner_key = models.CharField(max_length=128, db_index=True)
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return self.session_key
+
+
+class LiveTestSubmission(models.Model):
+    session = models.ForeignKey(LiveTestSession, on_delete=models.CASCADE, related_name='submissions')
+    first_name = models.CharField(max_length=128)
+    last_name = models.CharField(max_length=128)
+    answers = models.JSONField()
+    submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-submitted_at']
+
+    def __str__(self) -> str:
+        return f"{self.session.session_key}:{self.last_name}"

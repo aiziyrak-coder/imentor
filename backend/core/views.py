@@ -11,9 +11,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 
 from .permissions import resolve_user_role, HasEducationRole
-from .models import PreparedContent, SyllabusDocument
+from .models import LiveTestSession, LiveTestSubmission, PreparedContent, SyllabusDocument
 from .serializers import (
     LocalLoginSerializer,
+    LiveTestSubmissionCreateSerializer,
+    LiveTestUpsertSerializer,
     PreparedContentSerializer,
     SyllabusDocumentSerializer,
     SyllabusUpsertSerializer,
@@ -230,3 +232,106 @@ class SyllabusDocumentDestroyView(APIView):
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LiveTestUpsertView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def post(self, request):
+        serializer = LiveTestUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        key = d['session_key'].strip()
+        owner = request.user.username
+
+        existing = LiveTestSession.objects.filter(session_key=key).first()
+        if existing and existing.owner_key != owner:
+            return Response({'detail': 'Session key already in use.'}, status=status.HTTP_409_CONFLICT)
+
+        created_ms = d.get('created_at_ms')
+        if created_ms is None:
+            created_ms = int(timezone.now().timestamp() * 1000)
+
+        payload = {
+            'topic': (d['topic'] or '').strip(),
+            'questions': d['questions'],
+            'createdAt': created_ms,
+        }
+        LiveTestSession.objects.update_or_create(
+            session_key=key,
+            defaults={'owner_key': owner, 'payload': payload},
+        )
+        return Response({'ok': True}, status=status.HTTP_200_OK)
+
+
+class LiveTestPublicRetrieveView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, session_key: str):
+        obj = LiveTestSession.objects.filter(session_key=session_key.strip()).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        p = obj.payload if isinstance(obj.payload, dict) else {}
+        created_ms = p.get('createdAt')
+        if created_ms is None:
+            created_ms = int(obj.created_at.timestamp() * 1000)
+        return Response(
+            {
+                'topic': p.get('topic', ''),
+                'questions': p.get('questions', []),
+                'created_at_ms': created_ms,
+            }
+        )
+
+
+class LiveTestSubmissionView(APIView):
+    """
+    GET: teacher JWT — list submissions for own session.
+    POST: anonymous — student submits answers (QR flow).
+    """
+
+    def get_authenticators(self):
+        req = getattr(self, 'request', None)
+        if req is not None and req.method == 'POST':
+            return []
+        return [JWTAuthentication()]
+
+    def get_permissions(self):
+        if getattr(self, 'request') and self.request.method == 'POST':
+            return [AllowAny()]
+        return [IsAuthenticated(), HasEducationRole()]
+
+    def get(self, request, session_key: str):
+        obj = LiveTestSession.objects.filter(
+            session_key=session_key.strip(),
+            owner_key=request.user.username,
+        ).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        data = [
+            {
+                'first_name': s.first_name,
+                'last_name': s.last_name,
+                'answers': s.answers,
+                'submitted_at': s.submitted_at.isoformat(),
+            }
+            for s in obj.submissions.all()
+        ]
+        return Response(data)
+
+    def post(self, request, session_key: str):
+        obj = LiveTestSession.objects.filter(session_key=session_key.strip()).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = LiveTestSubmissionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        LiveTestSubmission.objects.create(
+            session=obj,
+            first_name=d['first_name'].strip(),
+            last_name=d['last_name'].strip(),
+            answers=list(d['answers']),
+        )
+        return Response({'ok': True}, status=status.HTTP_201_CREATED)

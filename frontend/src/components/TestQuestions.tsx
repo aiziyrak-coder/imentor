@@ -17,6 +17,12 @@ import { AppLanguageContext, GlobalTopicContext } from '../App';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendTestToLibrary } from '../utils/staffContentLibrary';
 import { loadLatestPreparedContent, savePreparedContent } from '../utils/preparedContentStore';
+import {
+  upsertLiveTestSessionOnServer,
+  fetchLiveTestSessionFromServer,
+  submitLiveTestOnServer,
+  fetchLiveTestSubmissionsFromServer,
+} from '../utils/liveTestApi';
 
 interface LiveTestSessionDoc {
   topic: string;
@@ -73,7 +79,8 @@ export default function TestQuestions() {
   const { language } = useContext(AppLanguageContext);
   const queryParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const isStudentMode = queryParams.get('mode') === 'student';
-  const studentSessionId = queryParams.get('sid') || '';
+  /** QR ba'zan `id=` bilan chiqishi mumkin — ikkalasini qabul qilamiz */
+  const studentSessionId = (queryParams.get('sid') || queryParams.get('id') || '').trim();
 
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [loading, setLoading] = useState(false);
@@ -87,16 +94,26 @@ export default function TestQuestions() {
 
   const setupTeacherLiveSession = (data: TestSession): string => {
     const sid = makeLocalSessionId();
-    saveLocalSession(sid, {
+    const doc: LiveTestSessionDoc = {
       topic: data.topic,
       questions: data.questions,
       createdAt: Date.now(),
-    });
+    };
+    saveLocalSession(sid, doc);
     saveLocalSubmissions(sid, []);
     setTeacherSessionId(sid);
-    setJoinUrl(`${window.location.origin}${window.location.pathname}?mode=student&sid=${sid}`);
+    setJoinUrl(
+      `${window.location.origin}${window.location.pathname}?mode=student&sid=${encodeURIComponent(sid)}`
+    );
     setSubmissions([]);
     setShowAnalysis(false);
+    void upsertLiveTestSessionOnServer(sid, {
+      topic: doc.topic,
+      questions: doc.questions,
+      createdAt: doc.createdAt,
+    }).catch(() => {
+      /* o‘qituvchi API yo‘q bo‘lsa ham mahalliy QR ishlaydi (faqat shu brauzer) */
+    });
     return sid;
   };
 
@@ -113,18 +130,56 @@ export default function TestQuestions() {
   const [studentLoading, setStudentLoading] = useState(false);
   const [studentTest, setStudentTest] = useState<LiveTestSessionDoc | null>(null);
 
+  const [sessionLoading, setSessionLoading] = useState(isStudentMode && !!studentSessionId);
+
   useEffect(() => {
-    if (!isStudentMode || !studentSessionId) return;
-    const data = loadLocalSession(studentSessionId);
-    if (!data) {
-      setError("Test sessiyasi topilmadi yoki muddati tugagan.");
+    if (!isStudentMode || !studentSessionId) {
+      setSessionLoading(false);
       return;
     }
-    setStudentTest(data);
-    if (studentAnswers.length === 0) {
-      setStudentAnswers(new Array(data.questions.length).fill(-1));
-    }
-  }, [isStudentMode, studentSessionId, studentAnswers.length]);
+    let cancelled = false;
+    setSessionLoading(true);
+    setError(null);
+
+    (async () => {
+      const local = loadLocalSession(studentSessionId);
+      if (local) {
+        if (!cancelled) {
+          setStudentTest(local);
+          setStudentAnswers(new Array(local.questions.length).fill(-1));
+          setSessionLoading(false);
+        }
+        return;
+      }
+      try {
+        const remote = await fetchLiveTestSessionFromServer(studentSessionId);
+        if (cancelled) return;
+        if (remote && remote.questions.length > 0) {
+          const doc: LiveTestSessionDoc = {
+            topic: remote.topic,
+            questions: remote.questions,
+            createdAt: remote.createdAt,
+          };
+          setStudentTest(doc);
+          setStudentAnswers(new Array(doc.questions.length).fill(-1));
+        } else {
+          setError(
+            "Test sessiyasi topilmadi. O'qituvchi testni yaratgan va QR yangilanganligini tekshiring."
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Serverga ulanib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
+        }
+      } finally {
+        if (!cancelled) setSessionLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isStudentMode, studentSessionId]);
 
   useEffect(() => {
     if (isStudentMode || !topic.trim()) return;
@@ -142,20 +197,46 @@ export default function TestQuestions() {
 
   useEffect(() => {
     if (isStudentMode || !teacherSessionId) return;
-    const loadNow = () => {
+
+    const loadLocalNow = () => {
       const list = loadLocalSubmissions(teacherSessionId);
       list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-      setSubmissions(list);
+      return list;
     };
-    loadNow();
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const remote = await fetchLiveTestSubmissionsFromServer(teacherSessionId);
+        if (cancelled) return;
+        const mapped: TestSubmissionDoc[] = remote.map((r) => ({
+          sessionId: teacherSessionId,
+          firstName: r.firstName,
+          lastName: r.lastName,
+          answers: r.answers,
+          submittedAt: r.submittedAt,
+        }));
+        setSubmissions(mapped.length > 0 ? mapped : loadLocalNow());
+      } catch {
+        if (!cancelled) setSubmissions(loadLocalNow());
+      }
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 4000);
 
     const onStorage = (e: StorageEvent) => {
       if (e.key === `${LOCAL_TEST_SUBMISSIONS_PREFIX}${teacherSessionId}`) {
-        loadNow();
+        setSubmissions(loadLocalNow());
       }
     };
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('storage', onStorage);
+    };
   }, [isStudentMode, teacherSessionId]);
 
   const handleGenerate = async (e: React.FormEvent) => {
@@ -214,6 +295,11 @@ export default function TestQuestions() {
     setStudentLoading(true);
     setError(null);
     try {
+      await submitLiveTestOnServer(studentSessionId, {
+        firstName: studentFirstName.trim(),
+        lastName: studentLastName.trim(),
+        answers: studentAnswers,
+      });
       const item: TestSubmissionDoc = {
         sessionId: studentSessionId,
         firstName: studentFirstName.trim(),
@@ -227,7 +313,7 @@ export default function TestQuestions() {
       setStudentSubmitted(true);
     } catch (err) {
       console.error(err);
-      setError("Yuborishda xatolik yuz berdi.");
+      setError("Yuborishda xatolik yuz berdi. Internetni tekshirib qayta urinib ko'ring.");
     } finally {
       setStudentLoading(false);
     }
@@ -241,12 +327,16 @@ export default function TestQuestions() {
             <h1 className="text-3xl font-bold text-gray-900">Talaba testi</h1>
             <p className="text-gray-500">Ism-familiyangizni kiriting va testni yuboring.</p>
           </div>
-          {!studentTest ? (
+          {sessionLoading ? (
             <div className="bg-white rounded-3xl p-8 border border-gray-100 text-center">
               <Loader2 className="animate-spin text-indigo-600 mx-auto mb-3" />
               <p className="text-gray-600">Test sessiyasi yuklanmoqda...</p>
             </div>
-          ) : (
+          ) : error && !studentTest ? (
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-3xl p-6 text-center font-medium">
+              {error}
+            </div>
+          ) : studentTest ? (
             <>
               <div className="bg-white rounded-3xl p-6 border border-gray-100">
                 <h2 className="text-xl font-bold text-gray-800 mb-4">{studentTest.topic}</h2>
@@ -305,8 +395,10 @@ export default function TestQuestions() {
                 </div>
               )}
             </>
+          ) : null}
+          {error && studentTest && (
+            <div className="bg-rose-50 text-rose-700 border border-rose-200 p-3 rounded-xl">{error}</div>
           )}
-          {error && <div className="bg-rose-50 text-rose-700 border border-rose-200 p-3 rounded-xl">{error}</div>}
         </div>
       </div>
     );

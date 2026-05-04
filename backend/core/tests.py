@@ -144,3 +144,59 @@ class PreparedContentApiTests(TestCase):
 
         list2 = self.client.get('/api/v1/syllabuses/')
         self.assertEqual(list2.json(), [])
+
+    def test_live_test_session_public_qr_flow(self):
+        Group.objects.get_or_create(name='hodim')
+        login_resp = self.client.post(
+            '/api/v1/auth/local-login/',
+            {
+                'phone_digits': '998901112233',
+                'password': 'StrongPass123',
+                'role': 'hodim',
+                'first_name': 'Test',
+                'last_name': 'Hodim',
+            },
+            format='json',
+        )
+        self.assertEqual(login_resp.status_code, 200)
+        access = login_resp.json()['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+
+        q = {
+            'question': 'Clinical vignette text here.',
+            'options': ['A opt', 'B opt', 'C opt', 'D opt', 'E opt'],
+            'correctOptionIndex': 2,
+            'explanation': 'Because clinical reasoning.',
+        }
+        up = self.client.post(
+            '/api/v1/live-tests/',
+            {
+                'session_key': 'lts_qr_demo_1',
+                'topic': 'Demo mavzu',
+                'questions': [q],
+            },
+            format='json',
+        )
+        self.assertEqual(up.status_code, 200)
+
+        self.client.credentials()
+        pub = self.client.get('/api/v1/live-tests/lts_qr_demo_1/')
+        self.assertEqual(pub.status_code, 200)
+        self.assertEqual(pub.json()['topic'], 'Demo mavzu')
+
+        sub = self.client.post(
+            '/api/v1/live-tests/lts_qr_demo_1/submissions/',
+            {
+                'first_name': 'Ali',
+                'last_name': 'Valiyev',
+                'answers': [2],
+            },
+            format='json',
+        )
+        self.assertEqual(sub.status_code, 201)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        lst = self.client.get('/api/v1/live-tests/lts_qr_demo_1/submissions/')
+        self.assertEqual(lst.status_code, 200)
+        self.assertEqual(len(lst.json()), 1)
+        self.assertEqual(lst.json()[0]['last_name'], 'Valiyev')

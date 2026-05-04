@@ -77,3 +77,16 @@ class SyllabusUpsertSerializer(serializers.Serializer):
         if len(v) < 2:
             raise serializers.ValidationError('file_name is too short.')
         return v
+
+
+class LiveTestUpsertSerializer(serializers.Serializer):
+    session_key = serializers.CharField(max_length=160)
+    topic = serializers.CharField(max_length=1024)
+    questions = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+    created_at_ms = serializers.IntegerField(required=False, min_value=0)
+
+
+class LiveTestSubmissionCreateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=128)
+    last_name = serializers.CharField(max_length=128)
+    answers = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)

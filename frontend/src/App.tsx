@@ -44,6 +44,7 @@ import {
   languageLabel,
 } from './i18n/language';
 import { type AppNotificationEventDetail } from './utils/notifications';
+import { isPublicStudentTestUrl } from './utils/liveTestApi';
 
 // Components
 import LoginPage from './components/auth/LoginPage';
@@ -491,7 +492,16 @@ export default function App() {
 
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>
-    <GlobalTopicContext.Provider value={selectedTopic}>
+      {!user && isPublicStudentTestUrl() ? (
+        <GlobalTopicContext.Provider value={null}>
+          <GlobalLectureContext.Provider value={{ content: '', setContent: () => {} }}>
+            <div className="min-h-[100dvh] h-[100dvh] w-full overflow-auto bg-[#f2f2f7]">
+              <TestQuestions />
+            </div>
+          </GlobalLectureContext.Provider>
+        </GlobalTopicContext.Provider>
+      ) : (
+      <GlobalTopicContext.Provider value={selectedTopic}>
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
         <>
@@ -756,6 +766,7 @@ export default function App() {
       )}
       </GlobalLectureContext.Provider>
     </GlobalTopicContext.Provider>
+      )}
     </AppLanguageContext.Provider>
   );
 }

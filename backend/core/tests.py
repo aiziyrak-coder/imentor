@@ -99,3 +99,48 @@ class PreparedContentApiTests(TestCase):
         )
         self.assertEqual(miss_resp.status_code, 200)
         self.assertEqual(miss_resp.json().get('payload'), None)
+
+    def test_syllabus_list_create_delete_flow(self):
+        Group.objects.get_or_create(name='hodim')
+        login_resp = self.client.post(
+            '/api/v1/auth/local-login/',
+            {
+                'phone_digits': '998901112233',
+                'password': 'StrongPass123',
+                'role': 'hodim',
+                'first_name': 'Test',
+                'last_name': 'Hodim',
+            },
+            format='json',
+        )
+        self.assertEqual(login_resp.status_code, 200)
+        access = login_resp.json()['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+
+        list0 = self.client.get('/api/v1/syllabuses/')
+        self.assertEqual(list0.status_code, 200)
+        self.assertEqual(list0.json(), [])
+
+        create = self.client.post(
+            '/api/v1/syllabuses/',
+            {
+                'external_id': 'local_syl_1',
+                'file_name': 'demo.pdf',
+                'topics': [
+                    {'id': 'M1', 'title': 'Tema 1', 'type': 'lecture'},
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(create.status_code, 201)
+        sid = create.json()['id']
+
+        list1 = self.client.get('/api/v1/syllabuses/')
+        self.assertEqual(list1.status_code, 200)
+        self.assertEqual(len(list1.json()), 1)
+
+        del_resp = self.client.delete(f'/api/v1/syllabuses/{sid}/')
+        self.assertEqual(del_resp.status_code, 204)
+
+        list2 = self.client.get('/api/v1/syllabuses/')
+        self.assertEqual(list2.json(), [])

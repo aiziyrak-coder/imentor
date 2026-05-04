@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import PreparedContent
+from .models import PreparedContent, SyllabusDocument
 
 
 class LocalLoginSerializer(serializers.Serializer):
@@ -52,3 +52,28 @@ class PreparedContentSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+
+class SyllabusDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SyllabusDocument
+        fields = ['id', 'external_id', 'file_name', 'topics', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class SyllabusUpsertSerializer(serializers.Serializer):
+    external_id = serializers.CharField(max_length=128)
+    file_name = serializers.CharField(max_length=512)
+    topics = serializers.ListField(child=serializers.DictField(), allow_empty=True)
+
+    def validate_external_id(self, value: str) -> str:
+        v = value.strip()
+        if len(v) < 4:
+            raise serializers.ValidationError('external_id is too short.')
+        return v
+
+    def validate_file_name(self, value: str) -> str:
+        v = value.strip()
+        if len(v) < 2:
+            raise serializers.ValidationError('file_name is too short.')
+        return v

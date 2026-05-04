@@ -11,8 +11,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 
 from .permissions import resolve_user_role, HasEducationRole
-from .models import PreparedContent
-from .serializers import LocalLoginSerializer, PreparedContentSerializer
+from .models import PreparedContent, SyllabusDocument
+from .serializers import (
+    LocalLoginSerializer,
+    PreparedContentSerializer,
+    SyllabusDocumentSerializer,
+    SyllabusUpsertSerializer,
+)
 
 
 class HealthResponseSerializer(serializers.Serializer):
@@ -187,3 +192,41 @@ class LocalLoginView(APIView):
                 "username": username,
             }
         )
+
+
+class SyllabusDocumentListCreateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    @extend_schema(responses={200: SyllabusDocumentSerializer(many=True)})
+    def get(self, request):
+        qs = SyllabusDocument.objects.filter(owner_key=request.user.username)
+        return Response(SyllabusDocumentSerializer(qs, many=True).data)
+
+    @extend_schema(request=SyllabusUpsertSerializer, responses={201: SyllabusDocumentSerializer})
+    def post(self, request):
+        serializer = SyllabusUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        obj, _created = SyllabusDocument.objects.update_or_create(
+            owner_key=request.user.username,
+            external_id=data['external_id'],
+            defaults={
+                'file_name': data['file_name'],
+                'topics': data['topics'],
+            },
+        )
+        return Response(SyllabusDocumentSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+class SyllabusDocumentDestroyView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def delete(self, request, pk: int):
+        try:
+            obj = SyllabusDocument.objects.get(pk=pk, owner_key=request.user.username)
+        except SyllabusDocument.DoesNotExist:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

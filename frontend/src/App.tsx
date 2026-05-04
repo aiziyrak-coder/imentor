@@ -99,6 +99,25 @@ const TARJIMON_NAV: NavItemDef[] = [
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
 
+/** Short labels for the mobile bottom tab bar */
+const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
+  'admin-dashboard': 'Panel',
+  'admin-staff': 'Hodimlar',
+  'admin-cases': 'Case',
+  'admin-tests': 'Test',
+  syllabus: 'Mavzu',
+  lectures: "Ma'ruza",
+  presentation: 'Slayd',
+  cases: 'Klinik',
+  tests: 'Testlar',
+  profile: 'Profil',
+  translator: 'Tarjima',
+};
+
+function mobileTabLabel(view: View, fullLabel: string): string {
+  return MOBILE_NAV_SHORT[view] ?? fullLabel.split('(')[0]?.trim().slice(0, 11) ?? fullLabel;
+}
+
 function navItemsForRole(role: UserRole): NavItemDef[] {
   switch (role) {
     case 'admin':
@@ -480,7 +499,7 @@ export default function App() {
         </>
       ) : (
       <>
-      <div className="flex flex-col h-screen w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">
+      <div className="flex flex-col h-[100dvh] min-h-0 w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">
       
       {/* Background iOS Orbs */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-400/25 rounded-full blur-[120px] pointer-events-none orb-float" />
@@ -488,13 +507,13 @@ export default function App() {
       <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] bg-cyan-300/20 rounded-full blur-[100px] pointer-events-none orb-float" />
 
       {/* Main Layout Container */}
-      <div className="relative z-10 flex w-full flex-1 p-4 gap-4 min-h-0">
+      <div className="relative z-10 flex w-full flex-1 min-h-0 p-2 sm:p-4 gap-2 sm:gap-4">
         
-        {/* Floating Sidebar */}
+        {/* Floating Sidebar — desktop / tablet only */}
         <motion.aside 
           initial={false}
           animate={{ width: isSidebarOpen ? 280 : 88 }}
-          className="ios-glass rounded-[2rem] flex flex-col z-50 shrink-0 overflow-hidden relative shadow-2xl pb-4 border border-white/60 print:hidden"
+          className="hidden md:flex md:flex-col ios-glass rounded-[2rem] z-50 shrink-0 overflow-hidden relative shadow-2xl pb-4 border border-white/60 print:hidden"
         >
           <div className="p-6 flex items-center justify-between pb-4">
             <div className={`flex items-center gap-3 overflow-hidden ${!isSidebarOpen && 'hidden'}`}>
@@ -550,25 +569,25 @@ export default function App() {
         </motion.aside>
 
         {/* Right Content Area */}
-        <div className="flex-1 flex flex-col gap-4 overflow-hidden relative">
+        <div className="flex-1 flex flex-col gap-2 sm:gap-4 overflow-hidden relative min-w-0 min-h-0">
           {/* Header */}
-          <header className="ios-glass h-20 rounded-[2rem] flex items-center justify-between px-8 shrink-0 z-40 shadow-sm border border-white/60 print:hidden">
-            <div className="flex items-center space-x-6">
-              <div className="w-11 h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors">
-                <Search size={20} />
+          <header className="ios-glass h-16 sm:h-20 rounded-2xl sm:rounded-[2rem] flex items-center justify-between px-3 sm:px-8 shrink-0 z-40 shadow-sm border border-white/60 print:hidden gap-2">
+            <div className="flex items-center min-w-0 flex-1 space-x-3 sm:space-x-6">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors shrink-0">
+                <Search size={18} className="sm:w-5 sm:h-5" />
               </div>
-              <div className="flex-col hidden sm:flex border-l border-black/10 pl-6 space-y-0.5">
-                <h1 className="text-[16px] font-semibold tracking-tight text-black/90">iMentor Platform</h1>
-                <p className="text-[12px] text-black/50 font-medium tracking-wide">
+              <div className="flex-col hidden sm:flex border-l border-black/10 pl-4 sm:pl-6 space-y-0.5 min-w-0">
+                <h1 className="text-[14px] sm:text-[16px] font-semibold tracking-tight text-black/90 truncate">iMentor Platform</h1>
+                <p className="text-[11px] sm:text-[12px] text-black/50 font-medium tracking-wide truncate">
                   {userRole === 'admin' ? 'Markaziy nazorat paneli' : 'Tizim holati va monitoring'}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value as AppLanguage)}
-                className="h-11 rounded-xl border border-white/60 bg-white/70 px-3 text-[12px] font-semibold text-black/70 outline-none"
+                className="h-10 sm:h-11 max-w-[7rem] sm:max-w-none rounded-xl border border-white/60 bg-white/70 px-2 sm:px-3 text-[11px] sm:text-[12px] font-semibold text-black/70 outline-none"
                 aria-label="Platform language"
               >
                 <option value="uz">{languageLabel('uz')}</option>
@@ -578,7 +597,7 @@ export default function App() {
               <button
                 ref={notificationsButtonRef}
                 onClick={() => setNotificationsOpen((v) => !v)}
-                className="relative w-11 h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors"
+                className="relative w-10 h-10 sm:w-11 sm:h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors"
               >
                 <Bell size={20} />
                 {unreadCount > 0 && (
@@ -669,8 +688,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Main View Port */}
-          <div className="flex-1 overflow-y-auto scrollbar-hide rounded-[2rem]">
+          {/* Main View Port — extra bottom padding on phones for tab bar */}
+          <div className="flex-1 overflow-y-auto scrollbar-hide rounded-2xl sm:rounded-[2rem] min-h-0 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] md:pb-0">
             {mountedViews.map((view) => {
               const isActive = activeView === view;
               return (
@@ -688,7 +707,50 @@ export default function App() {
           </div>
         </div>
       </div>
-      {platformCredit}
+      <div className="hidden md:block print:hidden">{platformCredit}</div>
+
+      {/* Mobile: native-style bottom tabs + compact credit strip */}
+      <div
+        className="md:hidden fixed bottom-0 left-0 right-0 z-[70] flex flex-col border-t border-white/70 bg-white/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.08)] print:hidden"
+        style={{ paddingBottom: 'max(0.35rem, env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="px-2 pt-1 max-[380px]:hidden">
+          <div className="mx-auto flex max-w-lg flex-nowrap items-center justify-center gap-x-2 overflow-x-auto text-[8px] leading-tight text-black/55 whitespace-nowrap py-0.5">
+            <span>{'\u00A9'} 2026 iMentor</span>
+            <a href="https://fjsti.uz" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 shrink-0">
+              FJSTI
+            </a>
+          </div>
+        </div>
+        <nav
+          className="flex flex-nowrap items-stretch justify-start gap-1 overflow-x-auto px-2 pt-1 pb-0.5 scrollbar-hide"
+          aria-label="Asosiy navigatsiya"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          {navItems.map((item) => {
+            const active = activeView === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveView(item.id as View)}
+                className={`flex min-w-[3.75rem] max-w-[5rem] shrink-0 flex-col items-center justify-center rounded-2xl px-1 py-2 transition-colors ${
+                  active ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25' : 'text-black/55 active:bg-black/5'
+                }`}
+              >
+                <item.icon
+                  size={22}
+                  strokeWidth={active ? 2.5 : 2}
+                  className={`shrink-0 ${active ? 'text-white' : 'text-black/45'}`}
+                />
+                <span className="mt-0.5 max-w-full truncate px-0.5 text-center text-[9px] font-semibold leading-tight">
+                  {mobileTabLabel(item.id, item.label)}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
     </div>
       </>
       )}

@@ -28,3 +28,30 @@ class PreparedContent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}:{self.kind}:{self.topic}"
+
+
+class SyllabusDocument(models.Model):
+    """
+    Syllabus PDF metadata + extracted topic list, scoped per staff user (JWT username = phone digits).
+    """
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    external_id = models.CharField(max_length=128)
+    file_name = models.CharField(max_length=512)
+    topics = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner_key', 'external_id'],
+                name='core_syllabus_owner_external_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['owner_key', '-created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}:{self.file_name}"

@@ -492,7 +492,8 @@ export default function App() {
 
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>
-      {!user && isPublicStudentTestUrl() ? (
+      {/* Student QR: always fullscreen test only (no shell), even if staff session exists */}
+      {isPublicStudentTestUrl() ? (
         <GlobalTopicContext.Provider value={null}>
           <GlobalLectureContext.Provider value={{ content: '', setContent: () => {} }}>
             <div className="min-h-[100dvh] h-[100dvh] w-full overflow-auto bg-[#f2f2f7]">

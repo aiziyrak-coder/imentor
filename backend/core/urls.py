@@ -1,6 +1,10 @@
 from django.urls import path
 
 from .views import (
+    AdminStaffLocationAlertsView,
+    AdminStaffLocationPingsView,
+    AdminStaffScheduleDetailView,
+    AdminStaffScheduleListCreateView,
     AuthMeView,
     HealthView,
     LiveTestPublicRetrieveView,
@@ -9,6 +13,8 @@ from .views import (
     LocalLoginView,
     PreparedContentV1View,
     PreparedContentView,
+    StaffLocationPingView,
+    StaffScheduleSelfView,
     StartupApplicationAdminInboxView,
     StartupApplicationDetailView,
     StartupApplicationListCreateView,
@@ -32,4 +38,10 @@ urlpatterns = [
     path('v1/startup-applications/admin/inbox/', StartupApplicationAdminInboxView.as_view(), name='startup-admin-inbox'),
     path('v1/startup-applications/<int:pk>/', StartupApplicationDetailView.as_view(), name='startup-application-detail'),
     path('v1/startup-applications/<int:pk>/submit/', StartupApplicationSubmitView.as_view(), name='startup-application-submit'),
+    path('v1/staff/location-ping/', StaffLocationPingView.as_view(), name='staff-location-ping'),
+    path('v1/staff/schedule/', StaffScheduleSelfView.as_view(), name='staff-schedule-self'),
+    path('v1/admin/staff-schedule/', AdminStaffScheduleListCreateView.as_view(), name='admin-staff-schedule'),
+    path('v1/admin/staff-schedule/<int:pk>/', AdminStaffScheduleDetailView.as_view(), name='admin-staff-schedule-detail'),
+    path('v1/admin/staff-location-pings/', AdminStaffLocationPingsView.as_view(), name='admin-staff-location-pings'),
+    path('v1/admin/staff-location-alerts/', AdminStaffLocationAlertsView.as_view(), name='admin-staff-location-alerts'),
 ]

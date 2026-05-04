@@ -4,6 +4,9 @@ from .models import (
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
+    StaffLocationAlert,
+    StaffLocationPing,
+    StaffScheduleSlot,
     StartupProjectApplication,
     SyllabusDocument,
 )
@@ -39,3 +42,22 @@ class StartupProjectApplicationAdmin(admin.ModelAdmin):
     list_display = ('id', 'owner_key', 'title', 'status', 'submitted_at', 'updated_at')
     list_filter = ('status',)
     search_fields = ('owner_key', 'title')
+
+
+@admin.register(StaffScheduleSlot)
+class StaffScheduleSlotAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner_key', 'weekday', 'start_time', 'end_time', 'building_name', 'is_active')
+    list_filter = ('weekday', 'is_active')
+    search_fields = ('owner_key', 'building_name', 'title')
+
+
+@admin.register(StaffLocationPing)
+class StaffLocationPingAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner_key', 'latitude', 'longitude', 'recorded_at')
+    search_fields = ('owner_key',)
+
+
+@admin.register(StaffLocationAlert)
+class StaffLocationAlertAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner_key', 'building_name', 'distance_m', 'created_at')
+    search_fields = ('owner_key', 'building_name', 'message')

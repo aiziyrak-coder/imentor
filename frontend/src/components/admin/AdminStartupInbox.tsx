@@ -106,6 +106,14 @@ export default function AdminStartupInbox() {
                       <p>{r.participant_kind === 'employee' ? 'Xodim' : 'Talaba'}</p>
                     </div>
                     <div>
+                      <span className="text-[11px] font-semibold text-black/45">Loyiha turi</span>
+                      <p>
+                        {r.project_domain === 'research'
+                          ? '🔬 Ilmiy tadqiqot'
+                          : '🚀 Startap / innovatsiya'}
+                      </p>
+                    </div>
+                    <div>
                       <span className="text-[11px] font-semibold text-black/45">Profil (snapshot)</span>
                       <pre className="mt-1 text-[11px] whitespace-pre-wrap break-words bg-white/70 rounded-lg p-2 border border-black/5">
                         {shortJson(r.profile_snapshot, 4000)}

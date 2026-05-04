@@ -42,3 +42,12 @@ class IsStartuperOrAdmin(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         return resolve_user_role(request.user) in ("startuper", "admin")
+
+
+class IsHodimRole(BasePermission):
+    """Faqat o'qituvchi (hodim) — joylashuv pinglari."""
+
+    message = "Faqat hodim roli joylashuv yuborishi mumkin."
+
+    def has_permission(self, request, view) -> bool:
+        return resolve_user_role(request.user) == "hodim"

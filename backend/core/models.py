@@ -109,6 +109,20 @@ class StartupProjectApplication(models.Model):
     summary = models.TextField(blank=True)
     description = models.TextField(blank=True)
     participant_kind = models.CharField(max_length=16, default=PARTICIPANT_STUDENT)
+
+    DOMAIN_STARTUP = "startup"
+    DOMAIN_RESEARCH = "research"
+    DOMAIN_CHOICES = (
+        (DOMAIN_STARTUP, "Startup"),
+        (DOMAIN_RESEARCH, "Research"),
+    )
+    project_domain = models.CharField(
+        max_length=20,
+        default=DOMAIN_STARTUP,
+        db_index=True,
+    )
+    workspace_profile = models.JSONField(default=dict)
+
     profile_snapshot = models.JSONField(default=dict)
     ai_pack = models.JSONField(default=dict)
     submission_dossier = models.JSONField(default=dict)
@@ -126,3 +140,87 @@ class StartupProjectApplication(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}:{self.title[:40]}"
+
+
+class StaffScheduleSlot(models.Model):
+    """
+    O'qituvchi uchun kutilgan joy va vaqt (admin belgilaydi).
+    weekday: 0=Dushanba ... 6=Yakshanba (Python weekday).
+    """
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    weekday = models.SmallIntegerField(db_index=True)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    building_name = models.CharField(max_length=255)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    radius_m = models.PositiveIntegerField(default=1000)
+    title = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["owner_key", "weekday", "start_time"]
+        indexes = [
+            models.Index(fields=["owner_key", "weekday", "is_active"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}:{self.weekday}:{self.start_time}"
+
+
+class StaffLocationPing(models.Model):
+    """O'qituvchi telefonidan kelgan GPS ping."""
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    accuracy_m = models.FloatField(null=True, blank=True)
+    recorded_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    client_ts_ms = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-recorded_at"]
+        indexes = [
+            models.Index(fields=["owner_key", "-recorded_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}@{self.recorded_at}"
+
+
+class StaffLocationAlert(models.Model):
+    """
+    Dars oynasida radiusdan tashqarida aniqlangan holat (bir slot kuniga cheklangan takror).
+    """
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    slot = models.ForeignKey(
+        StaffScheduleSlot,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+    )
+    building_name = models.CharField(max_length=255, blank=True)
+    expected_lat = models.FloatField()
+    expected_lng = models.FloatField()
+    actual_lat = models.FloatField()
+    actual_lng = models.FloatField()
+    distance_m = models.FloatField()
+    radius_m = models.PositiveIntegerField()
+    slot_start = models.TimeField(null=True, blank=True)
+    slot_end = models.TimeField(null=True, blank=True)
+    message = models.CharField(max_length=512, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["owner_key", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}:alert@{self.created_at}"

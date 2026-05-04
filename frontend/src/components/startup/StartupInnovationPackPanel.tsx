@@ -625,6 +625,7 @@ function FallbackUnknownKeys({ pack }: { pack: Record<string, unknown> }) {
     'suggested_pdf_outline',
     'application_documents',
     'next_steps',
+    'coach_thread',
   ]);
 
   const rest = Object.entries(pack).filter(([k]) => !skip.has(k));

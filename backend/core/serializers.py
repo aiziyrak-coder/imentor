@@ -1,6 +1,13 @@
 from rest_framework import serializers
 
-from .models import PreparedContent, StartupProjectApplication, SyllabusDocument
+from .models import (
+    PreparedContent,
+    StaffLocationAlert,
+    StaffLocationPing,
+    StaffScheduleSlot,
+    StartupProjectApplication,
+    SyllabusDocument,
+)
 
 
 class LocalLoginSerializer(serializers.Serializer):
@@ -93,6 +100,9 @@ class LiveTestSubmissionCreateSerializer(serializers.Serializer):
 
 
 class StartupProjectApplicationSerializer(serializers.ModelSerializer):
+    project_domain = serializers.ChoiceField(choices=['startup', 'research'], default='startup')
+    workspace_profile = serializers.JSONField(required=False, default=dict)
+
     class Meta:
         model = StartupProjectApplication
         fields = [
@@ -102,6 +112,8 @@ class StartupProjectApplicationSerializer(serializers.ModelSerializer):
             'summary',
             'description',
             'participant_kind',
+            'project_domain',
+            'workspace_profile',
             'profile_snapshot',
             'ai_pack',
             'submission_dossier',
@@ -123,3 +135,68 @@ class StartupProjectApplicationSerializer(serializers.ModelSerializer):
         if instance.status == StartupProjectApplication.STATUS_SUBMITTED and validated_data:
             raise serializers.ValidationError('Yuborilgan arizani tahrirlash mumkin emas.')
         return super().update(instance, validated_data)
+
+
+class StaffScheduleSlotSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffScheduleSlot
+        fields = [
+            'id',
+            'owner_key',
+            'weekday',
+            'start_time',
+            'end_time',
+            'building_name',
+            'latitude',
+            'longitude',
+            'radius_m',
+            'title',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class StaffLocationPingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffLocationPing
+        fields = [
+            'id',
+            'owner_key',
+            'latitude',
+            'longitude',
+            'accuracy_m',
+            'recorded_at',
+            'client_ts_ms',
+        ]
+        read_only_fields = fields
+
+
+class StaffLocationPingCreateSerializer(serializers.Serializer):
+    latitude = serializers.FloatField()
+    longitude = serializers.FloatField()
+    accuracy_m = serializers.FloatField(required=False, allow_null=True)
+    client_ts_ms = serializers.IntegerField(required=False, allow_null=True)
+
+
+class StaffLocationAlertSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffLocationAlert
+        fields = [
+            'id',
+            'owner_key',
+            'slot',
+            'building_name',
+            'expected_lat',
+            'expected_lng',
+            'actual_lat',
+            'actual_lng',
+            'distance_m',
+            'radius_m',
+            'slot_start',
+            'slot_end',
+            'message',
+            'created_at',
+        ]
+        read_only_fields = fields

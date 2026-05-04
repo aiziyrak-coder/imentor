@@ -8,6 +8,8 @@ export type StartupApplicationDto = {
   summary: string;
   description: string;
   participant_kind: string;
+  project_domain?: 'startup' | 'research';
+  workspace_profile?: Record<string, unknown>;
   profile_snapshot: Record<string, unknown>;
   ai_pack: Record<string, unknown>;
   /** Jamoa, hujjatlar, pitch — yuborish oldidan to‘ldiriladi */
@@ -42,6 +44,8 @@ export async function createStartupApplication(body: {
   summary?: string;
   description?: string;
   participant_kind: 'student' | 'employee';
+  project_domain?: 'startup' | 'research';
+  workspace_profile?: Record<string, unknown>;
   profile_snapshot: Record<string, unknown>;
 }): Promise<StartupApplicationDto> {
   return httpJson<StartupApplicationDto>(`${apiBaseUrl()}/v1/startup-applications/`, {
@@ -57,7 +61,15 @@ export async function updateStartupApplication(
   body: Partial<
     Pick<
       StartupApplicationDto,
-      'title' | 'summary' | 'description' | 'ai_pack' | 'participant_kind' | 'profile_snapshot' | 'submission_dossier'
+      | 'title'
+      | 'summary'
+      | 'description'
+      | 'ai_pack'
+      | 'participant_kind'
+      | 'project_domain'
+      | 'workspace_profile'
+      | 'profile_snapshot'
+      | 'submission_dossier'
     >
   >
 ): Promise<StartupApplicationDto> {

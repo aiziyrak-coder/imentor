@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from .permissions import (
     HasEducationRole,
     IsAdminRole,
+    IsHodimRole,
     IsStartuperOrAdmin,
     resolve_user_role,
 )
@@ -20,14 +21,22 @@ from .models import (
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
+    StaffLocationAlert,
+    StaffLocationPing,
+    StaffScheduleSlot,
     StartupProjectApplication,
     SyllabusDocument,
 )
+from .location_service import record_ping_and_evaluate
 from .serializers import (
     LocalLoginSerializer,
     LiveTestSubmissionCreateSerializer,
     LiveTestUpsertSerializer,
     PreparedContentSerializer,
+    StaffLocationAlertSerializer,
+    StaffLocationPingCreateSerializer,
+    StaffLocationPingSerializer,
+    StaffScheduleSlotSerializer,
     StartupProjectApplicationSerializer,
     SyllabusDocumentSerializer,
     SyllabusUpsertSerializer,
@@ -435,3 +444,109 @@ class StartupApplicationAdminInboxView(APIView):
             status=StartupProjectApplication.STATUS_SUBMITTED,
         ).order_by('-submitted_at')
         return Response(StartupProjectApplicationSerializer(qs, many=True).data)
+
+
+class StaffLocationPingView(APIView):
+    """
+    Hodim: GPS nuqtasini yuborish. Server jadval bo'yicha radius tekshiradi.
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsHodimRole]
+
+    def post(self, request):
+        serializer = StaffLocationPingCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        _ping, alerts = record_ping_and_evaluate(
+            request.user.username,
+            d['latitude'],
+            d['longitude'],
+            d.get('accuracy_m'),
+            d.get('client_ts_ms'),
+        )
+        return Response(
+            {
+                'ok': True,
+                'alerts_created': len(alerts),
+                'alert_ids': [a.id for a in alerts],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class StaffScheduleSelfView(APIView):
+    """Hodim: o'z dars jadvali (kutilgan binolar va vaqt)."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsHodimRole]
+
+    def get(self, request):
+        qs = StaffScheduleSlot.objects.filter(
+            owner_key=request.user.username,
+            is_active=True,
+        ).order_by('weekday', 'start_time')
+        return Response(StaffScheduleSlotSerializer(qs, many=True).data)
+
+
+class AdminStaffScheduleListCreateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        owner = request.query_params.get('owner_key', '').strip()
+        qs = StaffScheduleSlot.objects.all().order_by('owner_key', 'weekday', 'start_time')
+        if owner:
+            qs = qs.filter(owner_key=owner)
+        return Response(StaffScheduleSlotSerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = StaffScheduleSlotSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class AdminStaffScheduleDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def patch(self, request, pk: int):
+        obj = StaffScheduleSlot.objects.filter(pk=pk).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = StaffScheduleSlotSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk: int):
+        obj = StaffScheduleSlot.objects.filter(pk=pk).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminStaffLocationPingsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        owner = request.query_params.get('owner_key', '').strip()
+        qs = StaffLocationPing.objects.all().order_by('-recorded_at')
+        if owner:
+            qs = qs.filter(owner_key=owner)
+        return Response(StaffLocationPingSerializer(qs[:2000], many=True).data)
+
+
+class AdminStaffLocationAlertsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        owner = request.query_params.get('owner_key', '').strip()
+        qs = StaffLocationAlert.objects.all().order_by('-created_at')
+        if owner:
+            qs = qs.filter(owner_key=owner)
+        return Response(StaffLocationAlertSerializer(qs[:500], many=True).data)

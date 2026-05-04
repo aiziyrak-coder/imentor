@@ -887,20 +887,33 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
     summary: string,
     fullDescription: string,
     profileNote: string,
-    language: AppLanguage = 'uz'
+    language: AppLanguage = 'uz',
+    projectDomain: 'startup' | 'research' = 'startup',
+    workspaceExtraNote: string = ''
   ): Promise<Record<string, unknown>> {
     const outLang = languageName(language);
+    const domainLine =
+      projectDomain === 'research'
+        ? 'USER MODE: ILMIY TADQIROT — prioritize scientific_research_block, evidence, methodology, peer comparisons; keep market sections concise unless clearly translational.'
+        : 'USER MODE: STARTAP — prioritize market_analysis, traction_readiness, competitive_landscape, investor_style_outline; scientific block shorter unless the project is clearly R&D-heavy.';
+    const extraBlock =
+      workspaceExtraNote.trim().length > 0
+        ? `\nAdditional structured notes from applicant:\n${workspaceExtraNote.trim()}\n`
+        : '';
+
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-pro-preview',
       contents: `You are a senior innovation analyst, medical-education grant advisor, and early-stage startup mentor for Farg'ona jamoat salomatligi tibbiyot instituti (public health / medical higher education, Uzbekistan).
+
+${domainLine}
 
 Inputs:
 - Title: ${projectTitle}
 - Short summary: ${summary}
 - Full description: ${fullDescription}
 - Applicant / lab context: ${profileNote}
-
-Task: produce a RICH, structured analysis (not generic filler). If the work is more scientific R&D than a company, weight "research_evidence_block" heavily. If it is a product/startup, weight market and traction. If mixed, set project_archetype to "hybrid" and cover both.
+${extraBlock}
+Task: produce a RICH, structured analysis (not generic filler). Respect USER MODE above for emphasis. If evidence demands hybrid archetype, use project_archetype "hybrid" and justify briefly.
 
 Return ONLY valid JSON (no markdown) with EXACTLY these keys. All human-readable text must be in ${outLang}. Use numbers where specified. Be specific to THIS project, not templates.
 
@@ -1010,6 +1023,52 @@ Rules:
       },
     });
     return parseJSONSafe<Record<string, unknown>>(response.text);
+  },
+
+  /**
+   * Follow-up chat after structured analysis — concise, actionable coaching in the app language.
+   */
+  async startupInnovationCoachReply(
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    ctx: {
+      project_domain: 'startup' | 'research';
+      title: string;
+      summary: string;
+      description: string;
+      workspace_profile_json: string;
+      analysis_json_excerpt: string;
+    },
+    language: AppLanguage = 'uz'
+  ): Promise<string> {
+    const outLang = languageName(language);
+    const transcript = messages
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n');
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `You are the same FJSTI innovation & research mentor assistant (medical higher education / public health institute context).
+
+Project mode: ${ctx.project_domain === 'research' ? 'Scientific research / R&D' : 'Startup / product innovation'}.
+Title: ${ctx.title}
+Summary: ${ctx.summary}
+Description: ${ctx.description}
+Workspace profile (JSON): ${ctx.workspace_profile_json}
+
+Earlier structured analysis (JSON excerpt, may be truncated):
+${ctx.analysis_json_excerpt}
+
+Conversation so far:
+${transcript}
+
+Reply ONLY as the Assistant to the latest User message. Be specific, practical, and supportive. Use bullet lists when helpful. Output language: ${outLang}. Do not repeat the entire JSON analysis unless asked. If asked something outside project scope, briefly redirect to actionable next steps for this project.`,
+      config: {
+        maxOutputTokens: 4096,
+        temperature: 0.45,
+      },
+    });
+    const text = response.text?.trim();
+    if (!text) throw new Error('Empty coach reply');
+    return text;
   },
 
   async generateExercises(topic: string): Promise<Exercise> {

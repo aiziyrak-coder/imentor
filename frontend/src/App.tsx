@@ -26,6 +26,7 @@ import {
   Users,
   Rocket,
   FolderOpen,
+  MapPin,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -63,12 +64,16 @@ import AdminStaffManagement from './components/admin/AdminStaffManagement';
 import AdminCasesLibrary from './components/admin/AdminCasesLibrary';
 import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
 import AdminStartupInbox from './components/admin/AdminStartupInbox';
+import AdminStaffLocationConsole from './components/admin/AdminStaffLocationConsole';
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
+import StaffLocationPage from './components/staff/StaffLocationPage';
+import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 
 type View =
   | 'admin-dashboard'
   | 'admin-staff'
+  | 'admin-staff-location'
   | 'admin-cases'
   | 'admin-tests'
   | 'admin-startups'
@@ -80,7 +85,8 @@ type View =
   | 'translator'
   | 'lectures'
   | 'startup'
-  | 'startup-dossier';
+  | 'startup-dossier'
+  | 'staff-location';
 
 type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
@@ -91,6 +97,7 @@ const HODIM_NAV: NavItemDef[] = [
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
   { id: 'cases', label: 'Keys yaratish', icon: BriefcaseMedical },
   { id: 'tests', label: 'Test yaratish', icon: ClipboardList },
+  { id: 'staff-location', label: 'Joylashuv', icon: MapPin },
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
 
@@ -98,6 +105,7 @@ const HODIM_NAV: NavItemDef[] = [
 const ADMIN_NAV: NavItemDef[] = [
   { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'admin-staff', label: 'Hodimlar', icon: Users },
+  { id: 'admin-staff-location', label: 'Joylashuv (GPS)', icon: MapPin },
   { id: 'admin-startups', label: 'Startap arizalar', icon: Rocket },
   { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
   { id: 'admin-tests', label: 'Test bazasi', icon: ClipboardList },
@@ -119,6 +127,7 @@ const STARTUPER_NAV: NavItemDef[] = [
 const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-dashboard': 'Panel',
   'admin-staff': 'Hodimlar',
+  'admin-staff-location': 'GPS',
   'admin-startups': 'Startap',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
@@ -129,6 +138,7 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   presentation: 'Slayd',
   cases: 'Klinik',
   tests: 'Testlar',
+  'staff-location': 'GPS',
   profile: 'Profil',
   translator: 'Tarjima',
 };
@@ -324,6 +334,8 @@ export default function App() {
   const userRole = user ? normalizeUserRole(user) : null;
   const navItems = useMemo(() => (userRole ? navItemsForRole(userRole) : []), [userRole]);
 
+  useStaffLocationTracking(Boolean(user && userRole === 'hodim'));
+
   useEffect(() => {
     if (!user || !userRole) return;
     const allowed = navItemsForRole(userRole).map((i) => i.id);
@@ -353,6 +365,8 @@ export default function App() {
         return <AdminDashboardHome />;
       case 'admin-staff':
         return <AdminStaffManagement />;
+      case 'admin-staff-location':
+        return <AdminStaffLocationConsole />;
       case 'admin-cases':
         return <AdminCasesLibrary />;
       case 'admin-tests':
@@ -375,6 +389,8 @@ export default function App() {
         return <CaseStudies />;
       case 'tests':
         return <TestQuestions />;
+      case 'staff-location':
+        return <StaffLocationPage />;
       case 'translator':
         return <Translator />;
       default:

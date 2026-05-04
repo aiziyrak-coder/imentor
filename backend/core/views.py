@@ -162,7 +162,7 @@ class AuthMeView(APIView):
 
     @extend_schema(responses=AuthMeResponseSerializer)
     def get(self, request):
-        role = resolve_user_role(request.user)
+        role = resolve_user_role(request.user, request)
         return Response(
             {
                 "id": request.user.id,
@@ -380,23 +380,23 @@ class StartupApplicationDetailView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
-    def _get(self, pk: int, user):
+    def _get(self, request, pk: int, user):
         obj = StartupProjectApplication.objects.filter(pk=pk).first()
         if not obj:
             return None
-        role = resolve_user_role(user)
+        role = resolve_user_role(user, request)
         if role == 'admin' or obj.owner_key == user.username:
             return obj
         return None
 
     def get(self, request, pk: int):
-        obj = self._get(pk, request.user)
+        obj = self._get(request, pk, request.user)
         if not obj:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(StartupProjectApplicationSerializer(obj).data)
 
     def patch(self, request, pk: int):
-        obj = self._get(pk, request.user)
+        obj = self._get(request, pk, request.user)
         if not obj:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         serializer = StartupProjectApplicationSerializer(
@@ -410,10 +410,10 @@ class StartupApplicationDetailView(APIView):
         return Response(StartupProjectApplicationSerializer(obj).data)
 
     def delete(self, request, pk: int):
-        obj = self._get(pk, request.user)
+        obj = self._get(request, pk, request.user)
         if not obj:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        if obj.status == StartupProjectApplication.STATUS_SUBMITTED and resolve_user_role(request.user) != 'admin':
+        if obj.status == StartupProjectApplication.STATUS_SUBMITTED and resolve_user_role(request.user, request) != 'admin':
             return Response({'detail': 'Yuborilgan arizani o‘chirib bo‘lmaydi.'}, status=status.HTTP_400_BAD_REQUEST)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

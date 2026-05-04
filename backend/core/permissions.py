@@ -5,11 +5,42 @@ from rest_framework.permissions import BasePermission
 ALLOWED_ROLES = ("admin", "hodim", "tarjimon", "startuper")
 
 
-def resolve_user_role(user) -> str | None:
+def _jwt_role_claim(request) -> str | None:
+    """
+    LocalLoginView access tokeniga qo'shilgan `role` (imzolangan).
+    DB Group bilan sinxron yo'qolganda ham so'nggi kirishdagi rol ishonchli.
+    """
+    if request is None or not hasattr(request, "auth") or request.auth is None:
+        return None
+    auth = request.auth
+    raw: object | None = None
+    try:
+        if isinstance(auth, dict):
+            raw = auth.get("role")
+        elif hasattr(auth, "get"):
+            raw = auth.get("role", None)
+        if raw is None and hasattr(auth, "__getitem__"):
+            try:
+                raw = auth["role"]
+            except (KeyError, TypeError):
+                raw = None
+    except Exception:
+        return None
+    if not isinstance(raw, str):
+        return None
+    r = raw.strip().lower()
+    return r if r in ALLOWED_ROLES else None
+
+
+def resolve_user_role(user, request=None) -> str | None:
     if not user or not user.is_authenticated:
         return None
     if getattr(user, "is_superuser", False):
         return "admin"
+    # So'nggi local-login JWT dagi rol (guruhlar eskirgan bo'lsa ham)
+    jwt_role = _jwt_role_claim(request) if request is not None else None
+    if jwt_role is not None:
+        return jwt_role
 
     group_names = {group.name.lower() for group in user.groups.all()}
     for role in ALLOWED_ROLES:
@@ -27,21 +58,21 @@ class HasEducationRole(BasePermission):
     message = "You do not have a permitted role for this endpoint."
 
     def has_permission(self, request, view) -> bool:
-        return resolve_user_role(request.user) is not None
+        return resolve_user_role(request.user, request) is not None
 
 
 class IsAdminRole(BasePermission):
     message = "Administrator huquqi kerak."
 
     def has_permission(self, request, view) -> bool:
-        return resolve_user_role(request.user) == "admin"
+        return resolve_user_role(request.user, request) == "admin"
 
 
 class IsStartuperOrAdmin(BasePermission):
     message = "Startuper yoki administrator huquqi kerak."
 
     def has_permission(self, request, view) -> bool:
-        return resolve_user_role(request.user) in ("startuper", "admin")
+        return resolve_user_role(request.user, request) in ("startuper", "admin")
 
 
 class IsHodimRole(BasePermission):
@@ -50,4 +81,4 @@ class IsHodimRole(BasePermission):
     message = "Faqat hodim roli joylashuv yuborishi mumkin."
 
     def has_permission(self, request, view) -> bool:
-        return resolve_user_role(request.user) == "hodim"
+        return resolve_user_role(request.user, request) == "hodim"

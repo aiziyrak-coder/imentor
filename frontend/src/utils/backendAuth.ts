@@ -1,4 +1,4 @@
-import { getCurrentLocalUser } from './localStaffAuth';
+import { getCurrentLocalUser, normalizeUserRole } from './localStaffAuth';
 import { httpJson } from '../api/httpClient';
 
 type BackendTokenBundle = {
@@ -64,7 +64,7 @@ async function localLoginAndGetTokens(): Promise<CachedBundle | null> {
     body: {
       phone_digits: user.phoneDigits,
       password: user.password,
-      role: user.role ?? 'hodim',
+      role: normalizeUserRole(user),
       first_name: user.firstName,
       last_name: user.lastName,
       display_name: user.displayName,

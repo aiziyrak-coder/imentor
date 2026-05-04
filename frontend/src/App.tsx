@@ -68,6 +68,7 @@ import AdminStaffLocationConsole from './components/admin/AdminStaffLocationCons
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import StaffLocationPage from './components/staff/StaffLocationPage';
+import HodimMobileExperienceBanner from './components/staff/HodimMobileExperienceBanner';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 
 type View =
@@ -689,6 +690,8 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {userRole === 'hodim' && <HodimMobileExperienceBanner />}
 
           {isNotificationsOpen && (
             <div

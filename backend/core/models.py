@@ -87,3 +87,41 @@ class LiveTestSubmission(models.Model):
 
     def __str__(self) -> str:
         return f"{self.session.session_key}:{self.last_name}"
+
+
+class StartupProjectApplication(models.Model):
+    """
+    Startuper / innovatsiya loyihasi: loyiha tavsifi, AI tahlil, administratorga yuborish.
+    """
+
+    STATUS_DRAFT = "draft"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Draft"),
+        (STATUS_SUBMITTED, "Submitted"),
+    )
+
+    PARTICIPANT_STUDENT = "student"
+    PARTICIPANT_EMPLOYEE = "employee"
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    title = models.CharField(max_length=512)
+    summary = models.TextField(blank=True)
+    description = models.TextField(blank=True)
+    participant_kind = models.CharField(max_length=16, default=PARTICIPANT_STUDENT)
+    profile_snapshot = models.JSONField(default=dict)
+    ai_pack = models.JSONField(default=dict)
+    status = models.CharField(max_length=16, default=STATUS_DRAFT, db_index=True)
+    submitted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["owner_key", "-updated_at"]),
+            models.Index(fields=["status", "-submitted_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}:{self.title[:40]}"

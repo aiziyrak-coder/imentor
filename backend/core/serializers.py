@@ -1,12 +1,12 @@
 from rest_framework import serializers
 
-from .models import PreparedContent, SyllabusDocument
+from .models import PreparedContent, StartupProjectApplication, SyllabusDocument
 
 
 class LocalLoginSerializer(serializers.Serializer):
     phone_digits = serializers.CharField(max_length=20)
     password = serializers.CharField(min_length=6, max_length=128)
-    role = serializers.ChoiceField(choices=["admin", "hodim", "tarjimon"], required=False)
+    role = serializers.ChoiceField(choices=["admin", "hodim", "tarjimon", "startuper"], required=False)
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     display_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
@@ -90,3 +90,35 @@ class LiveTestSubmissionCreateSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=128)
     last_name = serializers.CharField(max_length=128)
     answers = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+
+
+class StartupProjectApplicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StartupProjectApplication
+        fields = [
+            'id',
+            'owner_key',
+            'title',
+            'summary',
+            'description',
+            'participant_kind',
+            'profile_snapshot',
+            'ai_pack',
+            'status',
+            'submitted_at',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'owner_key', 'status', 'submitted_at', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError('Authentication required.')
+        validated_data['owner_key'] = request.user.username
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if instance.status == StartupProjectApplication.STATUS_SUBMITTED and validated_data:
+            raise serializers.ValidationError('Yuborilgan arizani tahrirlash mumkin emas.')
+        return super().update(instance, validated_data)

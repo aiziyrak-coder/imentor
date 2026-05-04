@@ -24,6 +24,7 @@ import {
   ClipboardList,
   FileText,
   Users,
+  Rocket,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -60,19 +61,23 @@ import AdminDashboardHome from './components/admin/AdminDashboardHome';
 import AdminStaffManagement from './components/admin/AdminStaffManagement';
 import AdminCasesLibrary from './components/admin/AdminCasesLibrary';
 import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
+import AdminStartupInbox from './components/admin/AdminStartupInbox';
+import StartupWorkspace from './components/startup/StartupWorkspace';
 
 type View =
   | 'admin-dashboard'
   | 'admin-staff'
   | 'admin-cases'
   | 'admin-tests'
+  | 'admin-startups'
   | 'syllabus'
   | 'profile'
   | 'presentation'
   | 'cases'
   | 'tests'
   | 'translator'
-  | 'lectures';
+  | 'lectures'
+  | 'startup';
 
 type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
@@ -90,6 +95,7 @@ const HODIM_NAV: NavItemDef[] = [
 const ADMIN_NAV: NavItemDef[] = [
   { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'admin-staff', label: 'Hodimlar', icon: Users },
+  { id: 'admin-startups', label: 'Startap arizalar', icon: Rocket },
   { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
   { id: 'admin-tests', label: 'Test bazasi', icon: ClipboardList },
   { id: 'profile', label: 'Profil', icon: UserCircle },
@@ -100,12 +106,19 @@ const TARJIMON_NAV: NavItemDef[] = [
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
 
+const STARTUPER_NAV: NavItemDef[] = [
+  { id: 'startup', label: 'Innovatsiya loyihasi', icon: Rocket },
+  { id: 'profile', label: 'Profil', icon: UserCircle },
+];
+
 /** Short labels for the mobile bottom tab bar */
 const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-dashboard': 'Panel',
   'admin-staff': 'Hodimlar',
+  'admin-startups': 'Startap',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
+  startup: 'Loyiha',
   syllabus: 'Mavzu',
   lectures: "Ma'ruza",
   presentation: 'Slayd',
@@ -127,6 +140,8 @@ function navItemsForRole(role: UserRole): NavItemDef[] {
       return HODIM_NAV;
     case 'tarjimon':
       return TARJIMON_NAV;
+    case 'startuper':
+      return STARTUPER_NAV;
     default:
       return HODIM_NAV;
   }
@@ -337,6 +352,10 @@ export default function App() {
         return <AdminCasesLibrary />;
       case 'admin-tests':
         return <AdminTestsLibrary />;
+      case 'admin-startups':
+        return <AdminStartupInbox />;
+      case 'startup':
+        return <StartupWorkspace />;
       case 'syllabus':
         return <SyllabusView onSelectTopic={handleSelectTopic} />;
       case 'lectures':
@@ -590,7 +609,11 @@ export default function App() {
               <div className="flex-col hidden sm:flex border-l border-black/10 pl-4 sm:pl-6 space-y-0.5 min-w-0">
                 <h1 className="text-[14px] sm:text-[16px] font-semibold tracking-tight text-black/90 truncate">iMentor Platform</h1>
                 <p className="text-[11px] sm:text-[12px] text-black/50 font-medium tracking-wide truncate">
-                  {userRole === 'admin' ? 'Markaziy nazorat paneli' : 'Tizim holati va monitoring'}
+                  {userRole === 'admin'
+                    ? 'Markaziy nazorat paneli'
+                    : userRole === 'startuper'
+                      ? 'Innovatsiya va startap loyihalari'
+                      : 'Tizim holati va monitoring'}
                 </p>
               </div>
             </div>
@@ -626,7 +649,9 @@ export default function App() {
                       ? 'Administrator'
                       : userRole === 'tarjimon'
                         ? 'Tarjimon'
-                        : 'Hodim'}
+                        : userRole === 'startuper'
+                          ? 'Startuper'
+                          : 'Hodim'}
                   </span>
                 </div>
                 <div className="w-12 h-12 rounded-[16px] bg-gradient-to-tr from-blue-400 to-indigo-500 p-[2px] shadow-md group-hover:shadow-lg transition-all group-hover:scale-105">

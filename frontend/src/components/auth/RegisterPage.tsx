@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, AlertCircle, Phone, Lock, Building2, Users, BookOpen } from 'lucide-react';
+import { Loader2, AlertCircle, Phone, Lock, Building2, Users, BookOpen, Briefcase } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
   isValidPhoneDigits,
@@ -7,6 +7,7 @@ import {
   normalizePhoneDigits,
   TEST_STAFF_PHONE,
   TEST_STAFF_PASSWORD,
+  type UserRole,
 } from '../../utils/localStaffAuth';
 
 interface RegisterPageProps {
@@ -22,6 +23,10 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
   const [faculty, setFaculty] = useState('Tibbiyot fakulteti');
   const [department, setDepartment] = useState('Ichki kasalliklar kafedrasi');
   const [direction, setDirection] = useState("Terapiya yo'nalishi");
+  const [regRole, setRegRole] = useState<Extract<UserRole, 'hodim' | 'startuper'>>('hodim');
+  const [participantKind, setParticipantKind] = useState<'student' | 'employee'>('student');
+  const [studyGroup, setStudyGroup] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,6 +56,16 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
       setError('Parollar mos emas.');
       return;
     }
+    if (regRole === 'startuper') {
+      if (participantKind === 'student' && !studyGroup.trim()) {
+        setError('Talaba sifatida guruhni kiriting.');
+        return;
+      }
+      if (participantKind === 'employee' && !jobTitle.trim()) {
+        setError('Xodim sifatida lavozimni kiriting.');
+        return;
+      }
+    }
     setLoading(true);
     try {
       registerLocalStaff({
@@ -61,6 +76,10 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
         faculty: faculty.trim(),
         department: department.trim(),
         direction: direction.trim(),
+        role: regRole,
+        participantKind: regRole === 'startuper' ? participantKind : undefined,
+        studyGroup: regRole === 'startuper' && participantKind === 'student' ? studyGroup.trim() : undefined,
+        jobTitle: regRole === 'startuper' && participantKind === 'employee' ? jobTitle.trim() : undefined,
       });
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
@@ -68,6 +87,8 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
         setError('Bu telefon raqam bilan allaqachon ro‘yxatdan o‘tilgan. «Kirish» sahifasiga o‘ting.');
       } else if (code === 'weak-password') {
         setError('Parol juda zaif.');
+      } else if (code === 'startuper-no-group' || code === 'startuper-no-title') {
+        setError('Startuper uchun guruh yoki lavozim to‘ldirilmagan.');
       } else {
         setError("Ro'yxatdan o'tishda xatolik. Qayta urinib ko'ring.");
       }
@@ -91,10 +112,24 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
             className="mx-auto w-16 h-16 rounded-2xl object-cover border border-white/70 shadow-lg mb-4 bg-white"
           />
           <h1 className="text-2xl font-bold text-black/90 tracking-tight">iMentor ro‘yxatdan o‘tish</h1>
-          <p className="text-[13px] text-black/50 mt-2 font-medium">iMentor xodimlari uchun — telefon, parol va ish joyi</p>
+          <p className="text-[13px] text-black/50 mt-2 font-medium">
+            Telefon, parol va ish joyi — startuper yoki hodim sifatida tanlang
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-black/55">Ro‘yxatdan o‘tish turi</label>
+            <select
+              value={regRole}
+              onChange={(e) => setRegRole(e.target.value as 'hodim' | 'startuper')}
+              className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
+            >
+              <option value="hodim">Hodim / o‘qituvchi (ta‘lim modullari)</option>
+              <option value="startuper">Startuper (innovatsiya va startap loyihalari)</option>
+            </select>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-black/55">Ism</label>
@@ -151,6 +186,47 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
               placeholder="Masalan: Davolash ishi"
             />
           </div>
+
+          {regRole === 'startuper' && (
+            <>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-black/55">Sizning holatingiz</label>
+                <select
+                  value={participantKind}
+                  onChange={(e) => setParticipantKind(e.target.value as 'student' | 'employee')}
+                  className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
+                >
+                  <option value="student">Talaba</option>
+                  <option value="employee">Xodim (kafedra / bo‘lim)</option>
+                </select>
+              </div>
+              {participantKind === 'student' ? (
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
+                    <Users size={12} /> O‘quv guruhi
+                  </label>
+                  <input
+                    value={studyGroup}
+                    onChange={(e) => setStudyGroup(e.target.value)}
+                    className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
+                    placeholder="Masalan: 421-22"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
+                    <Briefcase size={12} /> Lavozim
+                  </label>
+                  <input
+                    value={jobTitle}
+                    onChange={(e) => setJobTitle(e.target.value)}
+                    className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
+                    placeholder="Masalan: Katta o‘qituvchi, assistent"
+                  />
+                </div>
+              )}
+            </>
+          )}
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-black/55">Telefon raqam</label>

@@ -10,13 +10,25 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 
-from .permissions import resolve_user_role, HasEducationRole
-from .models import LiveTestSession, LiveTestSubmission, PreparedContent, SyllabusDocument
+from .permissions import (
+    HasEducationRole,
+    IsAdminRole,
+    IsStartuperOrAdmin,
+    resolve_user_role,
+)
+from .models import (
+    LiveTestSession,
+    LiveTestSubmission,
+    PreparedContent,
+    StartupProjectApplication,
+    SyllabusDocument,
+)
 from .serializers import (
     LocalLoginSerializer,
     LiveTestSubmissionCreateSerializer,
     LiveTestUpsertSerializer,
     PreparedContentSerializer,
+    StartupProjectApplicationSerializer,
     SyllabusDocumentSerializer,
     SyllabusUpsertSerializer,
 )
@@ -335,3 +347,91 @@ class LiveTestSubmissionView(APIView):
             answers=list(d['answers']),
         )
         return Response({'ok': True}, status=status.HTTP_201_CREATED)
+
+
+class StartupApplicationListCreateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
+
+    def get(self, request):
+        qs = StartupProjectApplication.objects.filter(owner_key=request.user.username)
+        return Response(StartupProjectApplicationSerializer(qs, many=True).data)
+
+    def post(self, request):
+        serializer = StartupProjectApplicationSerializer(
+            data=request.data,
+            context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class StartupApplicationDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
+
+    def _get(self, pk: int, user):
+        obj = StartupProjectApplication.objects.filter(pk=pk).first()
+        if not obj:
+            return None
+        role = resolve_user_role(user)
+        if role == 'admin' or obj.owner_key == user.username:
+            return obj
+        return None
+
+    def get(self, request, pk: int):
+        obj = self._get(pk, request.user)
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StartupProjectApplicationSerializer(obj).data)
+
+    def patch(self, request, pk: int):
+        obj = self._get(pk, request.user)
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = StartupProjectApplicationSerializer(
+            obj,
+            data=request.data,
+            partial=True,
+            context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(StartupProjectApplicationSerializer(obj).data)
+
+    def delete(self, request, pk: int):
+        obj = self._get(pk, request.user)
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if obj.status == StartupProjectApplication.STATUS_SUBMITTED and resolve_user_role(request.user) != 'admin':
+            return Response({'detail': 'Yuborilgan arizani o‘chirib bo‘lmaydi.'}, status=status.HTTP_400_BAD_REQUEST)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StartupApplicationSubmitView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
+
+    def post(self, request, pk: int):
+        obj = StartupProjectApplication.objects.filter(pk=pk, owner_key=request.user.username).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if obj.status == StartupProjectApplication.STATUS_SUBMITTED:
+            return Response({'detail': 'Allaqachon yuborilgan.'}, status=status.HTTP_400_BAD_REQUEST)
+        obj.status = StartupProjectApplication.STATUS_SUBMITTED
+        obj.submitted_at = timezone.now()
+        obj.save(update_fields=['status', 'submitted_at', 'updated_at'])
+        return Response(StartupProjectApplicationSerializer(obj).data)
+
+
+class StartupApplicationAdminInboxView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        qs = StartupProjectApplication.objects.filter(
+            status=StartupProjectApplication.STATUS_SUBMITTED,
+        ).order_by('-submitted_at')
+        return Response(StartupProjectApplicationSerializer(qs, many=True).data)

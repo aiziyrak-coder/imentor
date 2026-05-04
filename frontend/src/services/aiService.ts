@@ -882,6 +882,46 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
     }
   },
 
+  async generateStartupInnovationPack(
+    projectTitle: string,
+    summary: string,
+    fullDescription: string,
+    profileNote: string,
+    language: AppLanguage = 'uz'
+  ): Promise<Record<string, unknown>> {
+    const outLang = languageName(language);
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `You help startup/innovation projects at a medical institute (Farg'ona public health medical institute context).
+Project title: ${projectTitle}
+Short summary: ${summary}
+Full description: ${fullDescription}
+Applicant context (faculty, department, student/employee, group/position): ${profileNote}
+
+Return ONLY valid JSON with this structure (all text in ${outLang}):
+{
+  "elevator_pitch": string,
+  "problem_and_solution": string,
+  "target_users": string,
+  "innovation_summary": string,
+  "institutional_alignment": string,
+  "standards_checklist": string[],
+  "suggested_pdf_outline": [{"section_title": string, "bullet_points": string[]}],
+  "application_documents": [{"name": string, "purpose": string, "key_sections": string[]}],
+  "risk_register": [{"risk": string, "mitigation": string}],
+  "next_steps": string[],
+  "disclaimer_note": string
+}
+Be practical, aligned with higher medical education and innovation grant style; do not claim legal approval.`,
+      config: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 8192,
+        temperature: 0.35,
+      },
+    });
+    return parseJSONSafe<Record<string, unknown>>(response.text);
+  },
+
   async generateExercises(topic: string): Promise<Exercise> {
     try {
       const response = await ai.models.generateContent({

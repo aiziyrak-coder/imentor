@@ -9,6 +9,10 @@ from .views import (
     LocalLoginView,
     PreparedContentV1View,
     PreparedContentView,
+    StartupApplicationAdminInboxView,
+    StartupApplicationDetailView,
+    StartupApplicationListCreateView,
+    StartupApplicationSubmitView,
     SyllabusDocumentDestroyView,
     SyllabusDocumentListCreateView,
 )
@@ -24,4 +28,8 @@ urlpatterns = [
     path('v1/live-tests/<str:session_key>/submissions/', LiveTestSubmissionView.as_view(), name='live-tests-submissions'),
     path('v1/auth/me/', AuthMeView.as_view(), name='auth-me'),
     path('v1/auth/local-login/', LocalLoginView.as_view(), name='auth-local-login'),
+    path('v1/startup-applications/', StartupApplicationListCreateView.as_view(), name='startup-applications'),
+    path('v1/startup-applications/admin/inbox/', StartupApplicationAdminInboxView.as_view(), name='startup-admin-inbox'),
+    path('v1/startup-applications/<int:pk>/', StartupApplicationDetailView.as_view(), name='startup-application-detail'),
+    path('v1/startup-applications/<int:pk>/submit/', StartupApplicationSubmitView.as_view(), name='startup-application-submit'),
 ]

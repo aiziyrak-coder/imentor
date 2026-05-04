@@ -1,7 +1,7 @@
 import { logStaffActivity } from './staffActivityLog';
 
-/** admin — to‘liq kirish; hodim — tarjimadan boshqa modullar; tarjimon — faqat tarjima */
-export type UserRole = 'admin' | 'hodim' | 'tarjimon';
+/** admin — to‘liq kirish; hodim — tarjimadan boshqa modullar; tarjimon — faqat tarjima; startuper — innovatsiya loyihalari */
+export type UserRole = 'admin' | 'hodim' | 'tarjimon' | 'startuper';
 
 export interface LocalStaffUser {
   uid: string;
@@ -22,6 +22,12 @@ export interface LocalStaffUser {
   /** Unix ms — oxirgi kirish yoki tizimdagi so‘nggi faollik */
   lastActiveAt?: number;
   photoURL?: string | null;
+  /** Startuper: talaba yoki xodim */
+  participantKind?: 'student' | 'employee';
+  /** Talaba: o‘quv guruhi */
+  studyGroup?: string;
+  /** Xodim: lavozim */
+  jobTitle?: string;
 }
 
 const USERS_KEY = 'salomatlik-local-staff-users-v1';
@@ -36,6 +42,9 @@ export const TEST_ADMIN_PASSWORD = 'AdminDemo123';
 
 export const TEST_TARJIMON_PHONE = '+998901110002';
 export const TEST_TARJIMON_PASSWORD = 'TarjimaDemo123';
+
+export const TEST_STARTUPER_PHONE = '+998901110003';
+export const TEST_STARTUPER_PASSWORD = 'StartupDemo123';
 
 /** Demo kirish uchun (login sahifasi) */
 export const DEMO_ROLE_LOGINS: {
@@ -66,11 +75,18 @@ export const DEMO_ROLE_LOGINS: {
     phone: TEST_TARJIMON_PHONE,
     password: TEST_TARJIMON_PASSWORD,
   },
+  {
+    role: 'startuper',
+    title: 'Startuper',
+    subtitle: 'Innovatsiya va startap loyihalari',
+    phone: TEST_STARTUPER_PHONE,
+    password: TEST_STARTUPER_PASSWORD,
+  },
 ];
 
 export function normalizeUserRole(user: LocalStaffUser | null | undefined): UserRole {
   const r = user?.role;
-  if (r === 'admin' || r === 'hodim' || r === 'tarjimon') return r;
+  if (r === 'admin' || r === 'hodim' || r === 'tarjimon' || r === 'startuper') return r;
   return 'hodim';
 }
 
@@ -156,6 +172,26 @@ export function ensureDefaultRoleDemosExist(): void {
     updatedAt: now,
     photoURL: null,
   });
+
+  upsertDemoUser({
+    uid: `demo_startuper_${now}`,
+    displayName: 'Demo Startuper',
+    firstName: 'Demo',
+    lastName: 'Startuper',
+    phoneDisplay: TEST_STARTUPER_PHONE,
+    phoneDigits: normalizePhoneDigits(TEST_STARTUPER_PHONE),
+    faculty: 'Tibbiyot fakulteti',
+    department: 'Ichki kasalliklar kafedrasi',
+    direction: "Terapiya yo'nalishi",
+    email: phoneDigitsToEmail(normalizePhoneDigits(TEST_STARTUPER_PHONE)),
+    password: TEST_STARTUPER_PASSWORD,
+    role: 'startuper',
+    participantKind: 'student',
+    studyGroup: '421-22 guruh',
+    createdAt: now,
+    updatedAt: now,
+    photoURL: null,
+  });
 }
 
 /** @deprecated ensureDefaultRoleDemosExist ishlating */
@@ -223,6 +259,25 @@ export interface RegisterLocalInput {
   faculty: string;
   department: string;
   direction: string;
+  /** Standart ro‘yxatdan o‘tishda default hodim; startuper uchun tanlanadi */
+  role?: UserRole;
+  participantKind?: 'student' | 'employee';
+  studyGroup?: string;
+  jobTitle?: string;
+}
+
+/** Loyiha arizasi uchun JWT egasi profilini backend bilan mos JSON ko‘rinishida qaytaradi */
+export function buildStartupProfileSnapshot(user: LocalStaffUser): Record<string, unknown> {
+  return {
+    displayName: user.displayName,
+    faculty: user.faculty,
+    department: user.department,
+    direction: user.direction,
+    participantKind: user.participantKind ?? null,
+    studyGroup: user.studyGroup ?? '',
+    jobTitle: user.jobTitle ?? '',
+    phoneDigits: user.phoneDigits,
+  };
 }
 
 export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
@@ -237,6 +292,17 @@ export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
   const now = Date.now();
+  const role = input.role ?? 'hodim';
+  if (role === 'startuper') {
+    const kind = input.participantKind ?? 'student';
+    if (kind === 'student' && !input.studyGroup?.trim()) throw new Error('startuper-no-group');
+    if (kind === 'employee' && !input.jobTitle?.trim()) throw new Error('startuper-no-title');
+  }
+  const pk =
+    role === 'startuper'
+      ? input.participantKind ?? 'student'
+      : undefined;
+
   const user: LocalStaffUser = {
     uid: `local_${now}_${Math.random().toString(36).slice(2, 8)}`,
     displayName: `${firstName} ${lastName}`.trim(),
@@ -249,7 +315,10 @@ export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
     direction: input.direction.trim(),
     email: phoneDigitsToEmail(digits),
     password: input.password,
-    role: 'hodim',
+    role,
+    participantKind: pk,
+    studyGroup: input.studyGroup?.trim() || undefined,
+    jobTitle: input.jobTitle?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
     lastActiveAt: now,
@@ -322,7 +391,22 @@ export function loginLocalStaff(phoneInput: string, password: string): LocalStaf
 }
 
 export function updateCurrentLocalUser(
-  patch: Partial<Pick<LocalStaffUser, 'firstName' | 'lastName' | 'displayName' | 'phoneDisplay' | 'faculty' | 'department' | 'direction' | 'password'>>
+  patch: Partial<
+    Pick<
+      LocalStaffUser,
+      | 'firstName'
+      | 'lastName'
+      | 'displayName'
+      | 'phoneDisplay'
+      | 'faculty'
+      | 'department'
+      | 'direction'
+      | 'password'
+      | 'participantKind'
+      | 'studyGroup'
+      | 'jobTitle'
+    >
+  >
 ): LocalStaffUser {
   const current = getCurrentLocalUser();
   if (!current) throw new Error('not-authenticated');
@@ -386,6 +470,9 @@ export interface AdminMutateStaffInput {
   department: string;
   direction: string;
   role: UserRole;
+  participantKind?: 'student' | 'employee';
+  studyGroup?: string;
+  jobTitle?: string;
 }
 
 export function adminCreateStaffUser(input: AdminMutateStaffInput): LocalStaffUser {
@@ -412,6 +499,9 @@ export function adminCreateStaffUser(input: AdminMutateStaffInput): LocalStaffUs
     email: phoneDigitsToEmail(digits),
     password: input.password,
     role: input.role,
+    participantKind: input.role === 'startuper' ? input.participantKind ?? 'student' : undefined,
+    studyGroup: input.role === 'startuper' ? input.studyGroup?.trim() || undefined : undefined,
+    jobTitle: input.role === 'startuper' ? input.jobTitle?.trim() || undefined : undefined,
     createdAt: now,
     updatedAt: now,
     photoURL: null,
@@ -436,6 +526,9 @@ export function adminUpdateStaffUser(
       | 'direction'
       | 'password'
       | 'role'
+      | 'participantKind'
+      | 'studyGroup'
+      | 'jobTitle'
     >
   >
 ): LocalStaffUser {
@@ -468,6 +561,12 @@ export function adminUpdateStaffUser(
     if (adminCount <= 1 && patch.role !== 'admin') {
       throw new Error('last-admin');
     }
+  }
+  const effectiveRole = normalizeUserRole(merged);
+  if (effectiveRole !== 'startuper') {
+    merged.participantKind = undefined;
+    merged.studyGroup = undefined;
+    merged.jobTitle = undefined;
   }
   users[idx] = merged;
   writeUsers(users);

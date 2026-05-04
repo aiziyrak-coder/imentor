@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, AlertCircle, Phone, Lock, Shield, BriefcaseMedical, Languages } from 'lucide-react';
+import { Loader2, AlertCircle, Phone, Lock, Shield, BriefcaseMedical, Languages, Rocket } from 'lucide-react';
 import { motion } from 'motion/react';
 import {
   isValidPhoneDigits,
@@ -133,7 +133,8 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
             <button type="button" onClick={onSwitchToRegister} className="text-blue-600 font-semibold underline-offset-2 hover:underline">
               Ro‘yxatdan o‘tish
             </button>{' '}
-            — ro‘yxatdan o‘tganlar <span className="font-semibold text-black/55">hodim</span> roli bilan kiradi.
+            — ro‘yxatdan o‘tishda <span className="font-semibold text-black/55">hodim</span> yoki{' '}
+            <span className="font-semibold text-black/55">startuper</span> rolini tanlaysiz.
           </p>
 
           {error && (
@@ -160,7 +161,13 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
           <div className="grid gap-2">
             {DEMO_ROLE_LOGINS.map((demo) => {
               const Icon =
-                demo.role === 'admin' ? Shield : demo.role === 'hodim' ? BriefcaseMedical : Languages;
+                demo.role === 'admin'
+                  ? Shield
+                  : demo.role === 'hodim'
+                    ? BriefcaseMedical
+                    : demo.role === 'startuper'
+                      ? Rocket
+                      : Languages;
               return (
                 <button
                   key={demo.role}

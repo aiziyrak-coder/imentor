@@ -36,6 +36,9 @@ const emptyForm = {
   department: '',
   direction: '',
   role: 'hodim' as UserRole,
+  participantKind: 'student' as 'student' | 'employee',
+  studyGroup: '',
+  jobTitle: '',
 };
 
 type SortKey = 'displayName' | 'phoneDisplay' | 'role' | 'faculty' | 'lastActiveAt';
@@ -90,6 +93,9 @@ export default function AdminStaffManagement() {
       department: u.department,
       direction: u.direction,
       role: normalizeUserRole(u),
+      participantKind: u.participantKind ?? 'student',
+      studyGroup: u.studyGroup ?? '',
+      jobTitle: u.jobTitle ?? '',
     });
     setShowAdd(false);
   };
@@ -103,6 +109,16 @@ export default function AdminStaffManagement() {
         setError('Parol kamida 6 belgi.');
         return;
       }
+      if (form.role === 'startuper') {
+        if (form.participantKind === 'student' && !form.studyGroup.trim()) {
+          setError('Startuper (talaba) uchun guruh kerak.');
+          return;
+        }
+        if (form.participantKind === 'employee' && !form.jobTitle.trim()) {
+          setError('Startuper (xodim) uchun lavozim kerak.');
+          return;
+        }
+      }
       adminCreateStaffUser({
         phoneDisplay: form.phoneDisplay.trim(),
         password: form.password,
@@ -112,6 +128,9 @@ export default function AdminStaffManagement() {
         department: form.department.trim(),
         direction: form.direction.trim(),
         role: form.role,
+        participantKind: form.role === 'startuper' ? form.participantKind : undefined,
+        studyGroup: form.role === 'startuper' && form.participantKind === 'student' ? form.studyGroup.trim() : undefined,
+        jobTitle: form.role === 'startuper' && form.participantKind === 'employee' ? form.jobTitle.trim() : undefined,
       });
       setForm(emptyForm);
       setShowAdd(false);
@@ -132,6 +151,16 @@ export default function AdminStaffManagement() {
     setSaving(true);
     setError(null);
     try {
+      if (form.role === 'startuper') {
+        if (form.participantKind === 'student' && !form.studyGroup.trim()) {
+          setError('Startuper (talaba) uchun guruh kerak.');
+          return;
+        }
+        if (form.participantKind === 'employee' && !form.jobTitle.trim()) {
+          setError('Startuper (xodim) uchun lavozim kerak.');
+          return;
+        }
+      }
       const patch: Parameters<typeof adminUpdateStaffUser>[1] = {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
@@ -142,6 +171,11 @@ export default function AdminStaffManagement() {
         direction: form.direction.trim(),
         role: form.role,
       };
+      if (form.role === 'startuper') {
+        patch.participantKind = form.participantKind;
+        patch.studyGroup = form.participantKind === 'student' ? form.studyGroup.trim() : undefined;
+        patch.jobTitle = form.participantKind === 'employee' ? form.jobTitle.trim() : undefined;
+      }
       if (form.password.trim().length >= 6) {
         patch.password = form.password;
       }
@@ -415,8 +449,48 @@ export default function AdminStaffManagement() {
                   <option value="hodim">Hodim</option>
                   <option value="admin">Administrator</option>
                   <option value="tarjimon">Tarjimon</option>
+                  <option value="startuper">Startuper</option>
                 </select>
               </label>
+              {form.role === 'startuper' && (
+                <>
+                  <label className="space-y-1 sm:col-span-2">
+                    <span className="text-[11px] font-semibold text-black/50">Startuper: talaba yoki xodim</span>
+                    <select
+                      className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                      value={form.participantKind}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          participantKind: e.target.value as 'student' | 'employee',
+                        }))
+                      }
+                    >
+                      <option value="student">Talaba</option>
+                      <option value="employee">Xodim</option>
+                    </select>
+                  </label>
+                  {form.participantKind === 'student' ? (
+                    <label className="space-y-1 sm:col-span-2">
+                      <span className="text-[11px] font-semibold text-black/50">Guruh</span>
+                      <input
+                        className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                        value={form.studyGroup}
+                        onChange={(e) => setForm((f) => ({ ...f, studyGroup: e.target.value }))}
+                      />
+                    </label>
+                  ) : (
+                    <label className="space-y-1 sm:col-span-2">
+                      <span className="text-[11px] font-semibold text-black/50">Lavozim</span>
+                      <input
+                        className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                        value={form.jobTitle}
+                        onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
+                      />
+                    </label>
+                  )}
+                </>
+              )}
               <div className="sm:col-span-2 flex gap-2 pt-2">
                 <button
                   type="submit"

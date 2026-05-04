@@ -4,7 +4,7 @@ import { httpJson } from '../api/httpClient';
 type BackendTokenBundle = {
   access: string;
   refresh: string;
-  role: 'admin' | 'hodim' | 'tarjimon';
+  role: 'admin' | 'hodim' | 'tarjimon' | 'startuper';
   username: string;
 };
 

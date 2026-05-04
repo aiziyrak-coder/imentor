@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import LiveTestSession, LiveTestSubmission, PreparedContent, SyllabusDocument
+from .models import (
+    LiveTestSession,
+    LiveTestSubmission,
+    PreparedContent,
+    StartupProjectApplication,
+    SyllabusDocument,
+)
 
 
 @admin.register(PreparedContent)
@@ -26,3 +32,10 @@ class LiveTestSessionAdmin(admin.ModelAdmin):
 class LiveTestSubmissionAdmin(admin.ModelAdmin):
     list_display = ('id', 'session', 'last_name', 'first_name', 'submitted_at')
     search_fields = ('first_name', 'last_name', 'session__session_key')
+
+
+@admin.register(StartupProjectApplication)
+class StartupProjectApplicationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner_key', 'title', 'status', 'submitted_at', 'updated_at')
+    list_filter = ('status',)
+    search_fields = ('owner_key', 'title')

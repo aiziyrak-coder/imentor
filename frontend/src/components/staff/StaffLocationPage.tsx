@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, MapPin, Navigation } from 'lucide-react';
+import { Calendar, Loader2, MapPin } from 'lucide-react';
 import {
   getMyStaffSchedule,
   getScheduleWeekInfo,
@@ -7,8 +7,6 @@ import {
   type StaffScheduleSlotDto,
   type WeekPhase,
 } from '../../utils/staffLocationApi';
-import { requestOneShotStaffLocationPing } from '../../utils/staffLocationGeo';
-import StaffLocationMiniMap from './StaffLocationMiniMap';
 
 const WEEKDAYS: string[] = [
   'Dushanba',
@@ -39,7 +37,6 @@ export default function StaffLocationPage() {
   const [weekInfo, setWeekInfo] = useState<ScheduleWeekInfoDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pingBusy, setPingBusy] = useState(false);
 
   const grouped = useMemo(() => {
     const order: WeekPhase[] = ['every', 'upper', 'lower'];
@@ -73,50 +70,16 @@ export default function StaffLocationPage() {
     void load();
   }, [load]);
 
-  const sendNow = useCallback(async () => {
-    setPingBusy(true);
-    setError(null);
-    try {
-      await requestOneShotStaffLocationPing();
-    } catch {
-      setError(
-        'Joylashuv olinmadi. Telefonda GPS yoqilganini, brauzerda joylashuv ruxsatini tekshiring (tugma orqali qayta urinib koʻring).',
-      );
-    } finally {
-      setPingBusy(false);
-    }
-  }, []);
-
   return (
     <div className="max-w-2xl mx-auto space-y-6 px-2 sm:px-4 pb-20">
       <div className="flex items-center gap-3">
         <div className="w-12 h-12 rounded-2xl bg-sky-600 text-white flex items-center justify-center">
-          <MapPin size={24} />
+          <Calendar size={24} />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-black/90">Joylashuv va dars jadvali</h1>
-          <p className="text-[12px] text-black/50">Admin belgilagan vaqtlar va kutilgan bino</p>
+          <h1 className="text-xl font-bold text-black/90">Dars jadvali</h1>
+          <p className="text-[12px] text-black/50">Admin belgilagan vaqtlar va binolar</p>
         </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[13px] font-bold uppercase tracking-wide text-black/50">Sizning joylashuvingiz</h2>
-          <button
-            type="button"
-            onClick={() => void sendNow()}
-            disabled={pingBusy}
-            className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-[12px] font-semibold text-sky-800 shadow-sm active:scale-[0.99] disabled:opacity-50"
-          >
-            {pingBusy ? <Loader2 className="animate-spin" size={14} /> : <Navigation size={14} />}
-            Joylashuvni hozir yuborish
-          </button>
-        </div>
-        <StaffLocationMiniMap />
-        <p className="text-[11px] text-black/45 leading-relaxed">
-          Xarita telefoningizning oxirgi GPS nuqtasini koʻrsatadi (admin xaritasi bilan bir vaqtda yangilanadi). iOS/Android:
-          birinchi marta ruxsat berish uchun yuqoridagi yoki bosh menyudagi tugmani bosing.
-        </p>
       </div>
 
       {weekInfo ? (
@@ -126,21 +89,17 @@ export default function StaffLocationPage() {
             <span className="font-semibold">Bu hafta:</span> {weekInfo.current_week_phase_label_uz}
           </p>
           <p className="text-[11px] text-black/50">
-            «Yuqori/pastki» jadvalingiz bo‘lsa, faqat shu hafta bosqichiga tegishli qatorlar GPS tekshiruvida
-            ishlatiladi.
+            «Yuqori/pastki» reja bo‘lsa, shu hafta bosqichiga tegishli qatorlar dars rejasida ishlatiladi.
           </p>
         </div>
       ) : null}
 
-      <div className="ios-glass rounded-2xl border border-amber-200/80 bg-amber-50/60 px-4 py-3 text-[13px] text-amber-950/90 flex gap-2">
-        <AlertTriangle className="shrink-0 mt-0.5" size={18} />
-        <div>
-          <p className="font-semibold">Qanday ishlaydi</p>
-          <p className="mt-1 text-black/70 leading-relaxed">
-            Dars vaqtida kutilgan joy radiusidan tashqarida bo‘lsangiz, ogohlantirish yuboriladi. Brauzer ochiq
-            turganida GPS yuboriladi. Dastur yopilganda veb-ilova joylashuvni to‘liq kafolatlay olmaydi.
-          </p>
-        </div>
+      <div className="ios-glass rounded-2xl border border-sky-100/80 bg-white/50 px-4 py-3 text-[13px] text-black/75 flex gap-2">
+        <MapPin className="shrink-0 mt-0.5 text-sky-600" size={18} />
+        <p className="leading-relaxed">
+          Dars va kampus bo‘yicha ma&apos;lumotlar shu yerda ko‘rsatiladi. Savollar bo‘lsa, kafedra yoki
+          administratorga murojaat qiling.
+        </p>
       </div>
 
       {error && (
@@ -188,13 +147,10 @@ export default function StaffLocationPage() {
                         }`}
                       >
                         {r.applies_this_calendar_week
-                          ? 'Bu kalendar haftasida GPS tekshiruvida hisobga olinadi'
+                          ? 'Bu kalendar haftasida jadvalda hisobga olinadi'
                           : 'Bu kalendar haftasida bu qator o‘tkazib yuboriladi'}
                       </p>
                     ) : null}
-                    <p className="text-[11px] text-black/40">
-                      Nuqta: {r.latitude.toFixed(5)}, {r.longitude.toFixed(5)} · radius {r.radius_m} m
-                    </p>
                   </li>
                 ))}
               </ul>

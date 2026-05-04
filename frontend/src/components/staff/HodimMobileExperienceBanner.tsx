@@ -11,10 +11,7 @@ function pageUrl(): string {
   return window.location.href.split('#')[0];
 }
 
-/**
- * Kompyuter/katta ekranda hodimga: telefonda ochish foydasi + havola + QR.
- * Majburiyat emas — o‘qituvchi o‘zi telefonni afzal ko‘radi (GPS, mobil UX).
- */
+/** Kompyuter/katta ekranda hodimga: telefonda ochish + havola + QR. */
 export default function HodimMobileExperienceBanner() {
   const [dismissed, setDismissed] = useState(() => isHodimMobileHintDismissed());
 
@@ -50,8 +47,8 @@ export default function HodimMobileExperienceBanner() {
             <div>
               <p className="text-[14px] font-bold text-black/90 leading-snug">Telefonda iMentor — to‘liq ish rejimi</p>
               <p className="text-[12px] text-black/60 mt-1 leading-relaxed">
-                Dars joylashuvi (GPS), haftalik jadval va bildirishnomalar telefon brauzerida barqarorroq ishlaydi.
-                Istalgan vaqtda pastdagi QR orqali telefoningizda oching — majburiy emas, tavsiya etiladi.
+                Haftalik jadval va bildirishnomalar telefon brauzerida odatda qulayroq ochiladi. Pastdagi QR orqali
+                telefoningizda ochishingiz mumkin — majburiy emas.
               </p>
             </div>
             <button
@@ -64,8 +61,7 @@ export default function HodimMobileExperienceBanner() {
             </button>
           </div>
           <ul className="text-[11px] text-black/55 space-y-1 list-disc list-inside">
-            <li>Bosh ekranga qo‘shing (Chrome / Safari: «Uyga qo‘shish») — ilova kabi tez ochiladi</li>
-            <li>Joylashuv ruxsati telefonda odatda ishonchliroq beriladi</li>
+            <li>Bosh ekranga qo‘shing (Chrome / Safari: «Uyga qo‘shish») — tezroq ochiladi</li>
           </ul>
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
             <button

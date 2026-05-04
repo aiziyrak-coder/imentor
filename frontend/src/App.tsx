@@ -102,7 +102,7 @@ const HODIM_NAV: NavItemDef[] = [
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
   { id: 'cases', label: 'Keys yaratish', icon: BriefcaseMedical },
   { id: 'tests', label: 'Test yaratish', icon: ClipboardList },
-  { id: 'staff-location', label: 'Joylashuv', icon: MapPin },
+  { id: 'staff-location', label: 'Dars jadvali', icon: MapPin },
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
 
@@ -145,7 +145,7 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   presentation: 'Slayd',
   cases: 'Klinik',
   tests: 'Testlar',
-  'staff-location': 'GPS',
+  'staff-location': 'Jadval',
   profile: 'Profil',
   translator: 'Tarjima',
 };

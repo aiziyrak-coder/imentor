@@ -20,10 +20,7 @@ function watchOptions(): PositionOptions {
   };
 }
 
-/**
- * Hodim sessiyasida GPS ping + ichki xarita/event yangilanishi.
- * Brauzer fonida/yopilganda GPS to‘xtashi mumkin — veb cheklovi.
- */
+/** Hodim sessiyasida fon jarayoni (ichki eventlar). Brauzer cheklovlari mavjud. */
 export function useStaffLocationTracking(enabled: boolean): void {
   const lastSentAt = useRef(0);
   const watchId = useRef<number | null>(null);
@@ -77,8 +74,8 @@ export function useStaffLocationTracking(enabled: boolean): void {
         window.dispatchEvent(
           new CustomEvent('app:notify', {
             detail: {
-              title: 'GPS ruxsati',
-              body: "Joylashuv uchun «Joylashuv» ruxsatini bering. iOS: Sozlamalar → Safari → Joylashuv; Android: brauzer ilovasi ruxsatlari.",
+              title: 'Ruxsat kerak',
+              body: 'Ayrim funksiyalar uchun brauzer sozlamalarida ruxsatni yoqing (Safari / Chrome — sayt sozlamalari).',
               level: 'warning' as const,
             },
           }),

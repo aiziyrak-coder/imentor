@@ -111,6 +111,7 @@ class StartupProjectApplication(models.Model):
     participant_kind = models.CharField(max_length=16, default=PARTICIPANT_STUDENT)
     profile_snapshot = models.JSONField(default=dict)
     ai_pack = models.JSONField(default=dict)
+    submission_dossier = models.JSONField(default=dict)
     status = models.CharField(max_length=16, default=STATUS_DRAFT, db_index=True)
     submitted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

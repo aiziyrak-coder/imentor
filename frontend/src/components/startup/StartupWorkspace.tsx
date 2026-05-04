@@ -6,7 +6,6 @@ import {
   Plus,
   Rocket,
   Save,
-  Send,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -18,14 +17,10 @@ import {
   createStartupApplication,
   deleteStartupApplication,
   listMyStartupApplications,
-  submitStartupApplication,
   updateStartupApplication,
   type StartupApplicationDto,
 } from '../../utils/startupApplicationApi';
-
-function fmtPackKey(key: string): string {
-  return key.replace(/_/g, ' ');
-}
+import StartupInnovationPackPanel from './StartupInnovationPackPanel';
 
 export default function StartupWorkspace() {
   const printRef = useRef<HTMLDivElement | null>(null);
@@ -160,29 +155,6 @@ export default function StartupWorkspace() {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!selected || selected.status === 'submitted') return;
-    setError(null);
-    setSaving(true);
-    try {
-      const u = getCurrentLocalUser();
-      if (!u) throw new Error('not-auth');
-      await updateStartupApplication(selected.id, {
-        title: title.trim() || 'Loyiha',
-        summary,
-        description,
-        participant_kind: participantKind,
-        profile_snapshot: buildStartupProfileSnapshot(u),
-      });
-      const row = await submitStartupApplication(selected.id);
-      setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
-    } catch {
-      setError('Yuborishda xato. Avval saqlab, qayta urinib ko‘ring.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleDelete = async () => {
     if (!selected || selected.status === 'submitted') return;
     if (!window.confirm('Loyiha o‘chirilsinmi?')) return;
@@ -232,7 +204,7 @@ export default function StartupWorkspace() {
           <div>
             <h1 className="text-xl font-bold text-black/90">Startap va innovatsiya</h1>
             <p className="text-[12px] text-black/50">
-              FJSTI standartlariga yaqinlashtirish, AI tahlil va administratorga ariza
+              Bozor, traction, ilmiy dalil — AI to‘liq tahlil; rasmiy yuborish «Dossye va yuborish»da
             </p>
           </div>
         </div>
@@ -357,16 +329,7 @@ export default function StartupWorkspace() {
                 className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {aiLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                AI tahlil va hujjat reja
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSubmit()}
-                disabled={saving || isReadOnly}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-                Administratorga yuborish
+                To‘liq AI tahlil (bozor, raqobat, ilmiy blok)
               </button>
               <button
                 type="button"
@@ -389,38 +352,24 @@ export default function StartupWorkspace() {
               )}
             </div>
 
+            <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 px-3 py-2.5 text-[12px] text-indigo-950 leading-relaxed">
+              <strong className="font-semibold">Administratorga yuborish:</strong> chap menyudan{' '}
+              <span className="font-semibold">«Dossye va yuborish»</span> bo‘limiga o‘ting — jamoa, hujjatlar va
+              yakuniy yuborish u yerda.
+            </div>
+
             {selected && Object.keys(selected.ai_pack || {}).length > 0 && (
-              <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50/50 p-4 space-y-3">
-                <h3 className="text-[13px] font-bold text-violet-900">AI natijasi</h3>
-                <div className="space-y-3 text-[13px] text-black/80">
-                  {Object.entries(selected.ai_pack).map(([k, v]) => (
-                    <div key={k} className="border-b border-black/5 pb-2 last:border-0">
-                      <p className="text-[11px] font-semibold text-black/45 uppercase tracking-wide mb-1">
-                        {fmtPackKey(k)}
-                      </p>
-                      {Array.isArray(v) ? (
-                        <ul className="list-disc pl-5 space-y-1">
-                          {(v as unknown[]).map((item, i) => (
-                            <li key={i} className="break-words">
-                              {typeof item === 'object' ? JSON.stringify(item) : String(item)}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : typeof v === 'object' && v !== null ? (
-                        <pre className="text-[12px] whitespace-pre-wrap break-words bg-white/60 rounded-lg p-2">
-                          {JSON.stringify(v, null, 2)}
-                        </pre>
-                      ) : (
-                        <p className="whitespace-pre-wrap break-words">{String(v)}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-2 space-y-3">
+                <h3 className="text-[14px] font-bold text-black/90 tracking-tight">
+                  AI strategik tahlil
+                </h3>
+                <StartupInnovationPackPanel pack={selected.ai_pack} />
               </div>
             )}
 
             <p className="text-[11px] text-black/40 leading-relaxed">
-              AI tavsiyalari tibbiy yoki rasmiy hujjat emas; yakuniy matnni institut qoidalari bo‘yicha tekshiring.
+              AI tavsiyalari maslahat xarakterida; rasmiy tasdiq emas. Yakuniy hujjatlarni institut talablari bo‘yicha
+              tekshiring.
             </p>
           </motion.div>
         </div>

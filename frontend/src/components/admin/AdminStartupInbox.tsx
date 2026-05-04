@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
 import { listAdminStartupInbox, type StartupApplicationDto } from '../../utils/startupApplicationApi';
+import StartupInnovationPackPanel from '../startup/StartupInnovationPackPanel';
 
 function shortJson(obj: unknown, max = 2000): string {
   try {
@@ -115,16 +116,100 @@ export default function AdminStartupInbox() {
                       <p className="mt-1 whitespace-pre-wrap text-black/80">{r.description || '—'}</p>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">AI paket</span>
-                      <pre className="mt-1 text-[11px] whitespace-pre-wrap break-words bg-violet-50/80 rounded-lg p-2 border border-violet-100 max-h-96 overflow-y-auto">
-                        {shortJson(r.ai_pack, 12000)}
-                      </pre>
+                      <span className="text-[11px] font-semibold text-black/45">AI tahlil (ko‘rinish)</span>
+                      <div className="mt-2 max-h-[min(80vh,900px)] overflow-y-auto rounded-2xl border border-violet-100 bg-violet-50/30 p-2">
+                        <StartupInnovationPackPanel pack={r.ai_pack} />
+                      </div>
                     </div>
+                    {r.submission_dossier && Object.keys(r.submission_dossier).length > 0 && (
+                      <DossierAdminView dossier={r.submission_dossier} />
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DossierAdminView({ dossier }: { dossier: Record<string, unknown> }) {
+  const kind = typeof dossier.project_kind === 'string' ? dossier.project_kind : '';
+  const pitch = typeof dossier.vc_one_liner === 'string' ? dossier.vc_one_liner : '';
+  const notes = typeof dossier.applicant_notes === 'string' ? dossier.applicant_notes : '';
+  const team = Array.isArray(dossier.team_members) ? dossier.team_members : [];
+  const files = Array.isArray(dossier.attachments) ? dossier.attachments : [];
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-indigo-200/70 bg-indigo-50/40 p-3">
+      <span className="text-[11px] font-semibold text-indigo-900 uppercase tracking-wide">
+        Yuborilgan dossye
+      </span>
+      {kind && (
+        <p className="text-[13px]">
+          <span className="text-black/45">Turi:</span>{' '}
+          <span className="font-semibold text-black/85">
+            {kind === 'startup' ? 'Startap' : kind === 'research' ? 'Ilmiy' : 'Aralash'}
+          </span>
+        </p>
+      )}
+      {pitch && (
+        <div>
+          <p className="text-[11px] font-semibold text-black/45">Pitch</p>
+          <p className="text-[13px] text-black/85">{pitch}</p>
+        </div>
+      )}
+      {notes && (
+        <div>
+          <p className="text-[11px] font-semibold text-black/45">Izoh</p>
+          <p className="text-[13px] whitespace-pre-wrap text-black/80">{notes}</p>
+        </div>
+      )}
+      {team.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-black/10 bg-white/80">
+          <table className="w-full text-[12px]">
+            <thead className="bg-black/[0.04] text-left">
+              <tr>
+                <th className="px-2 py-1.5">F.I.Sh.</th>
+                <th className="px-2 py-1.5">Rol</th>
+                <th className="px-2 py-1.5">Tashkilot</th>
+                <th className="px-2 py-1.5">Aloqa</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(team as Record<string, unknown>[]).map((m, i) => (
+                <tr key={i} className="border-t border-black/5 align-top">
+                  <td className="px-2 py-1.5">{String(m.full_name ?? '')}</td>
+                  <td className="px-2 py-1.5">{String(m.role ?? '')}</td>
+                  <td className="px-2 py-1.5">{String(m.organization ?? '')}</td>
+                  <td className="px-2 py-1.5">{String(m.contact ?? '')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {files.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-black/45 mb-1">Hujjatlar</p>
+          <ul className="space-y-1 text-[12px]">
+            {(files as Record<string, unknown>[]).map((f, i) => (
+              <li key={i} className="flex flex-wrap gap-2 rounded-lg bg-white/70 border border-black/5 px-2 py-1">
+                <span className="font-medium">{String(f.file_name ?? '')}</span>
+                <span className="text-black/45">
+                  {typeof f.size_bytes === 'number' ? `${(f.size_bytes / 1024).toFixed(1)} KB` : ''}
+                </span>
+                {typeof f.label === 'string' && f.label && (
+                  <span className="text-indigo-700 font-medium">({f.label})</span>
+                )}
+                {Boolean(f.base64) ? (
+                  <span className="text-emerald-700 font-semibold text-[11px]">fayl biriktirilgan</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

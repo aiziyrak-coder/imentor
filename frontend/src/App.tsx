@@ -25,6 +25,7 @@ import {
   FileText,
   Users,
   Rocket,
+  FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -63,6 +64,7 @@ import AdminCasesLibrary from './components/admin/AdminCasesLibrary';
 import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
 import AdminStartupInbox from './components/admin/AdminStartupInbox';
 import StartupWorkspace from './components/startup/StartupWorkspace';
+import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 
 type View =
   | 'admin-dashboard'
@@ -77,7 +79,8 @@ type View =
   | 'tests'
   | 'translator'
   | 'lectures'
-  | 'startup';
+  | 'startup'
+  | 'startup-dossier';
 
 type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
@@ -107,7 +110,8 @@ const TARJIMON_NAV: NavItemDef[] = [
 ];
 
 const STARTUPER_NAV: NavItemDef[] = [
-  { id: 'startup', label: 'Innovatsiya loyihasi', icon: Rocket },
+  { id: 'startup', label: 'Loyiha va AI', icon: Rocket },
+  { id: 'startup-dossier', label: 'Dossye va yuborish', icon: FolderOpen },
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
 
@@ -118,7 +122,8 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-startups': 'Startap',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
-  startup: 'Loyiha',
+  startup: 'AI',
+  'startup-dossier': 'Dossye',
   syllabus: 'Mavzu',
   lectures: "Ma'ruza",
   presentation: 'Slayd',
@@ -356,6 +361,8 @@ export default function App() {
         return <AdminStartupInbox />;
       case 'startup':
         return <StartupWorkspace />;
+      case 'startup-dossier':
+        return <StartupDossierSubmit />;
       case 'syllabus':
         return <SyllabusView onSelectTopic={handleSelectTopic} />;
       case 'lectures':

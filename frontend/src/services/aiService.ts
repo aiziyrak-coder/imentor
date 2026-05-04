@@ -891,32 +891,122 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
   ): Promise<Record<string, unknown>> {
     const outLang = languageName(language);
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `You help startup/innovation projects at a medical institute (Farg'ona public health medical institute context).
-Project title: ${projectTitle}
-Short summary: ${summary}
-Full description: ${fullDescription}
-Applicant context (faculty, department, student/employee, group/position): ${profileNote}
+      model: 'gemini-3.1-pro-preview',
+      contents: `You are a senior innovation analyst, medical-education grant advisor, and early-stage startup mentor for Farg'ona jamoat salomatligi tibbiyot instituti (public health / medical higher education, Uzbekistan).
 
-Return ONLY valid JSON with this structure (all text in ${outLang}):
+Inputs:
+- Title: ${projectTitle}
+- Short summary: ${summary}
+- Full description: ${fullDescription}
+- Applicant / lab context: ${profileNote}
+
+Task: produce a RICH, structured analysis (not generic filler). If the work is more scientific R&D than a company, weight "research_evidence_block" heavily. If it is a product/startup, weight market and traction. If mixed, set project_archetype to "hybrid" and cover both.
+
+Return ONLY valid JSON (no markdown) with EXACTLY these keys. All human-readable text must be in ${outLang}. Use numbers where specified. Be specific to THIS project, not templates.
+
 {
-  "elevator_pitch": string,
-  "problem_and_solution": string,
-  "target_users": string,
-  "innovation_summary": string,
-  "institutional_alignment": string,
-  "standards_checklist": string[],
-  "suggested_pdf_outline": [{"section_title": string, "bullet_points": string[]}],
-  "application_documents": [{"name": string, "purpose": string, "key_sections": string[]}],
-  "risk_register": [{"risk": string, "mitigation": string}],
-  "next_steps": string[],
-  "disclaimer_note": string
+  "project_archetype": "commercial_startup" | "research_innovation" | "hybrid",
+  "archetype_rationale": "string (2-4 jumla)",
+
+  "one_line_positioning": "string (1 qatorlik pitch)",
+  "value_proposition": "string (foydalanuvchi va natija)",
+
+  "market_analysis": {
+    "serviceable_context": "string (qaysi bozor / segment, O'zbekiston va institut kontekstida)",
+    "customer_and_payer_segments": ["string", "..."],
+    "market_trends_relevant": ["string", "..."],
+    "market_sizing_notes": "string (TAM/SAM/SOM yoki kvalitativ baho — ixtiyoriy, lekin halol)",
+    "go_to_market_hooks": ["string", "..."]
+  },
+
+  "competitive_landscape": [
+    {
+      "name_or_category": "string",
+      "similarity_score_1_to_5": 1,
+      "how_similar_or_different": "string",
+      "strategic_takeaway": "string"
+    }
+  ],
+
+  "differentiation_and_moat": "string",
+
+  "traction_readiness": {
+    "estimated_stage": "idea | discovery | prototype | pilot | early_revenue | scale",
+    "readiness_score_1_to_100": 50,
+    "score_breakdown": ["string (har bir 8-15 so'z)", "..."],
+    "strongest_evidence_in_text": ["string", "..."],
+    "critical_gaps": ["string", "..."],
+    "what_would_raise_readiness_fastest": ["string", "..."]
+  },
+
+  "scientific_research_block": {
+    "is_research_central": true,
+    "research_question": "string yoki matn 'noma'lum' agar startap bo'lsa",
+    "hypothesis_or_innovation_claim": "string",
+    "evidence_user_already_has": "string",
+    "evidence_still_needed": "string",
+    "methodology_completeness": "string (laboratoriya, klinik, simulyatsiya, statistika...)",
+    "peer_review_comparables": "string (o'xshash ishlar, nima yangi?)",
+    "how_to_strengthen_proof": ["string", "..."]
+  },
+
+  "fjsti_institutional_fit": "string (institut vazifalari, kafedra, salomatlik/TA bo'yicha moslik)",
+
+  "ethics_clinical_regulatory_note": "string (tibbiy, shaxsiy ma'lumot, klinik sinov, xavfsizlik — qisqa)",
+
+  "team_and_execution": {
+    "roles_to_fill": [
+      { "role": "string", "why": "string", "suggested_profile": "string" }
+    ],
+    "advisor_mentor_suggestions": ["string", "..."]
+  },
+
+  "milestone_roadmap": {
+    "next_30_days": ["string", "..."],
+    "next_90_days": ["string", "..."],
+    "next_12_months": ["string", "..."],
+    "key_milestones": [
+      { "title": "string", "success_metric": "string", "dependency_risk": "string" }
+    ]
+  },
+
+  "grant_and_partnership_fit": {
+    "likely_grant_or_program_types": ["string", "..."],
+    "evidence_package_to_prepare": ["string", "..."]
+  },
+
+  "investor_style_outline": {
+    "problem_hook": "string",
+    "solution_and_why_now": "string",
+    "business_model_sketch": "string",
+    "impact_metrics": ["string", "..."],
+    "the_ask": "string (nimani so'rash: grant, pilot, laboratoriya vaqt...)"
+  },
+
+  "scoring_matrix": [
+    { "criterion": "string", "weight_1_to_5": 4, "project_score_1_to_5": 3, "comment": "string" }
+  ],
+
+  "risk_register": [
+    { "risk": "string", "likelihood_1_to_5": 3, "impact_1_to_5": 4, "mitigation": "string" }
+  ],
+
+  "recommended_documents": [
+    { "document": "string", "purpose": "string", "must_include_sections": ["string", "..."] }
+  ],
+
+  "disclaimer_note": "string (maslahat xarakteri, rasmiy tasdiq emas)"
 }
-Be practical, aligned with higher medical education and innovation grant style; do not claim legal approval.`,
+
+Rules:
+- Fill arrays with 3-8 items where relevant (not empty unless truly unknown).
+- similarity_score / readiness / likelihood / impact must be integers in range.
+- No legal guarantees; no fabricated citations — if unknown, say what data to collect.
+- Keep Uzbekistan public-health institute realism.`,
       config: {
         responseMimeType: 'application/json',
-        maxOutputTokens: 8192,
-        temperature: 0.35,
+        maxOutputTokens: 16384,
+        temperature: 0.42,
       },
     });
     return parseJSONSafe<Record<string, unknown>>(response.text);

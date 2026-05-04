@@ -10,6 +10,8 @@ export type StartupApplicationDto = {
   participant_kind: string;
   profile_snapshot: Record<string, unknown>;
   ai_pack: Record<string, unknown>;
+  /** Jamoa, hujjatlar, pitch — yuborish oldidan to‘ldiriladi */
+  submission_dossier?: Record<string, unknown>;
   status: 'draft' | 'submitted';
   submitted_at: string | null;
   created_at: string;
@@ -52,7 +54,12 @@ export async function createStartupApplication(body: {
 
 export async function updateStartupApplication(
   id: number,
-  body: Partial<Pick<StartupApplicationDto, 'title' | 'summary' | 'description' | 'ai_pack' | 'participant_kind' | 'profile_snapshot'>>
+  body: Partial<
+    Pick<
+      StartupApplicationDto,
+      'title' | 'summary' | 'description' | 'ai_pack' | 'participant_kind' | 'profile_snapshot' | 'submission_dossier'
+    >
+  >
 ): Promise<StartupApplicationDto> {
   return httpJson<StartupApplicationDto>(`${apiBaseUrl()}/v1/startup-applications/${id}/`, {
     method: 'PATCH',

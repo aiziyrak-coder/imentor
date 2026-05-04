@@ -104,6 +104,7 @@ class StartupProjectApplicationSerializer(serializers.ModelSerializer):
             'participant_kind',
             'profile_snapshot',
             'ai_pack',
+            'submission_dossier',
             'status',
             'submitted_at',
             'created_at',

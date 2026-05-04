@@ -69,7 +69,6 @@ import AdminStaffLocationConsole from './components/admin/AdminStaffLocationCons
 import AdminCampusBuildingsPage from './components/admin/AdminCampusBuildingsPage';
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
-import StaffLocationPage from './components/staff/StaffLocationPage';
 import HodimMobileExperienceBanner from './components/staff/HodimMobileExperienceBanner';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
@@ -90,8 +89,7 @@ type View =
   | 'translator'
   | 'lectures'
   | 'startup'
-  | 'startup-dossier'
-  | 'staff-location';
+  | 'startup-dossier';
 
 type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
@@ -102,7 +100,6 @@ const HODIM_NAV: NavItemDef[] = [
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
   { id: 'cases', label: 'Keys yaratish', icon: BriefcaseMedical },
   { id: 'tests', label: 'Test yaratish', icon: ClipboardList },
-  { id: 'staff-location', label: 'Dars jadvali', icon: MapPin },
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
 
@@ -145,7 +142,6 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   presentation: 'Slayd',
   cases: 'Klinik',
   tests: 'Testlar',
-  'staff-location': 'Jadval',
   profile: 'Profil',
   translator: 'Tarjima',
 };
@@ -398,8 +394,6 @@ export default function App() {
         return <CaseStudies />;
       case 'tests':
         return <TestQuestions />;
-      case 'staff-location':
-        return <StaffLocationPage />;
       case 'translator':
         return <Translator />;
       default:

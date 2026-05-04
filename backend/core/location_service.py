@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from django.db.models import Q
 from django.utils import timezone
 
 from .geo import haversine_m
 from .models import StaffLocationAlert, StaffLocationPing, StaffScheduleSlot
+from .week_schedule import current_week_phase_code
 
 
 def record_ping_and_evaluate(
@@ -25,9 +27,16 @@ def record_ping_and_evaluate(
     now_local = timezone.localtime()
     wd = now_local.weekday()
     t = now_local.time()
+    phase = current_week_phase_code(now_local)
     alerts: list[StaffLocationAlert] = []
 
-    slots = StaffScheduleSlot.objects.filter(owner_key=owner_key, weekday=wd, is_active=True)
+    slots = StaffScheduleSlot.objects.filter(
+        owner_key=owner_key,
+        weekday=wd,
+        is_active=True,
+    ).filter(
+        Q(week_phase=StaffScheduleSlot.WEEK_EVERY) | Q(week_phase=phase),
+    )
     for slot in slots:
         if slot.start_time <= t <= slot.end_time:
             dist = haversine_m(latitude, longitude, slot.latitude, slot.longitude)

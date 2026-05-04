@@ -46,7 +46,7 @@ class StartupProjectApplicationAdmin(admin.ModelAdmin):
 
 @admin.register(StaffScheduleSlot)
 class StaffScheduleSlotAdmin(admin.ModelAdmin):
-    list_display = ('id', 'owner_key', 'weekday', 'start_time', 'end_time', 'building_name', 'is_active')
+    list_display = ('id', 'owner_key', 'week_phase', 'weekday', 'start_time', 'end_time', 'building_name', 'is_active')
     list_filter = ('weekday', 'is_active')
     search_fields = ('owner_key', 'building_name', 'title')
 

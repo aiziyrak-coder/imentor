@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.models import Group, User
+from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -28,6 +29,7 @@ from .models import (
     SyllabusDocument,
 )
 from .location_service import record_ping_and_evaluate
+from .week_schedule import current_week_phase_code, iso_week_number, week_phase_label_uz
 from .serializers import (
     LocalLoginSerializer,
     LiveTestSubmissionCreateSerializer,
@@ -36,6 +38,7 @@ from .serializers import (
     StaffLocationAlertSerializer,
     StaffLocationPingCreateSerializer,
     StaffLocationPingSerializer,
+    StaffScheduleBulkSerializer,
     StaffScheduleSlotSerializer,
     StartupProjectApplicationSerializer,
     SyllabusDocumentSerializer,
@@ -485,8 +488,75 @@ class StaffScheduleSelfView(APIView):
         qs = StaffScheduleSlot.objects.filter(
             owner_key=request.user.username,
             is_active=True,
-        ).order_by('weekday', 'start_time')
+        ).order_by('week_phase', 'weekday', 'start_time')
         return Response(StaffScheduleSlotSerializer(qs, many=True).data)
+
+
+class ScheduleWeekInfoView(APIView):
+    """
+    Joriy ISO hafta va yuqori/pastki (toq/juft) — brauzer va server bir xil hisoblaydi.
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def get(self, request):
+        now = timezone.localtime()
+        wn = iso_week_number(now)
+        ph = current_week_phase_code(now)
+        return Response(
+            {
+                'iso_week': wn,
+                'current_week_phase': ph,
+                'current_week_phase_label_uz': week_phase_label_uz(ph),
+            }
+        )
+
+
+class AdminStaffScheduleBulkView(APIView):
+    """Bir o‘qituvchi uchun bitta `week_phase` bo‘yicha jadvalni to‘liq almashtirish."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def post(self, request):
+        serializer = StaffScheduleBulkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        owner = d['owner_key']
+        phase = d['week_phase']
+        replace = d['replace_existing']
+        rows = d['slots']
+        with transaction.atomic():
+            if replace:
+                StaffScheduleSlot.objects.filter(owner_key=owner, week_phase=phase).delete()
+            to_create = [
+                StaffScheduleSlot(
+                    owner_key=owner,
+                    week_phase=phase,
+                    weekday=x['weekday'],
+                    start_time=x['start_time'],
+                    end_time=x['end_time'],
+                    building_name=x['building_name'].strip(),
+                    latitude=x['latitude'],
+                    longitude=x['longitude'],
+                    radius_m=x['radius_m'],
+                    title=(x.get('title') or '').strip(),
+                    is_active=True,
+                )
+                for x in rows
+            ]
+            if to_create:
+                StaffScheduleSlot.objects.bulk_create(to_create)
+        return Response(
+            {
+                'ok': True,
+                'created_count': len(rows),
+                'owner_key': owner,
+                'week_phase': phase,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class AdminStaffScheduleListCreateView(APIView):
@@ -495,7 +565,7 @@ class AdminStaffScheduleListCreateView(APIView):
 
     def get(self, request):
         owner = request.query_params.get('owner_key', '').strip()
-        qs = StaffScheduleSlot.objects.all().order_by('owner_key', 'weekday', 'start_time')
+        qs = StaffScheduleSlot.objects.all().order_by('owner_key', 'week_phase', 'weekday', 'start_time')
         if owner:
             qs = qs.filter(owner_key=owner)
         return Response(StaffScheduleSlotSerializer(qs, many=True).data)

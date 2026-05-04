@@ -1,9 +1,14 @@
-import { httpJson } from '../api/httpClient';
+import { httpJson, HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
+
+export type WeekPhase = 'every' | 'upper' | 'lower';
 
 export type StaffScheduleSlotDto = {
   id: number;
   owner_key: string;
+  week_phase: WeekPhase;
+  week_phase_label?: string;
+  applies_this_calendar_week?: boolean;
   weekday: number;
   start_time: string;
   end_time: string;
@@ -15,6 +20,12 @@ export type StaffScheduleSlotDto = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ScheduleWeekInfoDto = {
+  iso_week: number;
+  current_week_phase: 'upper' | 'lower';
+  current_week_phase_label_uz: string;
 };
 
 export type StaffLocationPingDto = {
@@ -77,6 +88,13 @@ export async function getMyStaffSchedule(): Promise<StaffScheduleSlotDto[]> {
   return Array.isArray(rows) ? rows : [];
 }
 
+export async function getScheduleWeekInfo(): Promise<ScheduleWeekInfoDto> {
+  return httpJson<ScheduleWeekInfoDto>(`${apiBaseUrl()}/v1/staff/schedule-week-info/`, {
+    headers: await authHeaders(),
+    timeoutMs: 15000,
+  });
+}
+
 export async function listAdminStaffSchedule(ownerKey?: string): Promise<StaffScheduleSlotDto[]> {
   const q = ownerKey?.trim() ? `?owner_key=${encodeURIComponent(ownerKey.trim())}` : '';
   const rows = await httpJson<StaffScheduleSlotDto[]>(`${apiBaseUrl()}/v1/admin/staff-schedule/${q}`, {
@@ -116,6 +134,33 @@ export async function deleteAdminStaffSchedule(id: number): Promise<void> {
     timeoutMs: 15000,
   });
 }
+
+export type BulkScheduleSlotPayload = {
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  building_name: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  title?: string;
+};
+
+export async function bulkReplaceAdminStaffSchedule(body: {
+  owner_key: string;
+  week_phase: WeekPhase;
+  replace_existing: boolean;
+  slots: BulkScheduleSlotPayload[];
+}): Promise<{ ok: boolean; created_count: number; owner_key: string; week_phase: WeekPhase }> {
+  return httpJson(`${apiBaseUrl()}/v1/admin/staff-schedule/bulk/`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body,
+    timeoutMs: 60000,
+  });
+}
+
+export { HttpError };
 
 export async function listAdminStaffPings(ownerKey?: string): Promise<StaffLocationPingDto[]> {
   const q = ownerKey?.trim() ? `?owner_key=${encodeURIComponent(ownerKey.trim())}` : '';

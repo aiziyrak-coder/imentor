@@ -1,15 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Loader2, MapPin, Trash2 } from 'lucide-react';
+import { AlertCircle, ChevronDown, Loader2, MapPin, Trash2 } from 'lucide-react';
 import {
-  createAdminStaffSchedule,
+  bulkReplaceAdminStaffSchedule,
   deleteAdminStaffSchedule,
+  getScheduleWeekInfo,
+  HttpError,
   listAdminStaffAlerts,
   listAdminStaffPings,
   listAdminStaffSchedule,
   patchAdminStaffSchedule,
+  type BulkScheduleSlotPayload,
+  type ScheduleWeekInfoDto,
   type StaffLocationAlertDto,
   type StaffLocationPingDto,
   type StaffScheduleSlotDto,
+  type WeekPhase,
 } from '../../utils/staffLocationApi';
 
 const WEEKDAYS: { v: number; l: string }[] = [
@@ -22,12 +27,74 @@ const WEEKDAYS: { v: number; l: string }[] = [
   { v: 6, l: 'Yakshanba' },
 ];
 
+const PHASE_ORDER: WeekPhase[] = ['every', 'upper', 'lower'];
+const PHASE_LABEL: Record<WeekPhase, string> = {
+  every: 'Har hafta',
+  upper: 'Yuqori hafta (ISO toq)',
+  lower: 'Pastki hafta (ISO juft)',
+};
+
 type Tab = 'schedule' | 'pings' | 'alerts';
+type EditorMode = 'single' | 'alternating';
+
+type DayRow = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  building: string;
+  title: string;
+};
+
+function emptyRow(): DayRow {
+  return { enabled: false, start: '09:00', end: '10:00', building: '', title: '' };
+}
+
+function emptyGrid(): DayRow[] {
+  return Array.from({ length: 7 }, () => emptyRow());
+}
+
+function toHms(t: string): string {
+  return t.split(':').length === 2 ? `${t}:00` : t;
+}
 
 function validateOwnerKey(v: string): string | null {
   const d = v.replace(/\D/g, '');
-  if (d.length !== 12 || !d.startsWith('998')) return "Telefon 998XXXXXXXXX (12 raqam) bo'lishi kerak.";
+  if (d.length !== 12 || !d.startsWith('998')) return "Telefon 998 bilan 12 raqam bo'lishi kerak.";
   return null;
+}
+
+function defaultWeekPhase(s: StaffScheduleSlotDto): WeekPhase {
+  return s.week_phase ?? 'every';
+}
+
+function slotsToGrid(slots: StaffScheduleSlotDto[], phase: WeekPhase): DayRow[] {
+  const g = emptyGrid();
+  for (const s of slots) {
+    if (defaultWeekPhase(s) !== phase) continue;
+    g[s.weekday] = {
+      enabled: true,
+      start: String(s.start_time).slice(0, 5),
+      end: String(s.end_time).slice(0, 5),
+      building: s.building_name,
+      title: s.title ?? '',
+    };
+  }
+  return g;
+}
+
+function formatApiError(err: unknown): string {
+  if (err instanceof HttpError && err.body && typeof err.body === 'object') {
+    const b = err.body as Record<string, unknown>;
+    if (typeof b.detail === 'string') return b.detail;
+    if (Array.isArray(b.slots) && b.slots.length) return JSON.stringify(b.slots);
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(b)) {
+      parts.push(`${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+    }
+    if (parts.length) return parts.join('; ');
+  }
+  if (err instanceof Error) return err.message;
+  return "So'rovda xato.";
 }
 
 export default function AdminStaffLocationConsole() {
@@ -37,21 +104,36 @@ export default function AdminStaffLocationConsole() {
   const [pings, setPings] = useState<StaffLocationPingDto[]>([]);
   const [alerts, setAlerts] = useState<StaffLocationAlertDto[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    owner_key: '',
-    weekday: 0,
-    start_time: '09:00',
-    end_time: '10:30',
-    building_name: '',
-    latitude: '41.311151',
-    longitude: '69.279737',
-    radius_m: 1000,
-    title: '',
-  });
+  const [weekInfo, setWeekInfo] = useState<ScheduleWeekInfoDto | null>(null);
+  const [editorOwner, setEditorOwner] = useState('');
+  const [editorMode, setEditorMode] = useState<EditorMode>('single');
+  const [defLat, setDefLat] = useState('41.311151');
+  const [defLng, setDefLng] = useState('69.279737');
+  const [defRadius, setDefRadius] = useState(1000);
+  const [gridEvery, setGridEvery] = useState<DayRow[]>(() => emptyGrid());
+  const [gridUpper, setGridUpper] = useState<DayRow[]>(() => emptyGrid());
+  const [gridLower, setGridLower] = useState<DayRow[]>(() => emptyGrid());
 
   const ownerFilterApplied = useMemo(() => filterOwner.replace(/\D/g, ''), [filterOwner]);
+  const editorDigits = useMemo(() => editorOwner.replace(/\D/g, ''), [editorOwner]);
+
+  const scheduleGrouped = useMemo(() => {
+    const m: Record<string, StaffScheduleSlotDto[]> = { every: [], upper: [], lower: [] };
+    for (const r of schedule) {
+      const p = defaultWeekPhase(r);
+      if (!m[p]) m[p] = [];
+      m[p].push(r);
+    }
+    return m;
+  }, [schedule]);
+
+  const hasAlternatingData = useMemo(
+    () => schedule.some((s) => defaultWeekPhase(s) === 'upper' || defaultWeekPhase(s) === 'lower'),
+    [schedule],
+  );
 
   const load = useCallback(async () => {
     setError(null);
@@ -59,8 +141,12 @@ export default function AdminStaffLocationConsole() {
     try {
       const o = ownerFilterApplied.length >= 12 ? ownerFilterApplied : undefined;
       if (tab === 'schedule') {
-        const rows = await listAdminStaffSchedule(o);
+        const [rows, wi] = await Promise.all([
+          listAdminStaffSchedule(o),
+          getScheduleWeekInfo().catch(() => null),
+        ]);
         setSchedule(rows);
+        if (wi) setWeekInfo(wi);
       } else if (tab === 'pings') {
         const rows = await listAdminStaffPings(o);
         setPings(rows);
@@ -79,36 +165,104 @@ export default function AdminStaffLocationConsole() {
     void load();
   }, [load]);
 
-  const submitSlot = async () => {
-    const err = validateOwnerKey(form.owner_key);
+  const updateGridCell = (
+    which: 'every' | 'upper' | 'lower',
+    dayIdx: number,
+    patch: Partial<DayRow>,
+  ) => {
+    const upd = (prev: DayRow[]) => {
+      const next = [...prev];
+      next[dayIdx] = { ...next[dayIdx], ...patch };
+      return next;
+    };
+    if (which === 'every') setGridEvery(upd);
+    else if (which === 'upper') setGridUpper(upd);
+    else setGridLower(upd);
+  };
+
+  const fillGridsFromTeacher = useCallback(() => {
+    const err = validateOwnerKey(editorOwner);
     if (err) {
       setError(err);
       return;
     }
-    const lat = Number(form.latitude);
-    const lng = Number(form.longitude);
+    const digits = editorDigits;
+    const mine = schedule.filter((s) => s.owner_key === digits);
+    if (mine.length === 0) {
+      setError('Bu hodim uchun jadval hali yo‘q — formani qo‘lda to‘ldiring.');
+      return;
+    }
+    const hasAlt = mine.some((s) => defaultWeekPhase(s) === 'upper' || defaultWeekPhase(s) === 'lower');
+    setEditorMode(hasAlt ? 'alternating' : 'single');
+    if (hasAlt) {
+      setGridUpper(slotsToGrid(mine, 'upper'));
+      setGridLower(slotsToGrid(mine, 'lower'));
+      setGridEvery(emptyGrid());
+    } else {
+      setGridEvery(slotsToGrid(mine, 'every'));
+      setGridUpper(emptyGrid());
+      setGridLower(emptyGrid());
+    }
+    const first = mine[0];
+    if (first) {
+      setDefLat(String(first.latitude));
+      setDefLng(String(first.longitude));
+      setDefRadius(first.radius_m);
+    }
+    setError(null);
+  }, [editorOwner, editorDigits, schedule]);
+
+  const copyUpperToLower = () => {
+    setGridLower(gridUpper.map((r) => ({ ...r })));
+  };
+
+  const buildPayload = (grid: DayRow[]): BulkScheduleSlotPayload[] => {
+    const lat = Number(defLat);
+    const lng = Number(defLng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setError('Latitude/longitude noto‘g‘ri.');
+      throw new Error('Asosiy nuqta (lat/lng) noto‘g‘ri.');
+    }
+    const out: BulkScheduleSlotPayload[] = [];
+    grid.forEach((row, weekday) => {
+      if (!row.enabled) return;
+      const b = row.building.trim();
+      if (!b) throw new Error(`${WEEKDAYS[weekday]?.l ?? weekday}: bino nomi bo‘sh.`);
+      out.push({
+        weekday,
+        start_time: toHms(row.start),
+        end_time: toHms(row.end),
+        building_name: b,
+        latitude: lat,
+        longitude: lng,
+        radius_m: defRadius,
+        title: row.title.trim(),
+      });
+    });
+    return out;
+  };
+
+  const saveBulk = async (phase: WeekPhase, grid: DayRow[]) => {
+    const err = validateOwnerKey(editorOwner);
+    if (err) {
+      setError(err);
       return;
     }
     setError(null);
-    const toHms = (t: string) => (t.split(':').length === 2 ? `${t}:00` : t);
+    setSaving(true);
     try {
-      await createAdminStaffSchedule({
-        owner_key: form.owner_key.replace(/\D/g, ''),
-        weekday: form.weekday,
-        start_time: toHms(form.start_time),
-        end_time: toHms(form.end_time),
-        building_name: form.building_name.trim(),
-        latitude: lat,
-        longitude: lng,
-        radius_m: form.radius_m,
-        title: form.title.trim(),
-        is_active: true,
+      const slots = buildPayload(grid);
+      await bulkReplaceAdminStaffSchedule({
+        owner_key: editorDigits,
+        week_phase: phase,
+        replace_existing: true,
+        slots,
       });
       await load();
-    } catch {
-      setError('Slot yaratishda xato (vaqt formati yoki maydonlar).');
+      setFilterOwner(editorDigits);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -131,6 +285,92 @@ export default function AdminStaffLocationConsole() {
     }
   };
 
+  const renderDayEditor = (which: 'every' | 'upper' | 'lower', grid: DayRow[], phase: WeekPhase) => {
+    const showPhaseBadge =
+      weekInfo && (phase === 'upper' || phase === 'lower') && weekInfo.current_week_phase === phase;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="text-[14px] font-bold text-black/85">{PHASE_LABEL[phase]}</h3>
+          {showPhaseBadge ? (
+            <span className="text-[11px] font-semibold rounded-full bg-emerald-100 text-emerald-900 px-2 py-0.5">
+              Bu hafta shu variant
+            </span>
+          ) : null}
+        </div>
+        <div className="rounded-xl border border-black/10 overflow-hidden bg-white/60">
+          <table className="w-full text-[12px]">
+            <thead className="bg-black/[0.04] text-black/55">
+              <tr>
+                <th className="px-2 py-2 text-left w-10"> </th>
+                <th className="px-2 py-2 text-left">Kun</th>
+                <th className="px-2 py-2 text-left">Boshlanish</th>
+                <th className="px-2 py-2 text-left">Tugash</th>
+                <th className="px-2 py-2 text-left min-w-[120px]">Bino</th>
+                <th className="px-2 py-2 text-left hidden sm:table-cell">Izoh</th>
+              </tr>
+            </thead>
+            <tbody>
+              {WEEKDAYS.map((wd, i) => {
+                const row = grid[i];
+                return (
+                  <tr key={wd.v} className="border-t border-black/5 align-top">
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={row.enabled}
+                        onChange={(e) => updateGridCell(which, i, { enabled: e.target.checked })}
+                        aria-label={`${wd.l} faol`}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 font-medium text-black/80 whitespace-nowrap">{wd.l}</td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="time"
+                        disabled={!row.enabled}
+                        value={row.start}
+                        onChange={(e) => updateGridCell(which, i, { start: e.target.value })}
+                        className="w-full rounded-lg border border-black/10 px-1 py-1"
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        type="time"
+                        disabled={!row.enabled}
+                        value={row.end}
+                        onChange={(e) => updateGridCell(which, i, { end: e.target.value })}
+                        className="w-full rounded-lg border border-black/10 px-1 py-1"
+                      />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input
+                        disabled={!row.enabled}
+                        value={row.building}
+                        onChange={(e) => updateGridCell(which, i, { building: e.target.value })}
+                        placeholder="Bino / auditoriya"
+                        className="w-full rounded-lg border border-black/10 px-2 py-1 min-w-0"
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 hidden sm:table-cell">
+                      <input
+                        disabled={!row.enabled}
+                        value={row.title}
+                        onChange={(e) => updateGridCell(which, i, { title: e.target.value })}
+                        placeholder="ixtiyoriy"
+                        className="w-full rounded-lg border border-black/10 px-2 py-1"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-5 px-2 sm:px-4 pb-24">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -140,7 +380,7 @@ export default function AdminStaffLocationConsole() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-black/90">Hodimlar joylashuvi</h1>
-            <p className="text-[12px] text-black/50">Jadval, pinglar va radiusdan tashqari holatlar</p>
+            <p className="text-[12px] text-black/50">Haftalik jadval (yuqori/pastki hafta ixtiyoriy)</p>
           </div>
         </div>
         <button
@@ -176,7 +416,7 @@ export default function AdminStaffLocationConsole() {
 
       <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
         <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 flex-1 min-w-[200px]">
-          Hodim telefoni (filtr, 998…)
+          Ro‘yxat filtri (hodim telefoni)
           <input
             value={filterOwner}
             onChange={(e) => setFilterOwner(e.target.value)}
@@ -185,6 +425,26 @@ export default function AdminStaffLocationConsole() {
           />
         </label>
       </div>
+
+      {tab === 'schedule' && weekInfo ? (
+        <div className="ios-glass rounded-2xl border border-sky-200/80 bg-sky-50/50 px-4 py-3 text-[13px] text-black/80 flex flex-wrap gap-x-4 gap-y-1">
+          <span>
+            <strong>ISO hafta:</strong> {weekInfo.iso_week}
+          </span>
+          <span>
+            <strong>Joriy bosqich:</strong> {weekInfo.current_week_phase_label_uz}
+          </span>
+          <span className="text-black/55">
+            Yuqori = ISO toq hafta, pastki = ISO juft (viloyatlar bir xil qoida).
+          </span>
+        </div>
+      ) : null}
+
+      {hasAlternatingData && tab === 'schedule' ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[12px] text-amber-950">
+          Bu hodimda <strong>yuqori/pastki</strong> hafta slotlari saqlangan — jadvalda turlari bo‘yicha guruhlangan.
+        </div>
+      ) : null}
 
       {error && (
         <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
@@ -199,120 +459,129 @@ export default function AdminStaffLocationConsole() {
           Yuklanmoqda…
         </div>
       ) : tab === 'schedule' ? (
-        <div className="space-y-6">
+        <div className="space-y-8">
+          {/* Jadval ko‘rinishi */}
           <div className="ios-glass rounded-2xl border border-white/60 overflow-hidden">
-            <table className="w-full text-left text-[13px]">
-              <thead className="bg-black/[0.03] text-black/55">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Hodim</th>
-                  <th className="px-3 py-2 font-semibold">Kun</th>
-                  <th className="px-3 py-2 font-semibold">Vaqt</th>
-                  <th className="px-3 py-2 font-semibold">Bino</th>
-                  <th className="px-3 py-2 font-semibold">Radius</th>
-                  <th className="px-3 py-2 font-semibold" />
-                </tr>
-              </thead>
-              <tbody>
-                {schedule.map((r) => (
-                  <tr key={r.id} className="border-t border-black/5">
-                    <td className="px-3 py-2 font-mono text-[12px]">{r.owner_key}</td>
-                    <td className="px-3 py-2">{WEEKDAYS.find((w) => w.v === r.weekday)?.l ?? r.weekday}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {String(r.start_time).slice(0, 5)} — {String(r.end_time).slice(0, 5)}
-                    </td>
-                    <td className="px-3 py-2">{r.building_name}</td>
-                    <td className="px-3 py-2">{r.radius_m} m</td>
-                    <td className="px-3 py-2 text-right space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => void toggleActive(r)}
-                        className="text-[12px] font-semibold text-blue-600"
-                      >
-                        {r.is_active ? 'Pauza' : 'Faol'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void removeSlot(r.id)}
-                        className="inline-flex items-center justify-center p-1 rounded-lg text-rose-600"
-                        aria-label="O‘chirish"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="px-3 py-2 bg-black/[0.02] text-[12px] font-semibold text-black/55 flex items-center gap-1">
+              <ChevronDown size={14} />
+              Saqlangan slotlar
+            </div>
+            {PHASE_ORDER.map((phase) => {
+              const rows = scheduleGrouped[phase] ?? [];
+              if (rows.length === 0) return null;
+              return (
+                <div key={phase} className="border-t border-black/5">
+                  <div className="px-3 py-2 text-[12px] font-bold text-black/70 bg-black/[0.03]">
+                    {PHASE_LABEL[phase]}
+                  </div>
+                  <table className="w-full text-left text-[13px]">
+                    <thead className="text-black/50">
+                      <tr>
+                        <th className="px-3 py-2">Hodim</th>
+                        <th className="px-3 py-2">Kun</th>
+                        <th className="px-3 py-2">Vaqt</th>
+                        <th className="px-3 py-2">Bino</th>
+                        <th className="px-3 py-2">R</th>
+                        <th className="px-3 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => (
+                        <tr key={r.id} className="border-t border-black/5">
+                          <td className="px-3 py-2 font-mono text-[12px]">{r.owner_key}</td>
+                          <td className="px-3 py-2">{WEEKDAYS.find((w) => w.v === r.weekday)?.l ?? r.weekday}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            {String(r.start_time).slice(0, 5)} — {String(r.end_time).slice(0, 5)}
+                          </td>
+                          <td className="px-3 py-2">{r.building_name}</td>
+                          <td className="px-3 py-2">{r.radius_m} m</td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => void toggleActive(r)}
+                              className="text-[12px] font-semibold text-blue-600"
+                            >
+                              {r.is_active ? 'Pauza' : 'Faol'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void removeSlot(r.id)}
+                              className="inline-flex items-center justify-center p-1 rounded-lg text-rose-600"
+                              aria-label="O‘chirish"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
             {schedule.length === 0 && (
               <div className="px-4 py-8 text-center text-black/45 text-[13px]">Hech qanday slot yo‘q.</div>
             )}
           </div>
 
-          <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-3">
-            <h2 className="text-[14px] font-bold text-black/80">Yangi slot</h2>
+          {/* Haftalik editor */}
+          <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-4">
+            <h2 className="text-[15px] font-bold text-black/90">Haftalik jadvalni kiritish</h2>
+            <p className="text-[12px] text-black/55 leading-relaxed">
+              Bitta o‘qituvchi uchun barcha kunlarni shu yerda belgilang. Faol qATORLAR yuboriladi; faolsiz kunlar
+              o‘sha bosqichdagi eski slotlarni o‘chiradi (almashtirish). Bir kunda vaqt oralig‘lari ustma-ust
+              tushmasligi kerak.
+            </p>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Hodim telefoni (owner_key)
+                Hodim telefoni
                 <input
-                  value={form.owner_key}
-                  onChange={(e) => setForm((f) => ({ ...f, owner_key: e.target.value }))}
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                  value={editorOwner}
+                  onChange={(e) => setEditorOwner(e.target.value)}
                   placeholder="998901112233"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Hafta kuni
-                <select
-                  value={form.weekday}
-                  onChange={(e) => setForm((f) => ({ ...f, weekday: Number(e.target.value) }))}
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                >
-                  {WEEKDAYS.map((w) => (
-                    <option key={w.v} value={w.v}>
-                      {w.l}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Boshlanish
-                <input
-                  type="time"
-                  value={form.start_time}
-                  onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
                   className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                 />
               </label>
+              <div className="flex flex-col gap-1 justify-end">
+                <span className="text-[12px] font-medium text-black/60">Rejim</span>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode('single')}
+                    className={`rounded-xl px-3 py-2 text-[12px] font-semibold ${
+                      editorMode === 'single' ? 'bg-blue-600 text-white' : 'bg-white border border-black/10'
+                    }`}
+                  >
+                    Har hafta bir xil
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditorMode('alternating')}
+                    className={`rounded-xl px-3 py-2 text-[12px] font-semibold ${
+                      editorMode === 'alternating' ? 'bg-blue-600 text-white' : 'bg-white border border-black/10'
+                    }`}
+                  >
+                    Yuqori / pastki alohida
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Tugash
+                Asosiy lat
                 <input
-                  type="time"
-                  value={form.end_time}
-                  onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 sm:col-span-2">
-                Bino nomi
-                <input
-                  value={form.building_name}
-                  onChange={(e) => setForm((f) => ({ ...f, building_name: e.target.value }))}
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Kenglik (lat)
-                <input
-                  value={form.latitude}
-                  onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
+                  value={defLat}
+                  onChange={(e) => setDefLat(e.target.value)}
                   className="rounded-xl border border-black/10 px-3 py-2 text-[14px] font-mono"
                 />
               </label>
               <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Uzunlik (lng)
+                Asosiy lng
                 <input
-                  value={form.longitude}
-                  onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
+                  value={defLng}
+                  onChange={(e) => setDefLng(e.target.value)}
                   className="rounded-xl border border-black/10 px-3 py-2 text-[14px] font-mono"
                 />
               </label>
@@ -320,29 +589,69 @@ export default function AdminStaffLocationConsole() {
                 Radius (m)
                 <input
                   type="number"
-                  min={50}
-                  max={5000}
-                  value={form.radius_m}
-                  onChange={(e) => setForm((f) => ({ ...f, radius_m: Number(e.target.value) || 1000 }))}
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Izoh (ixtiyoriy)
-                <input
-                  value={form.title}
-                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  min={30}
+                  max={50000}
+                  value={defRadius}
+                  onChange={(e) => setDefRadius(Number(e.target.value) || 1000)}
                   className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                 />
               </label>
             </div>
-            <button
-              type="button"
-              onClick={() => void submitSlot()}
-              className="rounded-xl bg-blue-600 text-white px-4 py-2.5 text-[13px] font-semibold"
-            >
-              Saqlash
-            </button>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => fillGridsFromTeacher()}
+                className="rounded-xl border border-black/15 bg-white px-4 py-2 text-[12px] font-semibold text-black/80"
+              >
+                Filtr bo‘yicha jadvalni forma ustiga yuklash
+              </button>
+              {editorMode === 'alternating' ? (
+                <button
+                  type="button"
+                  onClick={copyUpperToLower}
+                  className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-[12px] font-semibold text-violet-900"
+                >
+                  Pastki haftani yuqoridan nusxa
+                </button>
+              ) : null}
+            </div>
+
+            {editorMode === 'single' ? (
+              <div className="space-y-4">
+                {renderDayEditor('every', gridEvery, 'every')}
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void saveBulk('every', gridEvery)}
+                  className="rounded-xl bg-blue-600 text-white px-5 py-2.5 text-[13px] font-semibold disabled:opacity-50"
+                >
+                  {saving ? 'Saqlanmoqda…' : 'Har hafta jadvalini saqlash'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {renderDayEditor('upper', gridUpper, 'upper')}
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void saveBulk('upper', gridUpper)}
+                  className="rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-[13px] font-semibold disabled:opacity-50"
+                >
+                  {saving ? '…' : 'Yuqori haftani saqlash'}
+                </button>
+
+                {renderDayEditor('lower', gridLower, 'lower')}
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void saveBulk('lower', gridLower)}
+                  className="rounded-xl bg-teal-600 text-white px-5 py-2.5 text-[13px] font-semibold disabled:opacity-50"
+                >
+                  {saving ? '…' : 'Pastki haftani saqlash'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : tab === 'pings' ? (

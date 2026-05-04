@@ -146,9 +146,25 @@ class StaffScheduleSlot(models.Model):
     """
     O'qituvchi uchun kutilgan joy va vaqt (admin belgilaydi).
     weekday: 0=Dushanba ... 6=Yakshanba (Python weekday).
+    week_phase: every=har hafta; upper/lower=ISO hafta toq/juft (yuqori/pastki).
     """
 
+    WEEK_EVERY = "every"
+    WEEK_UPPER = "upper"
+    WEEK_LOWER = "lower"
+    WEEK_PHASE_CHOICES = [
+        (WEEK_EVERY, "Har hafta"),
+        (WEEK_UPPER, "Yuqori hafta (ISO toq)"),
+        (WEEK_LOWER, "Pastki hafta (ISO juft)"),
+    ]
+
     owner_key = models.CharField(max_length=128, db_index=True)
+    week_phase = models.CharField(
+        max_length=16,
+        choices=WEEK_PHASE_CHOICES,
+        default=WEEK_EVERY,
+        db_index=True,
+    )
     weekday = models.SmallIntegerField(db_index=True)
     start_time = models.TimeField()
     end_time = models.TimeField()
@@ -162,13 +178,14 @@ class StaffScheduleSlot(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["owner_key", "weekday", "start_time"]
+        ordering = ["owner_key", "week_phase", "weekday", "start_time"]
         indexes = [
             models.Index(fields=["owner_key", "weekday", "is_active"]),
+            models.Index(fields=["owner_key", "week_phase", "weekday", "is_active"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.owner_key}:{self.weekday}:{self.start_time}"
+        return f"{self.owner_key}:{self.week_phase}:{self.weekday}:{self.start_time}"
 
 
 class StaffLocationPing(models.Model):

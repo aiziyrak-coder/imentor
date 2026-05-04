@@ -58,31 +58,17 @@ export default function CaseStudies() {
     setError(null);
     try {
       const data = await aiService.generateCaseStudy(currentTopic, language);
-      const withImages = await Promise.all(
-        (data.questions || []).map(async (q) => {
-          const prompt =
-            q.imagePrompt?.trim() ||
-            `Realistic clinical educational photo for case about ${currentTopic}, high detail, no text overlay`;
-          try {
-            const imageUrl = await aiService.generateImage(prompt);
-            return imageUrl ? { ...q, imageUrl } : q;
-          } catch {
-            return q;
-          }
-        })
-      );
-      const enriched: CaseStudySession = { ...data, questions: withImages };
 
-      setCaseSession(enriched);
-      setRevealedAnswers(new Array(enriched.questions.length).fill(false));
-      await savePreparedContent('case', currentTopic, enriched);
+      setCaseSession(data);
+      setRevealedAnswers(new Array(data.questions.length).fill(false));
+      await savePreparedContent('case', currentTopic, data);
       try {
         const u = getCurrentLocalUser();
         if (u && normalizeUserRole(u) === 'hodim') {
           appendCaseStudyToLibrary({
             authorUid: u.uid,
             authorName: u.displayName,
-            session: enriched,
+            session: data,
           });
         }
       } catch {
@@ -231,19 +217,7 @@ export default function CaseStudies() {
                         <p className="font-medium text-black/90 text-[15px] leading-relaxed pt-1 whitespace-pre-wrap">
                           {q.scenario}
                         </p>
-                        
-                        {q.imageUrl && (
-                          <div className="my-4 rounded-xl overflow-hidden border border-black/10 shadow-sm flex items-center justify-center bg-black/5 p-2"
-                               onError={(e) => {
-                                 (e.currentTarget as HTMLDivElement).style.display = 'none';
-                               }}>
-                             <img src={q.imageUrl} alt={`Case illustration ${i+1}`} className="max-h-[300px] object-contain rounded-lg"
-                                  onError={(e) => {
-                                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                                  }} />
-                          </div>
-                        )}
-                        
+
                         <div className="pt-2">
                           <button
                             onClick={() => handleRevealAnswer(i)}

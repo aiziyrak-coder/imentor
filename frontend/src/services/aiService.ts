@@ -23,8 +23,6 @@ export interface CaseStudyQuestion {
   options?: string[];
   correctOptionIndex?: number;
   explanation?: string;
-  imagePrompt?: string;
-  imageUrl?: string;
 }
 
 export interface CaseStudySession {
@@ -37,8 +35,6 @@ export interface TestQuestion {
   options: string[];
   correctOptionIndex: number;
   explanation: string;
-  imagePrompt?: string;
-  imageUrl?: string;
 }
 
 export interface TestSession {
@@ -349,7 +345,6 @@ function normalizeCaseSession(topic: string, data: CaseStudySession): CaseStudyS
         "(5) bemor xavfsizligi hamda keyingi kuzatuv rejasi.",
       ].join(' ');
       return {
-        ...q,
         scenario: scenario.length >= 120 ? scenario : fallbackScenario,
         answer: answer.length >= 120 ? answer : fallbackAnswer,
       };
@@ -384,7 +379,6 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
           ? q.correctOptionIndex
           : 0;
       return {
-        ...q,
         question: (q.question || '').trim(),
         options: options.map((o) => (o || '').trim()),
         explanation: (q.explanation || '').trim(),
@@ -671,7 +665,6 @@ ${strict ? "Sifat talabi juda yuqori: intern/rezident darsida darhol ishlatishga
                     properties: {
                       scenario: { type: Type.STRING },
                       answer: { type: Type.STRING },
-                      imagePrompt: { type: Type.STRING },
                     },
                     required: ["scenario", "answer"],
                   },

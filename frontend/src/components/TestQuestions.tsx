@@ -77,7 +77,6 @@ export default function TestQuestions() {
 
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [loading, setLoading] = useState(false);
-  const [visualLoading, setVisualLoading] = useState(false);
   const [testSession, setTestSession] = useState<TestSession | null>(null);
 
   useEffect(() => {
@@ -167,8 +166,6 @@ export default function TestQuestions() {
     setError(null);
     try {
       const data = await aiService.generateTests(topic, 10, language);
-      setVisualLoading(false);
-      data.questions = (data.questions || []).map((q) => ({ ...q, imageUrl: undefined, imagePrompt: undefined }));
       setTestSession(data);
       const sid = setupTeacherLiveSession(data);
       await savePreparedContent('test', topic, data);
@@ -189,7 +186,6 @@ export default function TestQuestions() {
       console.error("Test generation error:", err);
       setError("Test savollarini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
     } finally {
-      setVisualLoading(false);
       setLoading(false);
     }
   };
@@ -371,7 +367,7 @@ export default function TestQuestions() {
               <Brain size={28} className="absolute inset-0 m-auto text-indigo-600 animate-pulse" />
             </div>
             <p className="text-gray-500 font-medium animate-pulse text-lg">
-              {visualLoading ? "Savollar tayyorlanmoqda..." : "AI ekspertlar test savollarini shakllantirmoqda..."}
+              AI test savollarini shakllantirmoqda...
             </p>
             <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
               Bu jarayon 10 ta murakkab klinik savolni tayyorlaydi.

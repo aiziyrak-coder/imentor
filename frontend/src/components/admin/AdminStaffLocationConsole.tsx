@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ChevronDown, Loader2, MapPin, Plus, Radio, Trash2 } from 'lucide-react';
+import {
+  listAllStaffUsers,
+  normalizeUserRole,
+  subscribeLocalAuth,
+  type LocalStaffUser,
+} from '../../utils/localStaffAuth';
 import AdminStaffLiveMapPanel from './AdminStaffLiveMapPanel';
 import {
   bulkReplaceAdminStaffSchedule,
@@ -173,7 +179,9 @@ function intervalsToPayload(
 
 export default function AdminStaffLocationConsole() {
   const [tab, setTab] = useState<Tab>('schedule');
-  const [filterOwner, setFilterOwner] = useState('');
+  /** 12 raqam (998...) yoki bo'sh: barcha hodimlar */
+  const [staffOwnerDigits, setStaffOwnerDigits] = useState('');
+  const [staffOptions, setStaffOptions] = useState<LocalStaffUser[]>([]);
   const [schedule, setSchedule] = useState<StaffScheduleSlotDto[]>([]);
   const [pings, setPings] = useState<StaffLocationPingDto[]>([]);
   const [alerts, setAlerts] = useState<StaffLocationAlertDto[]>([]);
@@ -183,7 +191,6 @@ export default function AdminStaffLocationConsole() {
   const [error, setError] = useState<string | null>(null);
 
   const [weekInfo, setWeekInfo] = useState<ScheduleWeekInfoDto | null>(null);
-  const [editorOwner, setEditorOwner] = useState('');
   const [editorMode, setEditorMode] = useState<EditorMode>('single');
   const [legacyRadius, setLegacyRadius] = useState(1000);
   const [intervalsEvery, setIntervalsEvery] = useState<IntervalsByWeekday>(() => emptyIntervals());
@@ -193,8 +200,29 @@ export default function AdminStaffLocationConsole() {
 
   const LIVE_MAP_POLL_SEC = 5;
 
-  const ownerFilterApplied = useMemo(() => filterOwner.replace(/\D/g, ''), [filterOwner]);
-  const editorDigits = useMemo(() => editorOwner.replace(/\D/g, ''), [editorOwner]);
+  const refreshStaffOptions = useCallback(() => {
+    try {
+      const rows = listAllStaffUsers()
+        .filter((u) => normalizeUserRole(u) === 'hodim')
+        .sort((a, b) => a.displayName.localeCompare(b.displayName, 'uz'));
+      setStaffOptions(rows);
+    } catch {
+      setStaffOptions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStaffOptions();
+  }, [refreshStaffOptions]);
+
+  useEffect(() => {
+    return subscribeLocalAuth(() => {
+      refreshStaffOptions();
+    });
+  }, [refreshStaffOptions]);
+
+  const ownerFilterApplied = useMemo(() => staffOwnerDigits.replace(/\D/g, ''), [staffOwnerDigits]);
+  const editorDigits = ownerFilterApplied;
 
   const scheduleGrouped = useMemo(() => {
     const m: { every: StaffScheduleSlotDto[]; upper: StaffScheduleSlotDto[]; lower: StaffScheduleSlotDto[] } = {
@@ -214,6 +242,9 @@ export default function AdminStaffLocationConsole() {
     () => schedule.some((s) => defaultPhase(s) === 'upper' || defaultPhase(s) === 'lower'),
     [schedule],
   );
+
+  const showAlternatingHint =
+    hasAlternatingData && tab === 'schedule' && ownerFilterApplied.length >= 12;
 
   const load = useCallback(async () => {
     setError(null);
@@ -303,7 +334,7 @@ export default function AdminStaffLocationConsole() {
   };
 
   const fillFromSchedule = useCallback(() => {
-    const err = validateOwnerKey(editorOwner);
+    const err = validateOwnerKey(staffOwnerDigits);
     if (err) {
       setError(err);
       return;
@@ -326,7 +357,7 @@ export default function AdminStaffLocationConsole() {
       setIntervalsLower(emptyIntervals());
     }
     setError(null);
-  }, [editorOwner, editorDigits, schedule]);
+  }, [staffOwnerDigits, editorDigits, schedule]);
 
   const copyUpperToLower = () => {
     const copy = emptyIntervals();
@@ -337,7 +368,7 @@ export default function AdminStaffLocationConsole() {
   };
 
   const saveBulk = async (phase: WeekPhase, rec: IntervalsByWeekday) => {
-    const err = validateOwnerKey(editorOwner);
+    const err = validateOwnerKey(staffOwnerDigits);
     if (err) {
       setError(err);
       return;
@@ -357,7 +388,7 @@ export default function AdminStaffLocationConsole() {
         slots,
       });
       await load();
-      setFilterOwner(editorDigits);
+      setStaffOwnerDigits(editorDigits);
     } catch (e) {
       setError(formatApiErrorLocal(e));
     } finally {
@@ -574,16 +605,27 @@ export default function AdminStaffLocationConsole() {
         ))}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+      <div className="flex flex-col gap-1">
         <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 flex-1 min-w-[200px]">
-          Ro‘yxat filtri (hodim telefoni)
-          <input
-            value={filterOwner}
-            onChange={(e) => setFilterOwner(e.target.value)}
-            placeholder="998901112233"
-            className="rounded-xl border border-black/10 bg-white px-3 py-2 text-[14px]"
-          />
+          Hodimni tanlang (jadval, filtr va jonli xarita)
+          <select
+            value={staffOwnerDigits}
+            onChange={(e) => setStaffOwnerDigits(e.target.value)}
+            className="rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[14px] text-black/90"
+          >
+            <option value="">— Barcha hodimlar (barcha slotlar / barcha pinglar) —</option>
+            {staffOptions.map((u) => (
+              <option key={u.uid} value={u.phoneDigits}>
+                {u.displayName} · {u.phoneDisplay}
+              </option>
+            ))}
+          </select>
         </label>
+        {staffOptions.length === 0 ? (
+          <p className="text-[11px] text-amber-800">
+            Ro‘yxatda hodim yo‘q — avval <strong>Hodimlar boshqaruvi</strong> orqali hodim (rol: hodim) qo‘shing.
+          </p>
+        ) : null}
       </div>
 
       {tab !== 'livemap' ? (
@@ -620,7 +662,7 @@ export default function AdminStaffLocationConsole() {
         </div>
       ) : null}
 
-      {hasAlternatingData && tab === 'schedule' ? (
+      {showAlternatingHint ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[12px] text-amber-950">
           Bu hodimda <strong>yuqori/pastki</strong> hafta slotlari bor — jadvalda guruhlangan.
         </div>
@@ -715,17 +757,22 @@ export default function AdminStaffLocationConsole() {
               shu binoning radiusida bo‘lishni kutadi. Bir kunda vaqtlar ustma-ust tushmasligi kerak.
             </p>
 
+            <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-2 text-[12px] text-black/70">
+              {staffOwnerDigits.length >= 12 ? (
+                <>
+                  Jadval <span className="font-mono font-semibold text-black/90">{staffOwnerDigits}</span> uchun
+                  saqlanadi — hodimni yuqoridagi ro‘yxatdan o‘zgartirishingiz mumkin.
+                </>
+              ) : (
+                <>
+                  <strong className="text-amber-900">Jadval yaratish va saqlash</strong> uchun yuqoridan konkret
+                  hodimni tanlang.
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-                Hodim telefoni
-                <input
-                  value={editorOwner}
-                  onChange={(e) => setEditorOwner(e.target.value)}
-                  placeholder="998901112233"
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
+              <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 sm:col-span-2">
                 Eski usul radius (m) — faqat bino tanlanmagan qatorlar uchun
                 <input
                   type="number"
@@ -733,7 +780,7 @@ export default function AdminStaffLocationConsole() {
                   max={50000}
                   value={legacyRadius}
                   onChange={(e) => setLegacyRadius(Number(e.target.value) || 1000)}
-                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                  className="rounded-xl border border-black/10 px-3 py-2 text-[14px] max-w-xs"
                 />
               </label>
             </div>

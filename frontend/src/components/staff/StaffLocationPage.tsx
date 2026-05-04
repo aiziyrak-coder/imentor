@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, MapPin } from 'lucide-react';
+import { AlertTriangle, Loader2, MapPin, Navigation } from 'lucide-react';
 import {
   getMyStaffSchedule,
   getScheduleWeekInfo,
@@ -7,6 +7,8 @@ import {
   type StaffScheduleSlotDto,
   type WeekPhase,
 } from '../../utils/staffLocationApi';
+import { requestOneShotStaffLocationPing } from '../../utils/staffLocationGeo';
+import StaffLocationMiniMap from './StaffLocationMiniMap';
 
 const WEEKDAYS: string[] = [
   'Dushanba',
@@ -37,6 +39,7 @@ export default function StaffLocationPage() {
   const [weekInfo, setWeekInfo] = useState<ScheduleWeekInfoDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pingBusy, setPingBusy] = useState(false);
 
   const grouped = useMemo(() => {
     const order: WeekPhase[] = ['every', 'upper', 'lower'];
@@ -70,6 +73,20 @@ export default function StaffLocationPage() {
     void load();
   }, [load]);
 
+  const sendNow = useCallback(async () => {
+    setPingBusy(true);
+    setError(null);
+    try {
+      await requestOneShotStaffLocationPing();
+    } catch {
+      setError(
+        'Joylashuv olinmadi. Telefonda GPS yoqilganini, brauzerda joylashuv ruxsatini tekshiring (tugma orqali qayta urinib koʻring).',
+      );
+    } finally {
+      setPingBusy(false);
+    }
+  }, []);
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 px-2 sm:px-4 pb-20">
       <div className="flex items-center gap-3">
@@ -80,6 +97,26 @@ export default function StaffLocationPage() {
           <h1 className="text-xl font-bold text-black/90">Joylashuv va dars jadvali</h1>
           <p className="text-[12px] text-black/50">Admin belgilagan vaqtlar va kutilgan bino</p>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[13px] font-bold uppercase tracking-wide text-black/50">Sizning joylashuvingiz</h2>
+          <button
+            type="button"
+            onClick={() => void sendNow()}
+            disabled={pingBusy}
+            className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-3 py-2 text-[12px] font-semibold text-sky-800 shadow-sm active:scale-[0.99] disabled:opacity-50"
+          >
+            {pingBusy ? <Loader2 className="animate-spin" size={14} /> : <Navigation size={14} />}
+            Joylashuvni hozir yuborish
+          </button>
+        </div>
+        <StaffLocationMiniMap />
+        <p className="text-[11px] text-black/45 leading-relaxed">
+          Xarita telefoningizning oxirgi GPS nuqtasini koʻrsatadi (admin xaritasi bilan bir vaqtda yangilanadi). iOS/Android:
+          birinchi marta ruxsat berish uchun yuqoridagi yoki bosh menyudagi tugmani bosing.
+        </p>
       </div>
 
       {weekInfo ? (

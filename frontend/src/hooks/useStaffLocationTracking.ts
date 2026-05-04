@@ -1,38 +1,73 @@
 import { useEffect, useRef } from 'react';
 import { postStaffLocationPing } from '../utils/staffLocationApi';
+import {
+  dispatchStaffGeoUpdate,
+  type StaffGeoDetail,
+} from '../utils/staffLocationGeo';
+import { isLikelyPhoneOrSmallTablet } from '../utils/deviceDetection';
 
-const MIN_SEND_INTERVAL_MS = 90_000;
-const WATCH_OPTIONS: PositionOptions = {
-  enableHighAccuracy: true,
-  maximumAge: 60_000,
-  timeout: 25_000,
-};
+/** Telefon: tezroq yangilanish; kompyuter: biroz sekinroq (batareya) */
+function minSendIntervalMs(): number {
+  return isLikelyPhoneOrSmallTablet() ? 18_000 : 42_000;
+}
+
+function watchOptions(): PositionOptions {
+  const mobile = isLikelyPhoneOrSmallTablet();
+  return {
+    enableHighAccuracy: true,
+    maximumAge: mobile ? 0 : 25_000,
+    timeout: mobile ? 22_000 : 28_000,
+  };
+}
 
 /**
- * Hodim sessiyasida brauzer orqali GPS ping yuborish.
- * Brauzer yopilganda yoki fonda GPS to‘xtashi mumkin — bu veb cheklovi.
+ * Hodim sessiyasida GPS ping + ichki xarita/event yangilanishi.
+ * Brauzer fonida/yopilganda GPS to‘xtashi mumkin — veb cheklovi.
  */
 export function useStaffLocationTracking(enabled: boolean): void {
   const lastSentAt = useRef(0);
   const watchId = useRef<number | null>(null);
   const deniedNotified = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled || typeof navigator === 'undefined' || !navigator.geolocation) {
       return;
     }
 
-    const send = (pos: GeolocationPosition) => {
+    const minMs = minSendIntervalMs();
+
+    const emitAndPost = async (detail: StaffGeoDetail) => {
+      dispatchStaffGeoUpdate(detail);
+      try {
+        await postStaffLocationPing({
+          latitude: detail.latitude,
+          longitude: detail.longitude,
+          accuracy_m: detail.accuracy_m,
+          client_ts_ms: detail.recordedAt,
+        });
+      } catch {
+        /* tarmoq xatosi — keyingi pingda uriniladi */
+      }
+    };
+
+    const send = (pos: GeolocationPosition, force: boolean) => {
       const now = Date.now();
-      if (now - lastSentAt.current < MIN_SEND_INTERVAL_MS) return;
+      if (!force && now - lastSentAt.current < minMs) return;
       lastSentAt.current = now;
-      void postStaffLocationPing({
+      const accuracy_m = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
+      void emitAndPost({
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
-        accuracy_m: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
-        client_ts_ms: now,
-      }).catch(() => {
-        /* network — silent retry on next tick */
+        accuracy_m,
+        recordedAt: now,
       });
     };
 
@@ -43,17 +78,39 @@ export function useStaffLocationTracking(enabled: boolean): void {
           new CustomEvent('app:notify', {
             detail: {
               title: 'GPS ruxsati',
-              body: "Joylashuv tekshiruvi uchun brauzerda joylashuv ruxsatini bering. Sozlamalarda GPS o‘chirilgan bo‘lsa, uni yoqing.",
+              body: "Joylashuv uchun «Joylashuv» ruxsatini bering. iOS: Sozlamalar → Safari → Joylashuv; Android: brauzer ilovasi ruxsatlari.",
               level: 'warning' as const,
             },
-          })
+          }),
         );
       }
     };
 
-    watchId.current = navigator.geolocation.watchPosition(send, onErr, WATCH_OPTIONS);
+    /** Dastlabki so‘rov — baʼzi Android’larda dialog shu yerda chiqadi */
+    navigator.geolocation.getCurrentPosition(
+      (pos) => send(pos, true),
+      onErr,
+      { ...watchOptions(), maximumAge: 0 },
+    );
+
+    watchId.current = navigator.geolocation.watchPosition(
+      (pos) => send(pos, false),
+      onErr,
+      watchOptions(),
+    );
+
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible' || !mounted.current) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => send(pos, true),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 22_000 },
+      );
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
       if (watchId.current != null) {
         navigator.geolocation.clearWatch(watchId.current);
         watchId.current = null;

@@ -71,6 +71,7 @@ import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import StaffLocationPage from './components/staff/StaffLocationPage';
 import HodimMobileExperienceBanner from './components/staff/HodimMobileExperienceBanner';
+import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 
 type View =
@@ -698,6 +699,7 @@ export default function App() {
             </div>
           </header>
 
+          {userRole === 'hodim' && <HodimGpsPromptBar />}
           {userRole === 'hodim' && <HodimMobileExperienceBanner />}
 
           {isNotificationsOpen && (

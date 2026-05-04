@@ -2,6 +2,7 @@ import L from 'leaflet';
 import { useEffect, useMemo } from 'react';
 import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { LeafletAttributionStrip } from '../map/LeafletAttributionStrip';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
 import type { LocalStaffUser } from '../../utils/localStaffAuth';
@@ -255,6 +256,7 @@ export default function AdminStaffLiveMapPanel({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          <LeafletAttributionStrip />
           <MapFitBounds points={points} />
           {activeBuildings.map((b) => (
             <Circle

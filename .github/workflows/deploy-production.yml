@@ -26,14 +26,13 @@ jobs:
     if: vars.SSH_DEPLOY_ENABLED == 'true'
     steps:
       - name: Pull and restart Docker stack
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           command_timeout: 25m
-          script_stop: true
           script: |
             set -euo pipefail
             REMOTE_PATH="${{ vars.REMOTE_REPO_PATH }}"

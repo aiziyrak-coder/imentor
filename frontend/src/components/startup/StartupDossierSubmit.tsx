@@ -4,6 +4,7 @@ import {
   FileUp,
   Loader2,
   Plus,
+  RefreshCw,
   Send,
   Trash2,
   Users,
@@ -18,6 +19,7 @@ import {
   updateStartupApplication,
   type StartupApplicationDto,
 } from '../../utils/startupApplicationApi';
+import { evaluateDossierForSubmit } from '../../utils/startupProjectQuality';
 
 const MAX_FILE_BYTES = 380_000;
 const MAX_FILES = 8;
@@ -86,6 +88,15 @@ export default function StartupDossierSubmit() {
     () => items.find((x) => x.id === selectedId) ?? null,
     [items, selectedId]
   );
+
+  const dossierGate = useMemo(() => {
+    if (!selected || selected.status === 'submitted') return null;
+    return evaluateDossierForSubmit({
+      application: selected,
+      vcOneLiner,
+      team,
+    });
+  }, [selected, vcOneLiner, team]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -188,8 +199,21 @@ export default function StartupDossierSubmit() {
 
   const handleSubmitAdmin = async () => {
     if (!selected || selected.status === 'submitted') return;
-    setSubmitting(true);
     setError(null);
+    const gate = evaluateDossierForSubmit({
+      application: selected,
+      vcOneLiner,
+      team,
+    });
+    if (!gate.ok) {
+      setError(gate.messages.join('\n'));
+      return;
+    }
+    if (gate.warnings.length > 0) {
+      const proceed = window.confirm(`${gate.warnings.join('\n\n')}\n\nYuborishni davom ettirasizmi?`);
+      if (!proceed) return;
+    }
+    setSubmitting(true);
     try {
       const u = getCurrentLocalUser();
       if (!u) throw new Error('auth');
@@ -263,20 +287,32 @@ export default function StartupDossierSubmit() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 px-2 sm:px-4 pb-24">
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
-          <FolderOpen size={24} />
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md">
+            <FolderOpen size={24} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-black/90">Dossye va administratorga yuborish</h1>
+            <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">
+              Jamoa, pitch, ilova / grant hujjatlari — komissiya yoki administrator ko‘rib chiqishi uchun yagona paket.
+              Avval «Startap studiyasi» bo‘limida loyiha va tahlilni yakunlang.
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-black/90">Dossye va administratorga yuborish</h1>
-          <p className="text-[12px] text-black/50">
-            Jamoa, qisqa pitch, ilmiy/startap hujjatlari — keyin rasmiy yuborish
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-black/10 bg-white/90 px-4 py-2.5 text-[13px] font-semibold text-black/80 shadow-sm disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+          Ma’lumotlarni yangilash
+        </button>
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[13px] text-rose-800">
+        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[13px] text-rose-800 whitespace-pre-wrap">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           {error}
         </div>
@@ -289,7 +325,7 @@ export default function StartupDossierSubmit() {
         </div>
       ) : items.length === 0 ? (
         <div className="ios-glass rounded-2xl border border-white/60 p-8 text-center text-[14px] text-black/55">
-          Avval «Innovatsiya loyihasi» bo‘limida yangi loyiha yarating.
+          Avval «Startap studiyasi» bo‘limida yangi loyiha yarating.
         </div>
       ) : (
         <div className="space-y-5">
@@ -319,6 +355,37 @@ export default function StartupDossierSubmit() {
             animate={{ opacity: 1, y: 0 }}
             className="ios-glass rounded-2xl border border-white/60 p-5 sm:p-6 space-y-5"
           >
+            {dossierGate && (
+              <div
+                className={`rounded-xl border px-3 py-2.5 text-[12px] leading-relaxed ${
+                  dossierGate.ok
+                    ? 'border-emerald-200 bg-emerald-50/65 text-emerald-950'
+                    : 'border-rose-200 bg-rose-50/75 text-rose-950'
+                }`}
+              >
+                <p className="font-bold mb-1">
+                  {dossierGate.ok ? 'Yuborish: minimal talablar bajarilgan' : 'Yuborish hozircha mumkin emas'}
+                </p>
+                {!dossierGate.ok && (
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {dossierGate.messages.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                )}
+                {dossierGate.ok && dossierGate.warnings.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/90 px-2.5 py-2 text-amber-950">
+                    <p className="font-semibold text-[11px] uppercase tracking-wide mb-1">Tavsiya</p>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {dossierGate.warnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-black/50">Loyiha turi</label>
@@ -497,7 +564,12 @@ export default function StartupDossierSubmit() {
               </button>
               <button
                 type="button"
-                disabled={submitting || selected?.status === 'submitted' || dossierTooLarge}
+                disabled={
+                  submitting ||
+                  selected?.status === 'submitted' ||
+                  dossierTooLarge ||
+                  (dossierGate != null && !dossierGate.ok)
+                }
                 onClick={() => void handleSubmitAdmin()}
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
@@ -507,8 +579,9 @@ export default function StartupDossierSubmit() {
             </div>
 
             <p className="text-[11px] text-black/40 leading-relaxed">
-              «Yuborish»dan oldin «Loyiha va AI» bo‘limida matn va AI tahlilni saqlagan bo‘lishingiz ma’qul.
-              Fayllar bazaga JSON ichida saqlanadi — juda katta hajmlardan qoching.
+              «Startap studiyasida» o‘zgarishlar qilganingizdan keyin bu sahifada ro‘yxatni yangilash uchun brauzerda sahifani
+              yangilang (F5) — tekshiruv serverdagi oxirgi saqlangan nusxa bo‘yicha ishlaydi. Fayllar JSON ichida
+              saqlanadi — juda katta hajmdan qoching.
             </p>
           </motion.div>
         </div>

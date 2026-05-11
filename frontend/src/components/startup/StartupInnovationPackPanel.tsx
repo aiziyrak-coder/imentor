@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
+import { computeWeightedScoringMatrix } from '../../utils/startupProjectQuality';
 
 function SectionShell({
   icon: Icon,
@@ -150,8 +151,58 @@ export default function StartupInnovationPackPanel({ pack }: { pack: Record<stri
   const disclaimer =
     typeof pack.disclaimer_note === 'string' ? pack.disclaimer_note : '';
 
+  const matrixStats =
+    !Array.isArray(scores) || scores.length === 0
+      ? null
+      : computeWeightedScoringMatrix(scores as Record<string, unknown>[]);
+
+  const readinessNum =
+    isObj(tract) && typeof tract.readiness_score_1_to_100 === 'number'
+      ? (tract.readiness_score_1_to_100 as number)
+      : null;
+
   return (
     <div className="space-y-4">
+      {(readinessNum != null || matrixStats?.weightedAvg1to5 != null) && (
+        <div className="rounded-2xl border border-black/10 bg-white/90 p-4 shadow-sm flex flex-wrap gap-4 items-stretch">
+          {readinessNum != null && (
+            <div className="min-w-[140px] flex-1">
+              <p className="text-[11px] font-semibold text-black/45 uppercase tracking-wide mb-1">
+                Tayyorgarlik indeksi
+              </p>
+              <p className="text-[28px] font-black text-emerald-700 tabular-nums leading-none">
+                {readinessNum}
+                <span className="text-[13px] font-semibold text-black/45">/100</span>
+              </p>
+              <div className="mt-2 h-2 rounded-full bg-black/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${Math.min(100, Math.max(0, readinessNum))}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {matrixStats?.weightedAvg1to5 != null && (
+            <div className="min-w-[160px] flex-1 border-l border-black/10 pl-4">
+              <p className="text-[11px] font-semibold text-black/45 uppercase tracking-wide mb-1">
+                Matritsa (og‘irlik bilan)
+              </p>
+              <p className="text-[22px] font-black text-violet-700 tabular-nums">
+                {matrixStats.weightedAvg1to5.toFixed(2)}
+                <span className="text-[13px] font-semibold text-black/45">/5</span>
+              </p>
+              {matrixStats.percent100 != null && (
+                <p className="text-[12px] text-black/55 mt-1">
+                  Nisbiy ko‘rsatkich: <span className="font-semibold text-black/80">{matrixStats.percent100}%</span>
+                  {' · '}
+                  {matrixStats.rowCount} ta mezon
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {(arch || archWhy || oneLine) && (
         <div className="rounded-2xl border border-violet-300/60 bg-gradient-to-br from-violet-600 via-fuchsia-600 to-indigo-700 p-5 text-white shadow-lg">
           <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -254,7 +305,7 @@ export default function StartupInnovationPackPanel({ pack }: { pack: Record<stri
                       {String(row.name_or_category ?? row.item ?? '—')}
                     </td>
                     <td className="px-3 py-2 tabular-nums">
-                      {row.similarity_score_1_to_5 ?? row.similarity_1_to_5 ?? '—'}
+                      {String(row.similarity_score_1_to_5 ?? row.similarity_1_to_5 ?? '—')}
                     </td>
                     <td className="px-3 py-2">
                       {String(row.how_similar_or_different ?? '')}
@@ -476,26 +527,39 @@ export default function StartupInnovationPackPanel({ pack }: { pack: Record<stri
         </SectionShell>
       )}
 
-      {isObj(investor) && (
-        <SectionShell
-          icon={Target}
-          title="Investor / pitch skeleti"
-          accent="violet"
-        >
-          {Object.entries(investor).map(([k, val]) => (
-            <div key={k} className="mb-2 last:mb-0">
-              <p className="text-[11px] font-semibold text-black/45 capitalize mb-0.5">
-                {k.replace(/_/g, ' ')}
-              </p>
-              {Array.isArray(val) ? (
-                <StringList items={val as unknown[]} />
-              ) : (
-                <StrBlock text={String(val ?? '')} />
-              )}
-            </div>
-          ))}
-        </SectionShell>
-      )}
+      {isObj(investor) &&
+        (() => {
+          const blocks = (
+            [
+              ['problem_hook', 'Muammo va diqqat'],
+              ['solution_and_why_now', 'Yechim va nima ayni hozir?'],
+              ['business_model_sketch', 'Biznes modeli (eskiz)'],
+              ['impact_metrics', 'Ta’sir ko‘rsatkichlari'],
+              ['the_ask', 'So‘rov (nimani so‘raysiz)'],
+            ] as const
+          )
+            .map(([key, labelUz]) => {
+              const val = (investor as Record<string, unknown>)[key];
+              if (val == null || (typeof val === 'string' && !val.trim())) return null;
+              return (
+                <div key={key} className="mb-2 last:mb-0">
+                  <p className="text-[11px] font-semibold text-black/45 mb-0.5">{labelUz}</p>
+                  {Array.isArray(val) ? (
+                    <StringList items={val as unknown[]} />
+                  ) : (
+                    <StrBlock text={String(val ?? '')} />
+                  )}
+                </div>
+              );
+            })
+            .filter(Boolean);
+          if (blocks.length === 0) return null;
+          return (
+            <SectionShell icon={Target} title="Investor / pitch skeleti" accent="violet">
+              {blocks}
+            </SectionShell>
+          );
+        })()}
 
       {Array.isArray(scores) && scores.length > 0 && (
         <SectionShell icon={BarChart3} title="Baholash matritsasi">
@@ -514,10 +578,10 @@ export default function StartupInnovationPackPanel({ pack }: { pack: Record<stri
                   <tr key={i} className="border-t border-black/5">
                     <td className="px-3 py-2 font-medium">{String(row.criterion ?? '')}</td>
                     <td className="px-3 py-2 tabular-nums text-center">
-                      {row.weight_1_to_5 ?? '—'}
+                      {String(row.weight_1_to_5 ?? '—')}
                     </td>
                     <td className="px-3 py-2 tabular-nums text-center font-bold text-violet-700">
-                      {row.project_score_1_to_5 ?? row.score_1_to_5 ?? '—'}
+                      {String(row.project_score_1_to_5 ?? row.score_1_to_5 ?? '—')}
                     </td>
                     <td className="px-3 py-2">{String(row.comment ?? row.rationale ?? '')}</td>
                   </tr>
@@ -545,9 +609,11 @@ export default function StartupInnovationPackPanel({ pack }: { pack: Record<stri
                   <tr key={i} className="border-t border-rose-100 align-top">
                     <td className="px-3 py-2">{String(row.risk ?? '')}</td>
                     <td className="px-3 py-2 tabular-nums text-center">
-                      {row.likelihood_1_to_5 ?? '—'}
+                      {String(row.likelihood_1_to_5 ?? '—')}
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-center">{row.impact_1_to_5 ?? '—'}</td>
+                    <td className="px-3 py-2 tabular-nums text-center">
+                      {String(row.impact_1_to_5 ?? '—')}
+                    </td>
                     <td className="px-3 py-2">{String(row.mitigation ?? '')}</td>
                   </tr>
                 ))}

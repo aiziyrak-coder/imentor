@@ -8,11 +8,17 @@ export default function StartupCoachChat({
   disabled,
   sending,
   onSend,
+  analysisReady = true,
+  suggestedPrompts = [],
 }: {
   turns: CoachTurn[];
   disabled: boolean;
   sending: boolean;
   onSend: (text: string) => Promise<void>;
+  /** To‘liq JSON tahlil mavjud bo‘lsa true */
+  analysisReady?: boolean;
+  /** Bir teginishda matn maydoniga qo‘yiladigan tezkor savollar */
+  suggestedPrompts?: string[];
 }) {
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -38,16 +44,36 @@ export default function StartupCoachChat({
         <div>
           <h4 className="text-[14px] font-bold text-black/90">Maslahatchi bilan suhbat</h4>
           <p className="text-[11px] text-black/50">
-            Tahlildan keyin savollar — strategiya, metodika, hujjatlar, pitch
+            Strategiya, pilot, bozor, pitch — tahlil bo‘lmasa ham loyiha matningiz asosida javob beradi
           </p>
         </div>
       </div>
 
+      {suggestedPrompts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {suggestedPrompts.map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled={disabled || sending}
+              onClick={() => setInput(q)}
+              className="rounded-lg border border-fuchsia-200/90 bg-white/90 px-2.5 py-1.5 text-[11px] font-medium text-fuchsia-900 hover:bg-fuchsia-50 disabled:opacity-45 text-left max-w-full"
+            >
+              {q.length > 72 ? `${q.slice(0, 70)}…` : q}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="max-h-[min(55vh,520px)] overflow-y-auto space-y-3 rounded-xl border border-black/8 bg-white/70 px-3 py-3 mb-3">
         {turns.length === 0 && (
-          <p className="text-[12px] text-black/45 text-center py-6">
-            Avval «AI tahlil»ni ishga tushiring, keyin bu yerdan savol bering.
-          </p>
+          <div className="text-[12px] text-black/45 text-center py-5 space-y-2 px-1">
+            <p>
+              {analysisReady
+                ? 'Tahlil tayyor — strategiya, xavf yoki pitch bo‘yicha savol yozing yoki tezkor tugmalardan foydalaning.'
+                : 'Loyiha matningiz asosida savol bera olasiz. Chuqur jadval va xavflar ro‘yxati uchun keyin «AI tahlil»ni ishga tushiring.'}
+            </p>
+          </div>
         )}
         {turns.map((m, i) => (
           <div
@@ -82,7 +108,7 @@ export default function StartupCoachChat({
           onChange={(e) => setInput(e.target.value)}
           disabled={disabled || sending}
           rows={2}
-          placeholder="Masalan: grant uchun qaysi dalillar yetishmayapti?"
+          placeholder="Masalan: pilot uchun minimal KPI va 2 haftalik reja?"
           className="flex-1 rounded-xl border border-black/12 bg-white/90 px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-fuchsia-400/40 resize-none disabled:opacity-50"
         />
         <button

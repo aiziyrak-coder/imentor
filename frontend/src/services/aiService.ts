@@ -895,7 +895,12 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
     const domainLine =
       projectDomain === 'research'
         ? 'USER MODE: ILMIY TADQIROT — prioritize scientific_research_block, evidence, methodology, peer comparisons; keep market sections concise unless clearly translational.'
-        : 'USER MODE: STARTAP — prioritize market_analysis, traction_readiness, competitive_landscape, investor_style_outline; scientific block shorter unless the project is clearly R&D-heavy.';
+        : `USER MODE: STARTAP / MAHSULOT — You are writing for a serious founder team (not a student essay). Prioritize market_analysis, traction_readiness, competitive_landscape, investor_style_outline, milestone_roadmap, risk_register.
+Ground every section in the user's actual text; when information is missing, name the gap and the cheapest experiment or interview to close it (do not invent metrics, pilots, or partners).
+In competitive_landscape, compare to plausible categories, regional analogs, or well-known product archetypes when reasonable; if unknown, state what desk research or 5–10 customer interviews should clarify.
+In milestone_roadmap items, prefer concrete verbs + outcomes (e.g. "10 ta strukturali suhbat + 1 sahifalik natija xulosasi") over vague "rivojlantirish".
+In critical_gaps and what_would_raise_readiness_fastest, be blunt and actionable (what to stop doing, what to validate first).
+scientific_research_block stays shorter unless the project is clearly R&D-heavy.`;
     const extraBlock =
       workspaceExtraNote.trim().length > 0
         ? `\nAdditional structured notes from applicant:\n${workspaceExtraNote.trim()}\n`
@@ -903,7 +908,7 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-pro-preview',
-      contents: `You are a senior innovation analyst, medical-education grant advisor, and early-stage startup mentor for Farg'ona jamoat salomatligi tibbiyot instituti (public health / medical higher education, Uzbekistan).
+      contents: `You are a senior innovation analyst, medical-education grant advisor, and hands-on early-stage startup mentor (accelerator / venture builder style) for Farg'ona jamoat salomatligi tibbiyot instituti (public health / medical higher education, Uzbekistan). Your reader will use your output to decide what to do next week — not to feel praised.
 
 ${domainLine}
 
@@ -913,9 +918,11 @@ Inputs:
 - Full description: ${fullDescription}
 - Applicant / lab context: ${profileNote}
 ${extraBlock}
-Task: produce a RICH, structured analysis (not generic filler). Respect USER MODE above for emphasis. If evidence demands hybrid archetype, use project_archetype "hybrid" and justify briefly.
+Task: produce a RICH, structured analysis. Ban template phrases that could apply to any health startup (e.g. empty "katta bozor", "innovatsion yechim" without tying to this idea). Every major bullet should reference the user's problem, customer, setting, or constraint when possible.
 
-Return ONLY valid JSON (no markdown) with EXACTLY these keys. All human-readable text must be in ${outLang}. Use numbers where specified. Be specific to THIS project, not templates.
+Return ONLY valid JSON (no markdown) with EXACTLY these keys. All human-readable text must be in ${outLang}. Use numbers where specified. Be specific to THIS project.
+
+Tone: direct, founder-friendly, institution-aware (grants, ethics, pilots on campus or clinical partners).
 
 {
   "project_archetype": "commercial_startup" | "research_innovation" | "hybrid",
@@ -1015,11 +1022,12 @@ Rules:
 - Fill arrays with 3-8 items where relevant (not empty unless truly unknown).
 - similarity_score / readiness / likelihood / impact must be integers in range.
 - No legal guarantees; no fabricated citations — if unknown, say what data to collect.
-- Keep Uzbekistan public-health institute realism.`,
+- Keep Uzbekistan public-health institute realism; investor_style_outline may assume pre-seed / grant / pilot stage unless the text clearly indicates otherwise.
+- recommended_documents must name deliverables the team can actually produce in 2–8 weeks (e.g. one-pager, interview guide, pilot protocol sketch), not only generic "biznes-reja".`,
       config: {
         responseMimeType: 'application/json',
         maxOutputTokens: 16384,
-        temperature: 0.42,
+        temperature: projectDomain === 'startup' ? 0.36 : 0.42,
       },
     });
     return parseJSONSafe<Record<string, unknown>>(response.text);
@@ -1044,23 +1052,30 @@ Rules:
     const transcript = messages
       .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
       .join('\n');
+    const modeCoach =
+      ctx.project_domain === 'research'
+        ? 'Scientific research / R&D — emphasize evidence, methods, publications or study design, ethics.'
+        : 'Startup / product — you behave like an operator-mentor: weekly priorities, validation experiments, metrics to watch, pitch tightening, and de-risking. Prefer "do this / measure this / decide this" over general encouragement.';
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `You are the same FJSTI innovation & research mentor assistant (medical higher education / public health institute context).
+      contents: `You are the FJSTI innovation mentor assistant (medical higher education / public health institute, Uzbekistan).
 
-Project mode: ${ctx.project_domain === 'research' ? 'Scientific research / R&D' : 'Startup / product innovation'}.
+${modeCoach}
+
+Project mode detail: ${ctx.project_domain === 'research' ? 'research' : 'startup'}.
 Title: ${ctx.title}
 Summary: ${ctx.summary}
 Description: ${ctx.description}
 Workspace profile (JSON): ${ctx.workspace_profile_json}
 
-Earlier structured analysis (JSON excerpt, may be truncated):
+Earlier structured analysis (JSON excerpt, may be truncated or empty if the user has not run full analysis yet — still answer from title/summary/description/workspace):
 ${ctx.analysis_json_excerpt}
 
 Conversation so far:
 ${transcript}
 
-Reply ONLY as the Assistant to the latest User message. Be specific, practical, and supportive. Use bullet lists when helpful. Output language: ${outLang}. Do not repeat the entire JSON analysis unless asked. If asked something outside project scope, briefly redirect to actionable next steps for this project.`,
+Reply ONLY as the Assistant to the latest User message. Be specific, practical, and concise. Use short bullet lists when they improve clarity. Output language: ${outLang}. Do not dump or repeat the full JSON analysis unless the user explicitly asks. If the question is broad, still end with 2–4 concrete next steps tied to this project. If asked something outside project scope, briefly redirect to actionable next steps for this project.`,
       config: {
         maxOutputTokens: 4096,
         temperature: 0.45,

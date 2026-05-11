@@ -1,7 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
 import { listAdminStartupInbox, type StartupApplicationDto } from '../../utils/startupApplicationApi';
+import { hasMeaningfulAiPack } from '../../utils/startupProjectQuality';
 import StartupInnovationPackPanel from '../startup/StartupInnovationPackPanel';
+
+function stripCoachThread(pack: unknown): Record<string, unknown> {
+  if (!pack || typeof pack !== 'object') return {};
+  const o = { ...(pack as Record<string, unknown>) };
+  delete o.coach_thread;
+  return o;
+}
 
 function shortJson(obj: unknown, max = 2000): string {
   try {
@@ -78,6 +86,8 @@ export default function AdminStartupInbox() {
         <div className="space-y-3">
           {rows.map((r) => {
             const expanded = openId === r.id;
+            const aiDisplayPack = stripCoachThread(r.ai_pack);
+            const hasAiPanel = hasMeaningfulAiPack(aiDisplayPack);
             return (
               <div key={r.id} className="ios-glass rounded-2xl border border-white/60 overflow-hidden">
                 <button
@@ -89,10 +99,21 @@ export default function AdminStartupInbox() {
                     <p className="text-[14px] font-bold text-black/90">{r.title}</p>
                     <p className="text-[12px] text-black/50 line-clamp-2 mt-0.5">{r.summary || '—'}</p>
                   </div>
-                  <div className="text-[11px] text-black/45 shrink-0">
-                    {r.submitted_at
-                      ? new Date(r.submitted_at).toLocaleString('uz-UZ')
-                      : '—'}
+                  <div className="flex flex-col items-end gap-1 shrink-0 text-[11px] text-black/45">
+                    {hasAiPanel ? (
+                      <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                        AI tahlil
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-amber-100 text-amber-900 border border-amber-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                        Tahlil yo‘q
+                      </span>
+                    )}
+                    <span>
+                      {r.submitted_at
+                        ? new Date(r.submitted_at).toLocaleString('uz-UZ')
+                        : '—'}
+                    </span>
                   </div>
                 </button>
                 {expanded && (
@@ -126,7 +147,14 @@ export default function AdminStartupInbox() {
                     <div>
                       <span className="text-[11px] font-semibold text-black/45">AI tahlil (ko‘rinish)</span>
                       <div className="mt-2 max-h-[min(80vh,900px)] overflow-y-auto rounded-2xl border border-violet-100 bg-violet-50/30 p-2">
-                        <StartupInnovationPackPanel pack={r.ai_pack} />
+                        {hasAiPanel ? (
+                          <StartupInnovationPackPanel pack={aiDisplayPack} />
+                        ) : (
+                          <p className="text-[13px] text-black/55 px-2 py-4">
+                            Strategik AI tahlil biriktirilmagan yoki juda qisqa — startaper «Startap studiyasida» tahlilni
+                            ishga tushirgan bo‘lishi ma’qul.
+                          </p>
+                        )}
                       </div>
                     </div>
                     {r.submission_dossier && Object.keys(r.submission_dossier).length > 0 && (

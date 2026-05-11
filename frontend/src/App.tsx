@@ -121,7 +121,7 @@ const TARJIMON_NAV: NavItemDef[] = [
 ];
 
 const STARTUPER_NAV: NavItemDef[] = [
-  { id: 'startup', label: 'Loyiha va AI', icon: Rocket },
+  { id: 'startup', label: 'Startap studiyasi', icon: Rocket },
   { id: 'startup-dossier', label: 'Dossye va yuborish', icon: FolderOpen },
   { id: 'profile', label: 'Profil', icon: UserCircle },
 ];
@@ -135,7 +135,7 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-startups': 'Startap',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
-  startup: 'AI',
+  startup: 'Studiya',
   'startup-dossier': 'Dossye',
   syllabus: 'Mavzu',
   lectures: "Ma'ruza",

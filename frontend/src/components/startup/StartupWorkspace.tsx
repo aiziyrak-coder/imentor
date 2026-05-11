@@ -24,6 +24,18 @@ import {
 } from '../../utils/startupApplicationApi';
 import StartupInnovationPackPanel from './StartupInnovationPackPanel';
 import StartupCoachChat, { type CoachTurn } from './StartupCoachChat';
+import StartupProjectReadinessCard from './StartupProjectReadinessCard';
+import StartupMedUzbekistanToolkit from './StartupMedUzbekistanToolkit';
+import {
+  buildStartupPackPrintInnerHtml,
+  evaluateWorkspaceForAi,
+  hasMeaningfulAiPack,
+} from '../../utils/startupProjectQuality';
+import {
+  buildMedToolkitAiAppendix,
+  parseMedToolkitChecksFromProfile,
+  type MedToolkitChecks,
+} from '../../utils/startupMedToolkitModel';
 
 /** Qo‘shimcha maydonlar — AI va saqlash uchun */
 export type WorkspaceFields = {
@@ -33,6 +45,12 @@ export type WorkspaceFields = {
   monetization_or_sustainability?: string;
   key_resources_team?: string;
   partners_lab_equipment?: string;
+  /** Startap: hozirgi traksiya, suhbatlar, pilot, foydalanuvchilar */
+  traction_validation_notes?: string;
+  /** Startap: eng katta noaniqlik yoki xavf (bozor, texnologiya, tartib) */
+  biggest_uncertainty?: string;
+  /** Tibbiyot startap 20 ta yo‘riqnoma checklist (serverda workspace_profile ichida) */
+  med_toolkit_checks?: MedToolkitChecks;
 };
 
 const EMPTY_WORKSPACE: WorkspaceFields = {
@@ -42,6 +60,9 @@ const EMPTY_WORKSPACE: WorkspaceFields = {
   monetization_or_sustainability: '',
   key_resources_team: '',
   partners_lab_equipment: '',
+  traction_validation_notes: '',
+  biggest_uncertainty: '',
+  med_toolkit_checks: {},
 };
 
 function normalizeDomain(d: string | undefined): 'startup' | 'research' {
@@ -60,16 +81,22 @@ function parseWorkspaceProfile(raw: unknown): WorkspaceFields {
       typeof o.monetization_or_sustainability === 'string' ? o.monetization_or_sustainability : '',
     key_resources_team: typeof o.key_resources_team === 'string' ? o.key_resources_team : '',
     partners_lab_equipment: typeof o.partners_lab_equipment === 'string' ? o.partners_lab_equipment : '',
+    traction_validation_notes:
+      typeof o.traction_validation_notes === 'string' ? o.traction_validation_notes : '',
+    biggest_uncertainty: typeof o.biggest_uncertainty === 'string' ? o.biggest_uncertainty : '',
+    med_toolkit_checks: parseMedToolkitChecksFromProfile(o),
   };
 }
 
 function buildWorkspaceExtraNote(f: WorkspaceFields, domain: 'startup' | 'research'): string {
+  const toolkitAi = buildMedToolkitAiAppendix(f.med_toolkit_checks);
   if (domain === 'research') {
     return [
       f.research_question && `Tadqiqot savoli / gipoteza: ${f.research_question}`,
       f.methodology_notes && `Metod va dizayn: ${f.methodology_notes}`,
       f.partners_lab_equipment && `Laboratoriya / uskunalar / hamkorlar: ${f.partners_lab_equipment}`,
       f.key_resources_team && `Resurslar va jamoa: ${f.key_resources_team}`,
+      toolkitAi,
     ]
       .filter(Boolean)
       .join('\n');
@@ -77,9 +104,12 @@ function buildWorkspaceExtraNote(f: WorkspaceFields, domain: 'startup' | 'resear
   return [
     f.beneficiaries_or_segments && `Maqsadli mijoz / beneficiarlar: ${f.beneficiaries_or_segments}`,
     f.monetization_or_sustainability && `Monetizatsiya / barqarorlik: ${f.monetization_or_sustainability}`,
+    f.traction_validation_notes && `Traksiya va tekshiruv: ${f.traction_validation_notes}`,
+    f.biggest_uncertainty && `Eng katta noaniqlik / xavf: ${f.biggest_uncertainty}`,
     f.key_resources_team && `Jamoa va kalit resurslar: ${f.key_resources_team}`,
     f.partners_lab_equipment && `Hamkorlar, pilot maydon: ${f.partners_lab_equipment}`,
     f.research_question && `Qisman ilmiy savol (agar bor): ${f.research_question}`,
+    toolkitAi,
   ]
     .filter(Boolean)
     .join('\n');
@@ -225,8 +255,13 @@ export default function StartupWorkspace() {
       setItems((prev) => [row, ...prev]);
       setSelectedId(row.id);
       setWs({ ...EMPTY_WORKSPACE });
-    } catch {
-      setError('Yangi loyiha yaratishda xato.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'no-backend-token' || msg.includes('HTTP 401')) {
+        setError('Serverga kirish muddati tugagan. Chiqing va qayta kiring.');
+      } else {
+        setError('Yangi loyiha yaratishda xato. Internet yoki huquqni tekshiring.');
+      }
     } finally {
       setSaving(false);
     }
@@ -258,6 +293,17 @@ export default function StartupWorkspace() {
 
   const handleAi = async () => {
     if (!selected || selected.status === 'submitted') return;
+    const ev = evaluateWorkspaceForAi({
+      title,
+      summary,
+      description,
+      domain: projectDomain,
+      ws,
+    });
+    if (!ev.canRunAi) {
+      setError(ev.blockMessages.join('\n\n'));
+      return;
+    }
     setError(null);
     setAiLoading(true);
     try {
@@ -287,8 +333,13 @@ export default function StartupWorkspace() {
         profile_snapshot: buildStartupProfileSnapshot(u),
       });
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
-    } catch {
-      setError('AI tahlil ishlamadi (kalit yoki tarmoq). Qayta urinib ko‘ring.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg.includes('Failed to parse JSON') || msg.includes('parse')) {
+        setError('AI javobi formatda keldi. Qayta «AI tahlil»ni bosing yoki matnni qisqartirib urinib ko‘ring.');
+      } else {
+        setError('AI tahlil ishlamadi (kalit yoki tarmoq). Qayta urinib ko‘ring.');
+      }
     } finally {
       setAiLoading(false);
     }
@@ -362,11 +413,11 @@ export default function StartupWorkspace() {
     const w = window.open('', '_blank', 'width=900,height=1200');
     if (!w) return;
     w.document.write(
-      `<!doctype html><html><head><title>Loyiha — chop etish</title>
+      `<!doctype html><html><head><meta charset="utf-8"><title>Loyiha — chop etish</title>
       <style>
-        body{font-family:system-ui,sans-serif;padding:24px;color:#111;line-height:1.45;max-width:800px;margin:0 auto}
-        h1{font-size:20px} h2{font-size:15px;margin-top:1.2em} pre{white-space:pre-wrap;font-size:12px}
-        @media print{body{padding:0}}
+        body{font-family:system-ui,sans-serif;padding:24px;color:#111;line-height:1.45;max-width:880px;margin:0 auto}
+        h1{font-size:20px} h2{font-size:15px;margin-top:1.15em} h3{font-size:13px;margin-top:0.9em}
+        table{margin-top:8px} @media print{body{padding:0}}
       </style></head><body>${printRef.current.innerHTML}</body></html>`
     );
     w.document.close();
@@ -379,7 +430,87 @@ export default function StartupWorkspace() {
 
   const displayPack = useMemo(() => packForDisplay(selected?.ai_pack), [selected?.ai_pack]);
 
+  const analysisReady = useMemo(() => hasMeaningfulAiPack(displayPack), [displayPack]);
+
+  const formReadiness = useMemo(
+    () =>
+      evaluateWorkspaceForAi({
+        title,
+        summary,
+        description,
+        domain: projectDomain,
+        ws,
+      }),
+    [title, summary, description, projectDomain, ws]
+  );
+
+  const hasCoachTextContext = useMemo(() => {
+    const s = summary.trim();
+    const d = description.trim();
+    return d.length >= 90 || (s.length >= 28 && d.length >= 48);
+  }, [summary, description]);
+
+  const showCoachBlock = Boolean(
+    selected && (analysisReady || coachTurns.length > 0 || (!isReadOnly && hasCoachTextContext))
+  );
+
+  const coachSuggestedPrompts = useMemo(() => {
+    if (projectDomain === 'research') {
+      return [
+        'Gipotezani qanday 2–3 haftada arzon tekshirsam?',
+        'Metodologiyadagi eng zaif nuqta qayeri?',
+        'Qaysi dalillar grant arizasiga kiritishim kerak?',
+      ];
+    }
+    return [
+      'Keyingi 7 kun uchun 3 ta aniq vazifa (o‘lchanadigan natija bilan) yozing.',
+      'Mijoz intervyusi uchun 5 ta ochiq savol tuzing.',
+      'Raqobat va o‘zimning farqimni bir jadvalda qisqacha solishtiring.',
+      'Pilot uchun minimal “MVP” va muvaffaqiyat mezonini taklif qiling.',
+      'Pitch: bir qatorlik + 30 soniyalik ogohlantirish (hook) varianti bering.',
+    ];
+  }, [projectDomain]);
+
   const updateWs = (patch: Partial<WorkspaceFields>) => setWs((prev) => ({ ...prev, ...patch }));
+
+  const wsRef = useRef(ws);
+  wsRef.current = ws;
+
+  const medToolkitChecksKey = useMemo(() => JSON.stringify(ws.med_toolkit_checks ?? {}), [ws.med_toolkit_checks]);
+
+  const lastAutoMedToolkitKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    lastAutoMedToolkitKeyRef.current = null;
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected || selected.status === 'submitted' || loading) return;
+    if (lastAutoMedToolkitKeyRef.current === null) {
+      lastAutoMedToolkitKeyRef.current = medToolkitChecksKey;
+      return;
+    }
+    if (lastAutoMedToolkitKeyRef.current === medToolkitChecksKey) return;
+    const projectId = selected.id;
+    const keyAtSchedule = medToolkitChecksKey;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const u = getCurrentLocalUser();
+          if (!u) return;
+          const snapshot = wsRef.current;
+          const row = await updateStartupApplication(projectId, {
+            workspace_profile: { ...snapshot } as Record<string, unknown>,
+            profile_snapshot: buildStartupProfileSnapshot(u),
+          });
+          setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
+          lastAutoMedToolkitKeyRef.current = keyAtSchedule;
+        } catch {
+          /* tarmoq yoki token */
+        }
+      })();
+    }, 1000);
+    return () => window.clearTimeout(t);
+  }, [medToolkitChecksKey, selected?.id, selected?.status, loading]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 px-2 sm:px-4 pb-20">
@@ -389,9 +520,10 @@ export default function StartupWorkspace() {
             <Rocket size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Startap va innovatsiya</h1>
-            <p className="text-[12px] text-black/50">
-              Startap yoki ilmiy tadqiqot rejimi, kengaytirilgan profil va AI maslahatchi suhbati
+            <h1 className="text-xl font-bold text-black/90">Startap studiyasi</h1>
+            <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">
+              Loyihangizni yozing — AI tahlil va maslahatchi haqiqiy keyingi qadamlar, pilot, bozor tekshiruvi va
+              xavflarni yechishga yo‘naltiradi. Administratorga yuborish alohida «Dossye» bo‘limida.
             </p>
           </div>
         </div>
@@ -405,6 +537,13 @@ export default function StartupWorkspace() {
           Yangi loyiha
         </button>
       </div>
+
+      <StartupMedUzbekistanToolkit
+        checks={ws.med_toolkit_checks ?? {}}
+        onChecksChange={(next) => updateWs({ med_toolkit_checks: next })}
+        disabled={Boolean(isReadOnly)}
+        noProjectYet={!selected}
+      />
 
       {/* Yangi loyiha turi (joriy tanlov — «Yangi loyiha» shu tipda yaratiladi) */}
       <div className="rounded-2xl border border-black/10 bg-white/70 p-3 sm:p-4 shadow-sm">
@@ -444,7 +583,7 @@ export default function StartupWorkspace() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[13px] text-rose-800">
+        <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[13px] text-rose-800 whitespace-pre-wrap">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           {error}
         </div>
@@ -460,7 +599,8 @@ export default function StartupWorkspace() {
           <p>Hozircha loyiha yo‘q.</p>
           <p className="text-[13px]">
             Yuqorida <strong>Startap</strong> yoki <strong>Ilmiy tadqiqot</strong>ni tanlang, keyin «Yangi loyiha»ni
-            bosing.
+            bosing. Tibbiyot startapi uchun <strong>20 ta yo‘riqnoma</strong> yuqoridagi yashil blokda — rejani
+            shakllantirishdan oldin ko‘rib chiqing.
           </p>
         </div>
       ) : (
@@ -584,6 +724,41 @@ export default function StartupWorkspace() {
                     placeholder="Grant, B2B, litsenziya, jamoat budjeti…"
                   />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-black/50">
+                    Traksiya va tekshiruv (hozirgi holat)
+                  </label>
+                  <textarea
+                    value={ws.traction_validation_notes}
+                    onChange={(e) => updateWs({ traction_validation_notes: e.target.value })}
+                    disabled={isReadOnly}
+                    rows={2}
+                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                    placeholder="Masalan: 6 ta suhbat, 1 ta LOI, 40 beta-foydalanuvchi, klinika bilan yozishmalar…"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-black/50">Eng katta noaniqlik yoki xavf</label>
+                  <textarea
+                    value={ws.biggest_uncertainty}
+                    onChange={(e) => updateWs({ biggest_uncertainty: e.target.value })}
+                    disabled={isReadOnly}
+                    rows={2}
+                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                    placeholder="Masalan: to‘lovchi kim? texnika ishlaydimi? tartibiy ruxsat?"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-black/50">Hamkorlar va pilot maydoni</label>
+                  <textarea
+                    value={ws.partners_lab_equipment}
+                    onChange={(e) => updateWs({ partners_lab_equipment: e.target.value })}
+                    disabled={isReadOnly}
+                    rows={2}
+                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                    placeholder="Klinika, kafedra, tashqi tashkilot, kampus maydoni — qayerda sinov o‘tkazasiz?"
+                  />
+                </div>
               </div>
             )}
 
@@ -619,9 +794,18 @@ export default function StartupWorkspace() {
                 disabled={isReadOnly}
                 rows={8}
                 className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[180px] disabled:opacity-60"
-                placeholder="Muammo, yechim, innovatsiya, reja, kutilayotgan natija, cheklovlar…"
+                placeholder="Muammo (kim uchun), hozirgi yechimlar nima yetishmayapti, sizning yondashuvingiz, nima allaqachon sinab ko‘rilgan, nima keyingi 30 kunda tekshiriladi, asosiy cheklovlar…"
               />
             </div>
+
+            {!isReadOnly && (
+              <StartupProjectReadinessCard
+                percent={formReadiness.percent}
+                items={formReadiness.items}
+                canRunAi={formReadiness.canRunAi}
+                blockMessages={formReadiness.blockMessages}
+              />
+            )}
 
             <div className="flex flex-wrap gap-2 pt-1">
               <button
@@ -635,12 +819,17 @@ export default function StartupWorkspace() {
               </button>
               <button
                 type="button"
+                title={
+                  formReadiness.canRunAi
+                    ? 'Strategik tahlil, baho matritsasi va xavflar'
+                    : 'Avval yuqoridagi tayyorgarlik shartlarini bajaring'
+                }
                 onClick={() => void handleAi()}
-                disabled={aiLoading || isReadOnly}
+                disabled={aiLoading || isReadOnly || !formReadiness.canRunAi}
                 className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {aiLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                To‘liq AI tahlil
+                AI tahlil (strategiya + xavflar + yo‘l xaritasi)
               </button>
               <button
                 type="button"
@@ -669,19 +858,21 @@ export default function StartupWorkspace() {
               yuborish u yerda.
             </div>
 
-            {selected && Object.keys(displayPack).length > 0 && (
+            {selected && analysisReady && (
               <div className="mt-2 space-y-3">
                 <h3 className="text-[14px] font-bold text-black/90 tracking-tight">AI strategik tahlil</h3>
                 <StartupInnovationPackPanel pack={displayPack} />
               </div>
             )}
 
-            {selected && Object.keys(displayPack).length > 0 && (
+            {showCoachBlock && (
               <StartupCoachChat
                 turns={coachTurns}
                 disabled={isReadOnly}
                 sending={coachSending}
                 onSend={handleCoachSend}
+                analysisReady={analysisReady}
+                suggestedPrompts={coachSuggestedPrompts}
               />
             )}
 
@@ -701,18 +892,19 @@ export default function StartupWorkspace() {
                 <strong>Holat:</strong> {selected.status === 'submitted' ? 'Yuborilgan' : 'Qoralama'}
               </p>
               <p>
-                <strong>Turi:</strong> {projectDomain === 'research' ? 'Ilmiy' : 'Startap'}
+                <strong>Turi:</strong> {projectDomain === 'research' ? 'Ilmiy tadqiqot' : 'Startap / innovatsiya'}
               </p>
               <h2>Qisqa tavsif</h2>
-              <p>{summary}</p>
+              <p style={{ whiteSpace: 'pre-wrap' }}>{summary}</p>
               <h2>Batafsil</h2>
               <p style={{ whiteSpace: 'pre-wrap' }}>{description}</p>
-              {selected.ai_pack && Object.keys(packForDisplay(selected.ai_pack)).length > 0 && (
-                <>
-                  <h2>AI tahlil</h2>
-                  <pre style={{ fontSize: 11 }}>{JSON.stringify(packForDisplay(selected.ai_pack), null, 2)}</pre>
-                </>
-              )}
+              {hasMeaningfulAiPack(packForDisplay(selected.ai_pack)) ? (
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html: buildStartupPackPrintInnerHtml(packForDisplay(selected.ai_pack)),
+                  }}
+                />
+              ) : null}
             </div>
           )}
         </div>

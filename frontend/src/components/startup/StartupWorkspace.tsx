@@ -24,13 +24,12 @@ import {
 } from '../../utils/startupApplicationApi';
 import StartupInnovationPackPanel from './StartupInnovationPackPanel';
 import StartupCoachChat, { type CoachTurn } from './StartupCoachChat';
-import StartupProjectReadinessCard from './StartupProjectReadinessCard';
 import StartupDiscoveryFlow from './StartupDiscoveryFlow';
 import StartupNewProjectDialog from './StartupNewProjectDialog';
 import {
   buildStartupPackPrintInnerHtml,
+  canRunStrategicInnovationAi,
   evaluateStartupQuestionnaireReadiness,
-  evaluateWorkspaceForAi,
   hasMeaningfulAiPack,
 } from '../../utils/startupProjectQuality';
 import { buildStartupProjectWordBlob, downloadWordBlob } from '../../utils/buildStartupWordDoc';
@@ -320,14 +319,14 @@ export default function StartupWorkspace() {
 
   const handleAi = async () => {
     if (!selected || selected.status === 'submitted') return;
-    const ev = evaluateWorkspaceForAi({
+    const ev = canRunStrategicInnovationAi({
       title,
       summary,
       description,
       domain: projectDomain,
       ws,
     });
-    if (!ev.canRunAi) {
+    if (!ev.ok) {
       setError(ev.blockMessages.join('\n\n'));
       return;
     }
@@ -459,9 +458,9 @@ export default function StartupWorkspace() {
 
   const analysisReady = useMemo(() => hasMeaningfulAiPack(displayPack), [displayPack]);
 
-  const formReadiness = useMemo(
+  const strategicAiGate = useMemo(
     () =>
-      evaluateWorkspaceForAi({
+      canRunStrategicInnovationAi({
         title,
         summary,
         description,
@@ -957,12 +956,9 @@ export default function StartupWorkspace() {
             )}
 
             {!isReadOnly && (
-              <StartupProjectReadinessCard
-                percent={formReadiness.percent}
-                items={formReadiness.items}
-                canRunAi={formReadiness.canRunAi}
-                blockMessages={formReadiness.blockMessages}
-              />
+              <div className="rounded-xl border border-black/8 bg-black/[0.02] px-3 py-2 text-[11px] text-black/45">
+                «AI tahlil» uchun startapda loyiha nomi va yuqoridagi qisqa matn yetarli; qo‘shimcha maydonlar ixtiyoriy.
+              </div>
             )}
 
             <div className="flex flex-wrap gap-2 pt-1">
@@ -978,12 +974,12 @@ export default function StartupWorkspace() {
               <button
                 type="button"
                 title={
-                  formReadiness.canRunAi
+                  strategicAiGate.ok
                     ? 'Strategik tahlil, baho matritsasi va xavflar'
-                    : 'Avval yuqoridagi tayyorgarlik shartlarini bajaring'
+                    : strategicAiGate.blockMessages.join(' ')
                 }
                 onClick={() => void handleAi()}
-                disabled={aiLoading || isReadOnly || !formReadiness.canRunAi}
+                disabled={aiLoading || isReadOnly || !strategicAiGate.ok}
                 className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {aiLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}

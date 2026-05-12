@@ -400,3 +400,15 @@ export function evaluateStartupQuestionnaireReadiness(input: WorkspaceFormInput)
   }
   return { ok: titleOk && pitchOk, blockMessages };
 }
+
+/** Strategik «AI tahlil» tugmasi: startapda savolnoma bilan bir xil yumshoq shart; tadqiqotda to‘liq tayyorgarlik. */
+export function canRunStrategicInnovationAi(input: WorkspaceFormInput): {
+  ok: boolean;
+  blockMessages: string[];
+} {
+  if (input.domain === 'startup') {
+    return evaluateStartupQuestionnaireReadiness(input);
+  }
+  const r = evaluateWorkspaceForAi(input);
+  return { ok: r.canRunAi, blockMessages: r.blockMessages };
+}

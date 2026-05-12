@@ -1,10 +1,14 @@
 #!/usr/bin/env sh
 # Serverda (Linux): kalitni yangilab, git pull va Docker qayta build.
 #
-# Bitta qator (loyiha yo‘lini o‘zingizga moslang, masalan /opt/imentor):
+# Agar "cannot open deploy/imentor-one-liner.sh" chiqsa — skript hali serverda yo‘q:
+#   cd /opt/imentor && git fetch origin && git checkout main && git pull --ff-only origin main
+# keyin yana shu faylni ishga tushiring.
+#
+# Bitta qator (loyiha yo‘lini moslang, masalan /opt/imentor):
 #   cd /opt/imentor && GAK='SIZNING_GEMINI_API_KEY' sh deploy/imentor-one-liner.sh
 #
-# Eslatma: GAK ni shell tarixida saqlamaslik uchun keyin "history -c" yoki yangi kalit ishlating.
+# Eslatma: GAK shell tarixida qolishi mumkin — ish tugagach "history -c" yoki yangi kalit.
 
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

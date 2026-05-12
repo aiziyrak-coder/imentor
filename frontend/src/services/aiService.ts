@@ -24,7 +24,21 @@ function assertGeminiApiKey(): void {
   }
 }
 
-/** Ba’zi loyiha kalitlari faqat «preview» modellarni qabul qiladi; barqaror modellarga tushamiz. */
+/** API xabaridan "retry in Ns" ni olish (429). */
+function parseGeminiRetryAfterSeconds(message: string): number {
+  const m = message.match(/[Rr]etry in ([\d.]+)\s*s/i);
+  if (m) {
+    const sec = parseFloat(m[1]);
+    if (Number.isFinite(sec)) return Math.min(120, Math.max(3, Math.ceil(sec + 1)));
+  }
+  return 55;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 403/404 — keyingi model; 429 — kutib qayta urinish, so‘ng boshqa model. */
 async function generateContentWithGeminiModelFallback(params: {
   contents: string;
   models: string[];
@@ -35,26 +49,47 @@ async function generateContentWithGeminiModelFallback(params: {
     systemInstruction?: string;
     responseSchema?: unknown;
   };
+  /** Har bir model uchun 429 bo‘lsa shuncha marta kutib qayta uriniladi (kamroq = tezroq xato). */
+  max429RetriesPerModel?: number;
 }): Promise<{ text?: string }> {
   assertGeminiApiKey();
+  const max429 = Math.min(4, Math.max(1, params.max429RetriesPerModel ?? 2));
   let lastErr: unknown;
-  for (const model of params.models) {
-    try {
-      return await ai.models.generateContent({
-        model,
-        contents: params.contents,
-        config: params.config,
-      });
-    } catch (e) {
-      lastErr = e;
-      const msg = `${e}`;
-      if (/\b403\b|\b404\b|PERMISSION_DENIED|not found for API version/i.test(msg)) continue;
-      throw e;
+
+  modelLoop: for (const model of params.models) {
+    for (let attempt = 0; attempt < max429; attempt++) {
+      try {
+        return await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config,
+        });
+      } catch (e) {
+        lastErr = e;
+        const msg = `${e}`;
+        if (/\b403\b|\b404\b|PERMISSION_DENIED|not found for API version/i.test(msg)) {
+          continue modelLoop;
+        }
+        if (/\b429\b|RESOURCE_EXHAUSTED|quota exceeded|rate.?limit/i.test(msg)) {
+          if (attempt + 1 < max429) {
+            const waitSec = parseGeminiRetryAfterSeconds(msg);
+            await sleepMs(waitSec * 1000);
+            continue;
+          }
+          continue modelLoop;
+        }
+        throw e;
+      }
     }
   }
+
   const base = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  const hint429 =
+    /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(base)
+      ? '\n429 / kvota: bir necha daqiqa kutib qayta urining yoki Google AI Studio da billing / limitni tekshiring (bepul tarifda RPM kuniga cheklangan).'
+      : '';
   throw new Error(
-    `${base}\nGoogle Gemini (403/404): AI Studio kalitda «Generative Language API» yoqilganmi, HTTP referrer chekloviga https://imentor.uz qo‘shilganmi, serverda GEMINI_API_KEY build paytida berilganmi — tekshiring.`
+    `${base}${hint429}\n403/404 bo‘lsa: kalit, Generative Language API va HTTP referrer (https://imentor.uz) ni tekshiring.`
   );
 }
 
@@ -1161,7 +1196,7 @@ Reply ONLY as the Assistant to the latest User message. Be specific, practical, 
   ): Promise<QuestionnaireItem[]> {
     const outLang = languageName(language);
     const response = await generateContentWithGeminiModelFallback({
-      models: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3-flash-preview'],
+      models: ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3-flash-preview'],
       contents: `You help Uzbekistan medical / public-health institute students and staff clarify a startup idea.
 
 Project title: ${projectTitle}
@@ -1221,7 +1256,7 @@ Return JSON only.`,
     const outLang = languageName(params.language);
     const criteriaList = criteriaPromptBlock();
     const response = await generateContentWithGeminiModelFallback({
-      models: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-3.1-pro-preview'],
+      models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3.1-pro-preview'],
       contents: `You are a rigorous startup evaluator for medical / digital health / public health ventures in Uzbekistan (institute context: students and staff).
 
 Evaluate the project using EXACTLY these 20 criteria (ids c01 through c20):

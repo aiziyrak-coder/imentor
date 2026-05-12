@@ -1,8 +1,15 @@
 #!/usr/bin/env sh
-# Run on the server (as root or with docker group) from the app directory.
-# Does not install packages; requires git, docker, and docker compose plugin.
+# Serverda (imentor.uz) loyiha ildizidan yoki: bash deploy/server-pull.sh
+# Talab: git, docker, docker compose plugin, deploy/.env.production
 
-set -e
-cd "$(dirname "$0")/.."
-git pull --ff-only
+set -eu
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+git config --global --add safe.directory "$ROOT" 2>/dev/null || true
+git fetch origin
+git checkout main 2>/dev/null || git checkout -b main
+git pull --ff-only origin main
+
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production up -d --build
+docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production ps

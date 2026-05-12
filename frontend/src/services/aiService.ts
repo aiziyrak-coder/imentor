@@ -1,6 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import * as pdfjsLib from 'pdfjs-dist';
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
+import { criteriaPromptBlock } from '../utils/startupTwentyCriteria';
+import type {
+  QuestionnaireItem,
+  StartupDiscoveryQuestionnaireAi,
+  TwentyCriteriaEvaluation,
+} from '../utils/startupEvaluationTypes';
+import { normalizeTwentyCriteriaEvaluation } from '../utils/normalizeTwentyCriteriaResult';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -390,6 +397,22 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
     topic: (data.topic || topic || '').trim() || topic,
     questions,
   };
+}
+
+function normalizeQuestionnaireItems(raw: StartupDiscoveryQuestionnaireAi | null | undefined): QuestionnaireItem[] {
+  const items = Array.isArray(raw?.items) ? raw!.items : [];
+  const cleaned: QuestionnaireItem[] = [];
+  const seen = new Set<string>();
+  for (const it of items) {
+    const id = typeof it.id === 'string' ? it.id.trim().replace(/\s+/g, '_') : '';
+    const question = typeof it.question === 'string' ? it.question.trim() : '';
+    if (!id || !question || seen.has(id)) continue;
+    seen.add(id);
+    const hint = typeof it.hint === 'string' ? it.hint.trim() : undefined;
+    cleaned.push({ id, question, hint: hint || undefined });
+    if (cleaned.length >= 16) break;
+  }
+  return cleaned.slice(0, 16);
 }
 
 export const aiService = {
@@ -1084,6 +1107,134 @@ Reply ONLY as the Assistant to the latest User message. Be specific, practical, 
     const text = response.text?.trim();
     if (!text) throw new Error('Empty coach reply');
     return text;
+  },
+
+  async generateStartupDiscoveryQuestionnaire(
+    projectTitle: string,
+    summary: string,
+    fullDescription: string,
+    structuredContextNote: string,
+    language: AppLanguage = 'uz'
+  ): Promise<QuestionnaireItem[]> {
+    const outLang = languageName(language);
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `You help Uzbekistan medical / public-health institute students and staff clarify a startup idea.
+
+Project title: ${projectTitle}
+Summary: ${summary}
+Full description:
+${fullDescription}
+
+Extra structured notes (may be empty):
+${structuredContextNote || '(none)'}
+
+Generate 10-14 discovery questions in ${outLang}. Questions must be specific to THIS project (reference problem, user, setting, constraints from the text). Mix: problem/customer, solution fit, competition, regulation/privacy, pilot, team, metrics, GTM, sustainability.
+Each item: id (stable unique snake_case, e.g. q_problem_segment), question (max 3 short sentences), hint optional (one short phrase).
+
+Return JSON only.`,
+      config: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 4096,
+        temperature: 0.35,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  question: { type: Type.STRING },
+                  hint: { type: Type.STRING },
+                },
+                required: ['id', 'question'],
+              },
+            },
+          },
+          required: ['items'],
+        },
+      },
+    });
+    const parsed = parseJSONSafe<StartupDiscoveryQuestionnaireAi>(response.text);
+    const items = normalizeQuestionnaireItems(parsed);
+    if (items.length < 8) {
+      throw new Error(
+        "Savolnoma yetarli emas. Loyiha matnini biroz kengaytiring va qayta «Savolnoma tayyorlash»ni bosing."
+      );
+    }
+    return items;
+  },
+
+  async evaluateStartupTwentyCriteria(params: {
+    projectTitle: string;
+    summary: string;
+    fullDescription: string;
+    structuredContextNote: string;
+    questionnaireQaBlock: string;
+    language: AppLanguage;
+  }): Promise<TwentyCriteriaEvaluation> {
+    const outLang = languageName(params.language);
+    const criteriaList = criteriaPromptBlock();
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: `You are a rigorous startup evaluator for medical / digital health / public health ventures in Uzbekistan (institute context: students and staff).
+
+Evaluate the project using EXACTLY these 20 criteria (ids c01 through c20):
+${criteriaList}
+
+Project title: ${params.projectTitle}
+Summary: ${params.summary}
+Description:
+${params.fullDescription}
+
+Structured notes:
+${params.structuredContextNote || '(none)'}
+
+${params.questionnaireQaBlock.trim() ? params.questionnaireQaBlock : '(Questionnaire answers missing — score conservatively and mention gaps.)'}
+
+Rules:
+- For EACH of c01..c20 output score_1_to_5 (integer 1-5) and a concise comment in ${outLang} tied to evidence in the text; if information is missing, say what is missing and score lower.
+- overall_0_100: integer 0-100 aligned with the 20 scores (strict for vague ideas).
+- ready_for_market: true ONLY if the text shows clear problem-solution direction, plausible validation path, and realistic next steps; for vague "idea only" or purely wishful text, ready_for_market must be false.
+- verdict_uz: 2-4 sentences in ${outLang}.
+
+Return JSON only.`,
+      config: {
+        responseMimeType: 'application/json',
+        maxOutputTokens: 8192,
+        temperature: 0.28,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            criteria: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  score_1_to_5: { type: Type.NUMBER },
+                  comment: { type: Type.STRING },
+                },
+                required: ['id', 'score_1_to_5', 'comment'],
+              },
+            },
+            overall_0_100: { type: Type.NUMBER },
+            ready_for_market: { type: Type.BOOLEAN },
+            verdict_uz: { type: Type.STRING },
+          },
+          required: ['criteria', 'overall_0_100', 'ready_for_market', 'verdict_uz'],
+        },
+      },
+    });
+    const parsed = parseJSONSafe<{
+      criteria: Array<{ id: string; score_1_to_5: number; comment: string }>;
+      overall_0_100: number;
+      ready_for_market: boolean;
+      verdict_uz: string;
+    }>(response.text);
+    return normalizeTwentyCriteriaEvaluation(parsed);
   },
 
   async generateExercises(topic: string): Promise<Exercise> {

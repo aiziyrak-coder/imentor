@@ -25,17 +25,20 @@ import {
 import StartupInnovationPackPanel from './StartupInnovationPackPanel';
 import StartupCoachChat, { type CoachTurn } from './StartupCoachChat';
 import StartupProjectReadinessCard from './StartupProjectReadinessCard';
-import StartupMedUzbekistanToolkit from './StartupMedUzbekistanToolkit';
+import StartupDiscoveryFlow from './StartupDiscoveryFlow';
 import {
   buildStartupPackPrintInnerHtml,
   evaluateWorkspaceForAi,
   hasMeaningfulAiPack,
 } from '../../utils/startupProjectQuality';
+import { buildStartupProjectWordBlob, downloadWordBlob } from '../../utils/buildStartupWordDoc';
 import {
-  buildMedToolkitAiAppendix,
-  parseMedToolkitChecksFromProfile,
-  type MedToolkitChecks,
-} from '../../utils/startupMedToolkitModel';
+  EMPTY_STARTUP_QUESTIONNAIRE,
+  formatQuestionnaireForPrompt,
+  parseStartupQuestionnaireFromProfile,
+  type StartupQuestionnaireState,
+} from '../../utils/startupQuestionnaireModel';
+import { parseTwentyCriteriaFromAiPack } from '../../utils/normalizeTwentyCriteriaResult';
 
 /** Qo‘shimcha maydonlar — AI va saqlash uchun */
 export type WorkspaceFields = {
@@ -49,8 +52,8 @@ export type WorkspaceFields = {
   traction_validation_notes?: string;
   /** Startap: eng katta noaniqlik yoki xavf (bozor, texnologiya, tartib) */
   biggest_uncertainty?: string;
-  /** Tibbiyot startap 20 ta yo‘riqnoma checklist (serverda workspace_profile ichida) */
-  med_toolkit_checks?: MedToolkitChecks;
+  /** Startap: AI savolnoma va javoblar (workspace_profile) */
+  startup_questionnaire?: StartupQuestionnaireState;
 };
 
 const EMPTY_WORKSPACE: WorkspaceFields = {
@@ -62,7 +65,7 @@ const EMPTY_WORKSPACE: WorkspaceFields = {
   partners_lab_equipment: '',
   traction_validation_notes: '',
   biggest_uncertainty: '',
-  med_toolkit_checks: {},
+  startup_questionnaire: { ...EMPTY_STARTUP_QUESTIONNAIRE },
 };
 
 function normalizeDomain(d: string | undefined): 'startup' | 'research' {
@@ -84,19 +87,18 @@ function parseWorkspaceProfile(raw: unknown): WorkspaceFields {
     traction_validation_notes:
       typeof o.traction_validation_notes === 'string' ? o.traction_validation_notes : '',
     biggest_uncertainty: typeof o.biggest_uncertainty === 'string' ? o.biggest_uncertainty : '',
-    med_toolkit_checks: parseMedToolkitChecksFromProfile(o),
+    startup_questionnaire: parseStartupQuestionnaireFromProfile(o),
   };
 }
 
-function buildWorkspaceExtraNote(f: WorkspaceFields, domain: 'startup' | 'research'): string {
-  const toolkitAi = buildMedToolkitAiAppendix(f.med_toolkit_checks);
+/** Savolnomasiz — yangi savollar generatsiyasi uchun aylana bo‘lmasin */
+function buildWorkspaceStructuredCore(f: WorkspaceFields, domain: 'startup' | 'research'): string {
   if (domain === 'research') {
     return [
       f.research_question && `Tadqiqot savoli / gipoteza: ${f.research_question}`,
       f.methodology_notes && `Metod va dizayn: ${f.methodology_notes}`,
       f.partners_lab_equipment && `Laboratoriya / uskunalar / hamkorlar: ${f.partners_lab_equipment}`,
       f.key_resources_team && `Resurslar va jamoa: ${f.key_resources_team}`,
-      toolkitAi,
     ]
       .filter(Boolean)
       .join('\n');
@@ -109,10 +111,18 @@ function buildWorkspaceExtraNote(f: WorkspaceFields, domain: 'startup' | 'resear
     f.key_resources_team && `Jamoa va kalit resurslar: ${f.key_resources_team}`,
     f.partners_lab_equipment && `Hamkorlar, pilot maydon: ${f.partners_lab_equipment}`,
     f.research_question && `Qisman ilmiy savol (agar bor): ${f.research_question}`,
-    toolkitAi,
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+function buildWorkspaceExtraNote(f: WorkspaceFields, domain: 'startup' | 'research'): string {
+  const core = buildWorkspaceStructuredCore(f, domain);
+  const qBlock =
+    domain === 'startup'
+      ? formatQuestionnaireForPrompt(f.startup_questionnaire ?? EMPTY_STARTUP_QUESTIONNAIRE)
+      : '';
+  return [core, qBlock].filter(Boolean).join('\n\n');
 }
 
 function formatProjectLabel(x: StartupApplicationDto): string {
@@ -128,18 +138,19 @@ function mergePackKeepCoach(
   newPack: Record<string, unknown>,
   oldPack: Record<string, unknown> | undefined
 ): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...newPack };
   const thread = oldPack && Array.isArray((oldPack as { coach_thread?: unknown }).coach_thread)
     ? (oldPack as { coach_thread: CoachTurn[] }).coach_thread
     : undefined;
-  if (thread && thread.length) {
-    return { ...newPack, coach_thread: thread };
-  }
-  return { ...newPack };
+  if (thread && thread.length) merged.coach_thread = thread;
+  const twenty = (oldPack as { twenty_criteria_evaluation?: unknown } | undefined)?.twenty_criteria_evaluation;
+  if (twenty && typeof twenty === 'object') merged.twenty_criteria_evaluation = twenty;
+  return merged;
 }
 
 function packForDisplay(pack: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!pack) return {};
-  const { coach_thread: _c, ...rest } = pack;
+  const { coach_thread: _c, twenty_criteria_evaluation: _t, ...rest } = pack;
   return rest;
 }
 
@@ -186,6 +197,10 @@ export default function StartupWorkspace() {
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
   const [participantKind, setParticipantKind] = useState<'student' | 'employee'>('student');
+
+  const [questionnaireAiLoading, setQuestionnaireAiLoading] = useState(false);
+  const [twentyEvalLoading, setTwentyEvalLoading] = useState(false);
+  const [wordDocLoading, setWordDocLoading] = useState(false);
 
   const selected = useMemo(
     () => items.find((x) => x.id === selectedId) ?? null,
@@ -473,44 +488,106 @@ export default function StartupWorkspace() {
 
   const updateWs = (patch: Partial<WorkspaceFields>) => setWs((prev) => ({ ...prev, ...patch }));
 
-  const wsRef = useRef(ws);
-  wsRef.current = ws;
+  const twentyCriteriaEvaluation = useMemo(
+    () => parseTwentyCriteriaFromAiPack(selected?.ai_pack?.twenty_criteria_evaluation),
+    [selected?.ai_pack, selected?.updated_at]
+  );
 
-  const medToolkitChecksKey = useMemo(() => JSON.stringify(ws.med_toolkit_checks ?? {}), [ws.med_toolkit_checks]);
+  const startupQuestionnaire = ws.startup_questionnaire ?? EMPTY_STARTUP_QUESTIONNAIRE;
 
-  const lastAutoMedToolkitKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    lastAutoMedToolkitKeyRef.current = null;
-  }, [selected?.id]);
-
-  useEffect(() => {
-    if (!selected || selected.status === 'submitted' || loading) return;
-    if (lastAutoMedToolkitKeyRef.current === null) {
-      lastAutoMedToolkitKeyRef.current = medToolkitChecksKey;
+  const handleGenerateStartupQuestionnaire = async () => {
+    if (!selected || selected.status === 'submitted' || projectDomain !== 'startup') return;
+    const ev = evaluateWorkspaceForAi({ title, summary, description, domain: projectDomain, ws });
+    if (!ev.canRunAi) {
+      setError(ev.blockMessages.join('\n\n'));
       return;
     }
-    if (lastAutoMedToolkitKeyRef.current === medToolkitChecksKey) return;
-    const projectId = selected.id;
-    const keyAtSchedule = medToolkitChecksKey;
-    const t = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const u = getCurrentLocalUser();
-          if (!u) return;
-          const snapshot = wsRef.current;
-          const row = await updateStartupApplication(projectId, {
-            workspace_profile: { ...snapshot } as Record<string, unknown>,
-            profile_snapshot: buildStartupProfileSnapshot(u),
-          });
-          setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
-          lastAutoMedToolkitKeyRef.current = keyAtSchedule;
-        } catch {
-          /* tarmoq yoki token */
-        }
-      })();
-    }, 1000);
-    return () => window.clearTimeout(t);
-  }, [medToolkitChecksKey, selected?.id, selected?.status, loading]);
+    setError(null);
+    setQuestionnaireAiLoading(true);
+    try {
+      const u = getCurrentLocalUser();
+      if (!u) throw new Error('not-auth');
+      const structuredCore = buildWorkspaceStructuredCore(ws, projectDomain);
+      const items = await aiService.generateStartupDiscoveryQuestionnaire(
+        title.trim() || 'Loyiha',
+        summary,
+        description,
+        structuredCore,
+        getAppLanguage()
+      );
+      const nextQ: StartupQuestionnaireState = { items, answers: {}, generated_at: Date.now() };
+      const nextWs: WorkspaceFields = { ...ws, startup_questionnaire: nextQ };
+      setWs(nextWs);
+      const row = await updateStartupApplication(selected.id, {
+        workspace_profile: { ...nextWs } as Record<string, unknown>,
+        profile_snapshot: buildStartupProfileSnapshot(u),
+      });
+      setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      setError(msg || 'Savolnoma generatsiyasi ishlamadi.');
+    } finally {
+      setQuestionnaireAiLoading(false);
+    }
+  };
+
+  const handleTwentyCriteriaEvaluate = async () => {
+    if (!selected || selected.status === 'submitted' || projectDomain !== 'startup') return;
+    setError(null);
+    setTwentyEvalLoading(true);
+    try {
+      const u = getCurrentLocalUser();
+      if (!u) throw new Error('not-auth');
+      const qBlock = formatQuestionnaireForPrompt(ws.startup_questionnaire ?? EMPTY_STARTUP_QUESTIONNAIRE);
+      const result = await aiService.evaluateStartupTwentyCriteria({
+        projectTitle: title.trim() || 'Loyiha',
+        summary,
+        fullDescription: description,
+        structuredContextNote: buildWorkspaceStructuredCore(ws, projectDomain),
+        questionnaireQaBlock: qBlock,
+        language: getAppLanguage(),
+      });
+      const mergedPack: Record<string, unknown> = {
+        ...(selected.ai_pack || {}),
+        twenty_criteria_evaluation: result,
+      };
+      const row = await updateStartupApplication(selected.id, {
+        ai_pack: mergedPack,
+        workspace_profile: { ...ws } as Record<string, unknown>,
+        profile_snapshot: buildStartupProfileSnapshot(u),
+      });
+      setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      setError(msg || '20 mezon baholashi ishlamadi. Qayta urinib ko‘ring.');
+    } finally {
+      setTwentyEvalLoading(false);
+    }
+  };
+
+  const handleStartupWordDownload = async () => {
+    if (!selected || !twentyCriteriaEvaluation) return;
+    setError(null);
+    setWordDocLoading(true);
+    try {
+      const blob = await buildStartupProjectWordBlob({
+        projectTitle: title.trim() || 'Loyiha',
+        summary,
+        description,
+        questionnaireItems: startupQuestionnaire.items,
+        answers: startupQuestionnaire.answers,
+        evaluation: twentyCriteriaEvaluation,
+      });
+      const base =
+        (title.trim() || 'loyiha').replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 72) || 'loyiha';
+      downloadWordBlob(blob, `${base}_startap.docx`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '';
+      setError(msg || 'Word faylini yaratishda xato.');
+    } finally {
+      setWordDocLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 px-2 sm:px-4 pb-20">
@@ -538,12 +615,6 @@ export default function StartupWorkspace() {
         </button>
       </div>
 
-      <StartupMedUzbekistanToolkit
-        checks={ws.med_toolkit_checks ?? {}}
-        onChecksChange={(next) => updateWs({ med_toolkit_checks: next })}
-        disabled={Boolean(isReadOnly)}
-        noProjectYet={!selected}
-      />
 
       {/* Yangi loyiha turi (joriy tanlov — «Yangi loyiha» shu tipda yaratiladi) */}
       <div className="rounded-2xl border border-black/10 bg-white/70 p-3 sm:p-4 shadow-sm">
@@ -599,8 +670,8 @@ export default function StartupWorkspace() {
           <p>Hozircha loyiha yo‘q.</p>
           <p className="text-[13px]">
             Yuqorida <strong>Startap</strong> yoki <strong>Ilmiy tadqiqot</strong>ni tanlang, keyin «Yangi loyiha»ni
-            bosing. Tibbiyot startapi uchun <strong>20 ta yo‘riqnoma</strong> yuqoridagi yashil blokda — rejani
-            shakllantirishdan oldin ko‘rib chiqing.
+            bosing. Startap loyihasida matnni yozib, AI savolnoma va 20 mezon bahosi orqali loyihani tizimli
+            rivojlantirasiz.
           </p>
         </div>
       ) : (
@@ -797,6 +868,21 @@ export default function StartupWorkspace() {
                 placeholder="Muammo (kim uchun), hozirgi yechimlar nima yetishmayapti, sizning yondashuvingiz, nima allaqachon sinab ko‘rilgan, nima keyingi 30 kunda tekshiriladi, asosiy cheklovlar…"
               />
             </div>
+
+            {selected && projectDomain === 'startup' && (
+              <StartupDiscoveryFlow
+                formDisabled={Boolean(isReadOnly)}
+                questionnaire={startupQuestionnaire}
+                onQuestionnaireChange={(next) => updateWs({ startup_questionnaire: next })}
+                evaluation={twentyCriteriaEvaluation}
+                generatingQuestions={questionnaireAiLoading}
+                evaluating={twentyEvalLoading}
+                generatingWord={wordDocLoading}
+                onGenerateQuestions={() => void handleGenerateStartupQuestionnaire()}
+                onEvaluate={() => void handleTwentyCriteriaEvaluate()}
+                onDownloadWord={() => void handleStartupWordDownload()}
+              />
+            )}
 
             {!isReadOnly && (
               <StartupProjectReadinessCard

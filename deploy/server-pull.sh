@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
-# Serverda (imentor.uz) loyiha ildizidan yoki: bash deploy/server-pull.sh
+# Serverda (imentor.uz) loyiha ildizidan: bash deploy/server-pull.sh
 # Talab: git, docker, docker compose plugin, deploy/.env.production
+#
+# Kalitni ham yangilab, pull + rebuild — BITTA QATOR (yo‘lni moslang):
+#   cd /opt/imentor && GAK='SIZNING_GEMINI_API_KEY' sh deploy/imentor-one-liner.sh
 
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

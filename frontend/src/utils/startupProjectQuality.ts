@@ -374,3 +374,29 @@ export function evaluateDossierForSubmit(input: DossierSubmitInput): {
 
   return { ok: messages.length === 0, messages, warnings };
 }
+
+/**
+ * Startap: savolnoma generatsiyasi uchun minimal talab — faqat nom + qisqa “pitch” (summary va/yoki batafsil).
+ * To‘liq AI strategik tahlil uchun `evaluateWorkspaceForAi` qat’iyroq.
+ */
+export function evaluateStartupQuestionnaireReadiness(input: WorkspaceFormInput): {
+  ok: boolean;
+  blockMessages: string[];
+} {
+  const t = input.title.trim();
+  const s = input.summary.trim();
+  const d = input.description.trim();
+  const titleOk = t.length >= 4 && !DEFAULT_TITLES.has(normTitle(t));
+  const pitch = `${s}\n${d}`.trim();
+  const pitchOk = pitch.length >= 60;
+  const blockMessages: string[] = [];
+  if (!titleOk) {
+    blockMessages.push('Loyiha nomi: kamida 4 belgi va maxsus nom (standart «Yangi … loyiha» bo‘lmasin).');
+  }
+  if (!pitchOk) {
+    blockMessages.push(
+      '«Loyiha haqida» (qisqa tavsif) kamida ~60 belgi bo‘lsin — g‘oya, kim uchun, nima qilmoqchiligingiz.'
+    );
+  }
+  return { ok: titleOk && pitchOk, blockMessages };
+}

@@ -35,9 +35,10 @@ export default function StartupDiscoveryFlow({
   const items = questionnaire.items;
   const answers = questionnaire.answers;
 
+  const minAnswerLen = 5;
   const allAnswersFilled =
     items.length > 0 &&
-    items.every((it) => (answers[it.id] ?? '').trim().length >= 8);
+    items.every((it) => (answers[it.id] ?? '').trim().length >= minAnswerLen);
 
   const wordAllowed = evaluation != null && isStartupMarketReadyForDocuments(evaluation);
 
@@ -49,73 +50,83 @@ export default function StartupDiscoveryFlow({
   };
 
   return (
-    <div className="rounded-2xl border border-violet-200/70 bg-gradient-to-br from-violet-50/80 to-white p-4 sm:p-5 shadow-sm space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="rounded-2xl border border-violet-200/80 bg-gradient-to-b from-violet-50/90 to-white shadow-sm flex flex-col min-h-0 max-h-[min(85dvh,720px)] overflow-hidden">
+      {/* Sticky: tugmalar va yo‘riqnoma yozilganda ham ko‘rinadi */}
+      <div className="sticky top-0 z-20 shrink-0 border-b border-violet-200/70 bg-violet-50/95 backdrop-blur-md px-4 py-3 space-y-2 shadow-sm">
         <div>
-          <p className="text-[11px] font-bold text-violet-700/90 uppercase tracking-wide">Savolnoma va 20 mezon</p>
-          <p className="text-[13px] text-black/75 mt-1 max-w-prose leading-relaxed">
-            Loyihangiz matnidan AI loyiha aniqlashtiruvchi savollar tuzadi; javoblardan keyin 20 ta mezon bo‘yicha baho
-            beriladi. Ball yuqori bo‘lsa, Word hujjatini yuklab olish mumkin.
+          <p className="text-[11px] font-bold text-violet-800 uppercase tracking-wide">Savolnoma va 20 mezon</p>
+          <p className="text-[12px] text-black/70 mt-1 leading-snug">
+            1) «Savolnoma tayyorlash» — AI savollar chiqaradi. 2) Pastdagi maydonlarda javoblarni yozing (scroll shu
+            blok ichida). 3) «20 mezon baholash». 4) Tayyor bo‘lsa — Word.
           </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={formDisabled || generatingQuestions}
+            onClick={onGenerateQuestions}
+            className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
+          >
+            {generatingQuestions ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
+            Savolnoma tayyorlash
+          </button>
+          <button
+            type="button"
+            title={
+              !allAnswersFilled
+                ? `Har bir savolga kamida ${minAnswerLen} belgi yozing`
+                : undefined
+            }
+            disabled={formDisabled || evaluating || !allAnswersFilled}
+            onClick={onEvaluate}
+            className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
+          >
+            {evaluating ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+            20 mezon baholash
+          </button>
+          <button
+            type="button"
+            disabled={generatingWord || !wordAllowed}
+            onClick={onDownloadWord}
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/80 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-emerald-900 disabled:opacity-45"
+          >
+            {generatingWord ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
+            Word hujjat
+          </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={formDisabled || generatingQuestions}
-          onClick={onGenerateQuestions}
-          className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
-        >
-          {generatingQuestions ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
-          Savolnoma tayyorlash (AI)
-        </button>
-        <button
-          type="button"
-          title={!allAnswersFilled ? 'Barcha savollarga kamida 8 belgidan uzun javob yozing' : undefined}
-          disabled={formDisabled || evaluating || !allAnswersFilled}
-          onClick={onEvaluate}
-          className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
-        >
-          {evaluating ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-          20 mezon bo‘yicha baholash
-        </button>
-        <button
-          type="button"
-          disabled={generatingWord || !wordAllowed}
-          onClick={onDownloadWord}
-          className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-[13px] font-semibold text-emerald-900 disabled:opacity-45"
-        >
-          {generatingWord ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
-          Hujjatlarni shakllantirish (Word)
-        </button>
-      </div>
-
-      {items.length === 0 ? (
-        <p className="text-[12px] text-black/50">
-          Avval loyiha nomi, qisqa va batafsil tavsifni to‘ldiring, keyin «Savolnoma tayyorlash»ni bosing.
-        </p>
-      ) : (
-        <div className="space-y-3 max-h-[min(70vh,520px)] overflow-y-auto pr-1">
-          {items.map((it) => (
-            <div key={it.id} className="rounded-xl border border-black/8 bg-white/90 p-3 space-y-1.5">
-              <p className="text-[13px] font-semibold text-black/88">{it.question}</p>
-              {it.hint ? <p className="text-[11px] text-black/45 italic">{it.hint}</p> : null}
+      {/* Savollar: faqat shu zona scroll — yuqoridagi yo‘riqnova yo‘qolmaydi */}
+      <div className="flex-1 min-h-[180px] overflow-y-auto overscroll-y-contain px-4 py-3 space-y-3">
+        {items.length === 0 ? (
+          <p className="text-[12px] text-black/50 leading-relaxed">
+            Yuqorida «Savolnoma tayyorlash»ni bosing. Avvalo loyiha nomi va «Loyiha haqida (qischa)» maydoni kamida ~60
+            belgi bo‘lishi kerak.
+          </p>
+        ) : (
+          items.map((it, idx) => (
+            <div
+              key={it.id}
+              className="rounded-xl border border-black/10 bg-white p-3 sm:p-3.5 space-y-2 shadow-sm scroll-mt-28"
+            >
+              <p className="text-[12px] font-semibold text-violet-900/90">Savol {idx + 1}</p>
+              <p className="text-[13px] font-medium text-black/90 leading-snug">{it.question}</p>
+              {it.hint ? <p className="text-[11px] text-black/45 italic leading-snug">{it.hint}</p> : null}
               <textarea
                 value={answers[it.id] ?? ''}
                 onChange={(e) => setAnswer(it.id, e.target.value)}
                 disabled={formDisabled}
-                rows={3}
-                className="w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-[13px] disabled:opacity-60"
-                placeholder="Javobingiz…"
+                rows={4}
+                className="w-full rounded-lg border border-black/12 bg-white px-3 py-2.5 text-[13px] leading-relaxed outline-none focus:ring-2 focus:ring-violet-300/50 disabled:opacity-60 resize-y min-h-[96px]"
+                placeholder={`Javob (kamida ${minAnswerLen} belgi)…`}
               />
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
       {evaluation && (
-        <div className="rounded-xl border border-black/10 bg-white/95 p-4 space-y-3">
+        <div className="shrink-0 border-t border-black/10 bg-white/98 max-h-[min(42vh,380px)] overflow-y-auto px-4 py-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[13px] font-bold text-black/90">Natija</p>
             <span className="text-[12px] font-bold tabular-nums text-violet-800 bg-violet-100 rounded-full px-3 py-0.5">
@@ -124,9 +135,8 @@ export default function StartupDiscoveryFlow({
           </div>
           <p className="text-[13px] text-black/80 whitespace-pre-wrap leading-relaxed">{evaluation.verdict_uz}</p>
           {!wordAllowed && (
-            <p className="text-[12px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Bu loyiha hozir bozorga tayyor emas — Word hujjati faqat yuqori tayyorgarlik (ball va mezonlar) uchun
-              ochiladi.
+            <p className="text-[12px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
+              Bu loyiha hozir bozorga tayyor emas — Word faqat yuqori tayyorgarlik (ball va mezonlar) uchun ochiladi.
             </p>
           )}
           <div className="overflow-x-auto rounded-lg border border-black/8">
@@ -151,6 +161,6 @@ export default function StartupDiscoveryFlow({
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

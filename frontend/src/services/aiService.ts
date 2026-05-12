@@ -15,6 +15,49 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+function assertGeminiApiKey(): void {
+  const k = typeof process.env.GEMINI_API_KEY === 'string' ? process.env.GEMINI_API_KEY.trim() : '';
+  if (!k) {
+    throw new Error(
+      'GEMINI_API_KEY sozlanmagan. Mahalliy: frontend/.env da GEMINI_API_KEY. Server: deploy/.env.production ichida kalit va docker compose --build (kalit frontend build vaqtida biqinadi).'
+    );
+  }
+}
+
+/** Ba’zi loyiha kalitlari faqat «preview» modellarni qabul qiladi; barqaror modellarga tushamiz. */
+async function generateContentWithGeminiModelFallback(params: {
+  contents: string;
+  models: string[];
+  config: {
+    responseMimeType?: string;
+    maxOutputTokens?: number;
+    temperature?: number;
+    systemInstruction?: string;
+    responseSchema?: unknown;
+  };
+}): Promise<{ text?: string }> {
+  assertGeminiApiKey();
+  let lastErr: unknown;
+  for (const model of params.models) {
+    try {
+      return await ai.models.generateContent({
+        model,
+        contents: params.contents,
+        config: params.config,
+      });
+    } catch (e) {
+      lastErr = e;
+      const msg = `${e}`;
+      if (/\b403\b|\b404\b|PERMISSION_DENIED|not found for API version/i.test(msg)) continue;
+      throw e;
+    }
+  }
+  const base = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  throw new Error(
+    `${base}\nGoogle Gemini (403/404): AI Studio kalitda «Generative Language API» yoqilganmi, HTTP referrer chekloviga https://imentor.uz qo‘shilganmi, serverda GEMINI_API_KEY build paytida berilganmi — tekshiring.`
+  );
+}
+
 export interface Slide {
   title: string;
   content: string[];
@@ -1117,8 +1160,8 @@ Reply ONLY as the Assistant to the latest User message. Be specific, practical, 
     language: AppLanguage = 'uz'
   ): Promise<QuestionnaireItem[]> {
     const outLang = languageName(language);
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+    const response = await generateContentWithGeminiModelFallback({
+      models: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3-flash-preview'],
       contents: `You help Uzbekistan medical / public-health institute students and staff clarify a startup idea.
 
 Project title: ${projectTitle}
@@ -1177,8 +1220,8 @@ Return JSON only.`,
   }): Promise<TwentyCriteriaEvaluation> {
     const outLang = languageName(params.language);
     const criteriaList = criteriaPromptBlock();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
+    const response = await generateContentWithGeminiModelFallback({
+      models: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-3.1-pro-preview'],
       contents: `You are a rigorous startup evaluator for medical / digital health / public health ventures in Uzbekistan (institute context: students and staff).
 
 Evaluate the project using EXACTLY these 20 criteria (ids c01 through c20):

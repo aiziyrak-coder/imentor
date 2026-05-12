@@ -26,8 +26,10 @@ import StartupInnovationPackPanel from './StartupInnovationPackPanel';
 import StartupCoachChat, { type CoachTurn } from './StartupCoachChat';
 import StartupProjectReadinessCard from './StartupProjectReadinessCard';
 import StartupDiscoveryFlow from './StartupDiscoveryFlow';
+import StartupNewProjectDialog from './StartupNewProjectDialog';
 import {
   buildStartupPackPrintInnerHtml,
+  evaluateStartupQuestionnaireReadiness,
   evaluateWorkspaceForAi,
   hasMeaningfulAiPack,
 } from '../../utils/startupProjectQuality';
@@ -201,6 +203,7 @@ export default function StartupWorkspace() {
   const [questionnaireAiLoading, setQuestionnaireAiLoading] = useState(false);
   const [twentyEvalLoading, setTwentyEvalLoading] = useState(false);
   const [wordDocLoading, setWordDocLoading] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const selected = useMemo(
     () => items.find((x) => x.id === selectedId) ?? null,
@@ -250,7 +253,12 @@ export default function StartupWorkspace() {
     setWs(parseWorkspaceProfile(selected.workspace_profile));
   }, [selected?.id, selected?.updated_at]);
 
-  const handleNew = async () => {
+  const handleNewClick = () => {
+    setError(null);
+    setNewProjectOpen(true);
+  };
+
+  const handleNewProjectConfirm = async (payload: { title: string; summary: string }) => {
     setError(null);
     setSaving(true);
     try {
@@ -259,9 +267,9 @@ export default function StartupWorkspace() {
       const pk = u.participantKind ?? 'student';
       const domain = projectDomain;
       const row = await createStartupApplication({
-        title: domain === 'research' ? 'Yangi ilmiy loyiha' : 'Yangi startap loyiha',
-        summary: '',
-        description: '',
+        title: payload.title,
+        summary: payload.summary,
+        description: domain === 'research' ? payload.summary : '',
         participant_kind: pk,
         project_domain: domain,
         workspace_profile: {},
@@ -270,6 +278,10 @@ export default function StartupWorkspace() {
       setItems((prev) => [row, ...prev]);
       setSelectedId(row.id);
       setWs({ ...EMPTY_WORKSPACE });
+      setTitle(payload.title);
+      setSummary(payload.summary);
+      setDescription(domain === 'research' ? payload.summary : '');
+      setNewProjectOpen(false);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'no-backend-token' || msg.includes('HTTP 401')) {
@@ -462,8 +474,11 @@ export default function StartupWorkspace() {
   const hasCoachTextContext = useMemo(() => {
     const s = summary.trim();
     const d = description.trim();
+    if (projectDomain === 'startup') {
+      return s.length >= 56 || d.length >= 48;
+    }
     return d.length >= 90 || (s.length >= 28 && d.length >= 48);
-  }, [summary, description]);
+  }, [summary, description, projectDomain]);
 
   const showCoachBlock = Boolean(
     selected && (analysisReady || coachTurns.length > 0 || (!isReadOnly && hasCoachTextContext))
@@ -497,8 +512,14 @@ export default function StartupWorkspace() {
 
   const handleGenerateStartupQuestionnaire = async () => {
     if (!selected || selected.status === 'submitted' || projectDomain !== 'startup') return;
-    const ev = evaluateWorkspaceForAi({ title, summary, description, domain: projectDomain, ws });
-    if (!ev.canRunAi) {
+    const ev = evaluateStartupQuestionnaireReadiness({
+      title,
+      summary,
+      description,
+      domain: projectDomain,
+      ws,
+    });
+    if (!ev.ok) {
       setError(ev.blockMessages.join('\n\n'));
       return;
     }
@@ -508,10 +529,11 @@ export default function StartupWorkspace() {
       const u = getCurrentLocalUser();
       if (!u) throw new Error('not-auth');
       const structuredCore = buildWorkspaceStructuredCore(ws, projectDomain);
+      const pitchBody = description.trim() || summary.trim();
       const items = await aiService.generateStartupDiscoveryQuestionnaire(
         title.trim() || 'Loyiha',
         summary,
-        description,
+        pitchBody,
         structuredCore,
         getAppLanguage()
       );
@@ -542,7 +564,7 @@ export default function StartupWorkspace() {
       const result = await aiService.evaluateStartupTwentyCriteria({
         projectTitle: title.trim() || 'Loyiha',
         summary,
-        fullDescription: description,
+        fullDescription: description.trim() || summary.trim(),
         structuredContextNote: buildWorkspaceStructuredCore(ws, projectDomain),
         questionnaireQaBlock: qBlock,
         language: getAppLanguage(),
@@ -606,7 +628,7 @@ export default function StartupWorkspace() {
         </div>
         <button
           type="button"
-          onClick={() => void handleNew()}
+          onClick={() => handleNewClick()}
           disabled={saving || loading}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-md disabled:opacity-50"
         >
@@ -699,16 +721,16 @@ export default function StartupWorkspace() {
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="ios-glass rounded-2xl border border-white/60 p-5 sm:p-6 space-y-4"
+            className="ios-glass rounded-2xl border border-white/60 p-5 sm:p-6 flex flex-col min-h-0 gap-4"
           >
-            <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <div className="flex flex-wrap items-center gap-2 text-[12px] shrink-0">
               <span className="text-black/45">Joriy loyiha turi:</span>
               <span className="font-bold text-black/85">
                 {projectDomain === 'research' ? '🔬 Ilmiy tadqiqot' : '🚀 Startap / innovatsiya'}
               </span>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1 shrink-0">
               <label className="text-[11px] font-semibold text-black/50">Loyiha nomi</label>
               <input
                 value={title}
@@ -719,7 +741,7 @@ export default function StartupWorkspace() {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 shrink-0">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-black/50">Ishtirokchi turi</label>
                 <select
@@ -735,7 +757,7 @@ export default function StartupWorkspace() {
             </div>
 
             {projectDomain === 'research' ? (
-              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-indigo-200/60 bg-indigo-50/40 p-4">
+              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-indigo-200/60 bg-indigo-50/40 p-4 shrink-0">
                 <p className="text-[12px] font-bold text-indigo-900">Ilmiy qatlam</p>
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-black/50">Tadqiqot savoli / gipoteza</label>
@@ -771,117 +793,167 @@ export default function StartupWorkspace() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 rounded-2xl border border-violet-200/60 bg-violet-50/40 p-4">
-                <p className="text-[12px] font-bold text-violet-900">Startap qatlami</p>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Maqsadli mijozlar / beneficiarlar</label>
-                  <textarea
-                    value={ws.beneficiaries_or_segments}
-                    onChange={(e) => updateWs({ beneficiaries_or_segments: e.target.value })}
-                    disabled={isReadOnly}
-                    rows={2}
-                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Kim uchun, qaysi segment, muammo va to‘lovchi"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Monetizatsiya / barqarorlik</label>
-                  <textarea
-                    value={ws.monetization_or_sustainability}
-                    onChange={(e) => updateWs({ monetization_or_sustainability: e.target.value })}
-                    disabled={isReadOnly}
-                    rows={2}
-                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Grant, B2B, litsenziya, jamoat budjeti…"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">
-                    Traksiya va tekshiruv (hozirgi holat)
-                  </label>
-                  <textarea
-                    value={ws.traction_validation_notes}
-                    onChange={(e) => updateWs({ traction_validation_notes: e.target.value })}
-                    disabled={isReadOnly}
-                    rows={2}
-                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Masalan: 6 ta suhbat, 1 ta LOI, 40 beta-foydalanuvchi, klinika bilan yozishmalar…"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Eng katta noaniqlik yoki xavf</label>
-                  <textarea
-                    value={ws.biggest_uncertainty}
-                    onChange={(e) => updateWs({ biggest_uncertainty: e.target.value })}
-                    disabled={isReadOnly}
-                    rows={2}
-                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Masalan: to‘lovchi kim? texnika ishlaydimi? tartibiy ruxsat?"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Hamkorlar va pilot maydoni</label>
-                  <textarea
-                    value={ws.partners_lab_equipment}
-                    onChange={(e) => updateWs({ partners_lab_equipment: e.target.value })}
-                    disabled={isReadOnly}
-                    rows={2}
-                    className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Klinika, kafedra, tashqi tashkilot, kampus maydoni — qayerda sinov o‘tkazasiz?"
-                  />
-                </div>
+              <div className="space-y-1 shrink-0">
+                <label className="text-[11px] font-semibold text-black/50">Loyiha haqida (qischa)</label>
+                <p className="text-[11px] text-black/45 leading-relaxed">
+                  Savolnoma shu matndan tuziladi. Kamida ~60 belgi. Batafsil va boshqa maydonlar pastda — ixtiyoriy.
+                </p>
+                <textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  disabled={isReadOnly}
+                  rows={5}
+                  className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[120px] disabled:opacity-60"
+                  placeholder="Kim uchun, qanday muammo, nima taklif qilasiz — 2–6 jumla."
+                />
+                <p className="text-[11px] text-black/40 tabular-nums">{summary.trim().length} belgi</p>
               </div>
             )}
 
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-black/50">Jamoa va kalit resurslar</label>
-              <textarea
-                value={ws.key_resources_team}
-                onChange={(e) => updateWs({ key_resources_team: e.target.value })}
-                disabled={isReadOnly}
-                rows={2}
-                className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y disabled:opacity-60"
-                placeholder="Kim bor, kimga kerak, qaysi ko‘nikmalar"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-black/50">Qisqa tavsif</label>
-              <textarea
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                disabled={isReadOnly}
-                rows={3}
-                className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[80px] disabled:opacity-60"
-                placeholder="Loyiha maqsadi, ijtimoiy yoki klinik ahamiyat (qisqa)"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-black/50">Batafsil tavsif</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                disabled={isReadOnly}
-                rows={8}
-                className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[180px] disabled:opacity-60"
-                placeholder="Muammo (kim uchun), hozirgi yechimlar nima yetishmayapti, sizning yondashuvingiz, nima allaqachon sinab ko‘rilgan, nima keyingi 30 kunda tekshiriladi, asosiy cheklovlar…"
-              />
-            </div>
-
             {selected && projectDomain === 'startup' && (
-              <StartupDiscoveryFlow
-                formDisabled={Boolean(isReadOnly)}
-                questionnaire={startupQuestionnaire}
-                onQuestionnaireChange={(next) => updateWs({ startup_questionnaire: next })}
-                evaluation={twentyCriteriaEvaluation}
-                generatingQuestions={questionnaireAiLoading}
-                evaluating={twentyEvalLoading}
-                generatingWord={wordDocLoading}
-                onGenerateQuestions={() => void handleGenerateStartupQuestionnaire()}
-                onEvaluate={() => void handleTwentyCriteriaEvaluate()}
-                onDownloadWord={() => void handleStartupWordDownload()}
-              />
+              <div className="min-h-0 shrink-0">
+                <StartupDiscoveryFlow
+                  formDisabled={Boolean(isReadOnly)}
+                  questionnaire={startupQuestionnaire}
+                  onQuestionnaireChange={(next) => updateWs({ startup_questionnaire: next })}
+                  evaluation={twentyCriteriaEvaluation}
+                  generatingQuestions={questionnaireAiLoading}
+                  evaluating={twentyEvalLoading}
+                  generatingWord={wordDocLoading}
+                  onGenerateQuestions={() => void handleGenerateStartupQuestionnaire()}
+                  onEvaluate={() => void handleTwentyCriteriaEvaluate()}
+                  onDownloadWord={() => void handleStartupWordDownload()}
+                />
+              </div>
+            )}
+
+            {projectDomain === 'startup' ? (
+              <details className="rounded-2xl border border-violet-200/50 bg-violet-50/30 open:bg-violet-50/45 shrink-0 group">
+                <summary className="cursor-pointer select-none list-none px-4 py-3 text-[13px] font-semibold text-violet-950 flex items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+                  <span>Qo‘shimcha maydonlar (ixtiyoriy — kuchliroq AI strategiya)</span>
+                  <span className="text-[11px] font-normal text-black/45 group-open:hidden">ochish</span>
+                </summary>
+                <div className="px-4 pb-4 pt-0 space-y-4 border-t border-violet-200/40">
+                  <div className="grid grid-cols-1 gap-3 rounded-xl border border-violet-200/50 bg-white/70 p-3">
+                    <p className="text-[12px] font-bold text-violet-900">Startap qatlami</p>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-black/50">Maqsadli mijozlar / beneficiarlar</label>
+                      <textarea
+                        value={ws.beneficiaries_or_segments}
+                        onChange={(e) => updateWs({ beneficiaries_or_segments: e.target.value })}
+                        disabled={isReadOnly}
+                        rows={2}
+                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                        placeholder="Kim uchun, qaysi segment, muammo va to‘lovchi"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-black/50">Monetizatsiya / barqarorlik</label>
+                      <textarea
+                        value={ws.monetization_or_sustainability}
+                        onChange={(e) => updateWs({ monetization_or_sustainability: e.target.value })}
+                        disabled={isReadOnly}
+                        rows={2}
+                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                        placeholder="Grant, B2B, litsenziya, jamoat budjeti…"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-black/50">
+                        Traksiya va tekshiruv (hozirgi holat)
+                      </label>
+                      <textarea
+                        value={ws.traction_validation_notes}
+                        onChange={(e) => updateWs({ traction_validation_notes: e.target.value })}
+                        disabled={isReadOnly}
+                        rows={2}
+                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                        placeholder="Masalan: 6 ta suhbat, 1 ta LOI, 40 beta-foydalanuvchi…"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-black/50">Eng katta noaniqlik yoki xavf</label>
+                      <textarea
+                        value={ws.biggest_uncertainty}
+                        onChange={(e) => updateWs({ biggest_uncertainty: e.target.value })}
+                        disabled={isReadOnly}
+                        rows={2}
+                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                        placeholder="Masalan: to‘lovchi kim? texnika ishlaydimi?"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-black/50">Hamkorlar va pilot maydoni</label>
+                      <textarea
+                        value={ws.partners_lab_equipment}
+                        onChange={(e) => updateWs({ partners_lab_equipment: e.target.value })}
+                        disabled={isReadOnly}
+                        rows={2}
+                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
+                        placeholder="Klinika, kafedra, tashqi tashkilot…"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-black/50">Jamoa va kalit resurslar</label>
+                    <textarea
+                      value={ws.key_resources_team}
+                      onChange={(e) => updateWs({ key_resources_team: e.target.value })}
+                      disabled={isReadOnly}
+                      rows={2}
+                      className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y disabled:opacity-60"
+                      placeholder="Kim bor, kimga kerak, qaysi ko‘nikmalar"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-black/50">Batafsil tavsif (ixtiyoriy)</label>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      disabled={isReadOnly}
+                      rows={6}
+                      className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[120px] disabled:opacity-60"
+                      placeholder="Muammo, yechim, reja, cheklovlar — bo‘sh qoldirsangiz ham, yuqoridagi qisqa matn yetadi."
+                    />
+                  </div>
+                </div>
+              </details>
+            ) : (
+              <>
+                <div className="space-y-1 shrink-0">
+                  <label className="text-[11px] font-semibold text-black/50">Jamoa va kalit resurslar</label>
+                  <textarea
+                    value={ws.key_resources_team}
+                    onChange={(e) => updateWs({ key_resources_team: e.target.value })}
+                    disabled={isReadOnly}
+                    rows={2}
+                    className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y disabled:opacity-60"
+                    placeholder="Kim bor, kimga kerak, qaysi ko‘nikmalar"
+                  />
+                </div>
+                <div className="space-y-1 shrink-0">
+                  <label className="text-[11px] font-semibold text-black/50">Qisqa tavsif</label>
+                  <textarea
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                    disabled={isReadOnly}
+                    rows={3}
+                    className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[80px] disabled:opacity-60"
+                    placeholder="Loyiha maqsadi, ijtimoiy yoki klinik ahamiyat (qisqa)"
+                  />
+                </div>
+                <div className="space-y-1 shrink-0">
+                  <label className="text-[11px] font-semibold text-black/50">Batafsil tavsif</label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={isReadOnly}
+                    rows={8}
+                    className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[180px] disabled:opacity-60"
+                    placeholder="Muammo (kim uchun), hozirgi yechimlar nima yetishmayapti, sizning yondashuvingiz…"
+                  />
+                </div>
+              </>
             )}
 
             {!isReadOnly && (
@@ -968,6 +1040,16 @@ export default function StartupWorkspace() {
           </motion.div>
         </div>
       )}
+
+      <StartupNewProjectDialog
+        open={newProjectOpen}
+        domain={projectDomain}
+        saving={saving}
+        onClose={() => {
+          if (!saving) setNewProjectOpen(false);
+        }}
+        onConfirm={(p) => void handleNewProjectConfirm(p)}
+      />
 
       <div className="sr-only" aria-hidden>
         <div ref={printRef}>

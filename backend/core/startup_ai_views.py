@@ -94,7 +94,7 @@ class StartupAiQuestionnaireView(APIView):
         )
         gen_cfg: dict[str, Any] = {
             "responseMimeType": "application/json",
-            "maxOutputTokens": 4096,
+            "maxOutputTokens": 8192,
             "temperature": 0.35,
             "responseSchema": QUESTIONNAIRE_RESPONSE_SCHEMA,
         }

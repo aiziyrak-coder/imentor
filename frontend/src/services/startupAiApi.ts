@@ -7,6 +7,7 @@ import type {
   TwentyCriteriaEvaluation,
 } from '../utils/startupEvaluationTypes';
 import { normalizeTwentyCriteriaEvaluation } from '../utils/normalizeTwentyCriteriaResult';
+import { normalizeQuestionnaireItemsFromAi } from '../utils/normalizeStartupQuestionnaire';
 
 const AI_TIMEOUT_MS = 180_000;
 
@@ -55,9 +56,9 @@ export async function fetchStartupDiscoveryQuestionnaire(params: {
     throw e;
   }
   const items = normalizeQuestionnaireItemsFromAi(raw);
-  if (items.length < 8) {
+  if (items.length < 18) {
     throw new Error(
-      "Savolnoma yetarli emas. Loyiha matnini biroz kengaytiring va qayta «Savolnoma tayyorlash»ni bosing."
+      "Savolnoma yetarli emas (kamida ~18 savol kutiladi). AI tahlilni yangilab yoki loyiha matnini kengaytiring va qayta «2-bosqich: savollar»ni bosing."
     );
   }
   return items;

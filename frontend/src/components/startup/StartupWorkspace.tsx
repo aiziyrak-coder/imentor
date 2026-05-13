@@ -249,11 +249,19 @@ export default function StartupWorkspace() {
   useEffect(() => {
     if (!selected) return;
     setTitle(selected.title);
-    setSummary(selected.summary);
-    setDescription(selected.description);
+    const dom = normalizeDomain(selected.project_domain);
+    if (dom === 'startup') {
+      const desc = (selected.description ?? '').trim();
+      const sum = (selected.summary ?? '').trim();
+      setDescription(desc || sum);
+      setSummary(sum || desc.slice(0, 360));
+    } else {
+      setSummary(selected.summary);
+      setDescription(selected.description);
+    }
     const pk = selected.participant_kind === 'employee' ? 'employee' : 'student';
     setParticipantKind(pk);
-    setProjectDomain(normalizeDomain(selected.project_domain));
+    setProjectDomain(dom);
     setWs(parseWorkspaceProfile(selected.workspace_profile));
   }, [selected?.id, selected?.updated_at]);
 
@@ -270,10 +278,11 @@ export default function StartupWorkspace() {
       if (!u) throw new Error('not-auth');
       const pk = u.participantKind ?? 'student';
       const domain = projectDomain;
+      const initialPitch = payload.summary.trim();
       const row = await createStartupApplication({
         title: payload.title,
-        summary: payload.summary,
-        description: domain === 'research' ? payload.summary : '',
+        summary: domain === 'startup' ? initialPitch.slice(0, 400) : payload.summary,
+        description: domain === 'startup' || domain === 'research' ? initialPitch : '',
         participant_kind: pk,
         project_domain: domain,
         workspace_profile: {},
@@ -283,8 +292,13 @@ export default function StartupWorkspace() {
       setSelectedId(row.id);
       setWs({ ...EMPTY_WORKSPACE });
       setTitle(payload.title);
-      setSummary(payload.summary);
-      setDescription(domain === 'research' ? payload.summary : '');
+      if (domain === 'startup') {
+        setDescription(initialPitch);
+        setSummary(initialPitch.slice(0, 360));
+      } else {
+        setSummary(payload.summary);
+        setDescription(domain === 'research' ? initialPitch : '');
+      }
       setNewProjectOpen(false);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
@@ -305,10 +319,14 @@ export default function StartupWorkspace() {
     try {
       const u = getCurrentLocalUser();
       if (!u) throw new Error('not-auth');
+      const pitch = description.trim();
       const row = await updateStartupApplication(selected.id, {
         title: title.trim() || 'Loyihasiz',
-        summary,
-        description,
+        summary:
+          projectDomain === 'startup'
+            ? (pitch ? pitch.slice(0, 400) : summary.trim())
+            : summary,
+        description: projectDomain === 'startup' ? pitch : description,
         participant_kind: participantKind,
         project_domain: projectDomain,
         workspace_profile: { ...ws },
@@ -347,10 +365,11 @@ export default function StartupWorkspace() {
           : `Guruh: ${u.studyGroup ?? '—'}`,
       ].join('. ');
       const extra = buildWorkspaceExtraNote(ws, projectDomain);
+      const pitchText = (description.trim() || summary.trim()).trim();
       const rawPack = await fetchStartupInnovationPack(
         title.trim() || 'Loyiha',
-        summary,
-        description,
+        pitchText.slice(0, 500),
+        pitchText,
         profileLine,
         getAppLanguage(),
         projectDomain,
@@ -386,13 +405,14 @@ export default function StartupWorkspace() {
       const prevThread = parseCoachThread(selected.ai_pack?.coach_thread);
       const nextUser: CoachTurn = { role: 'user', content: userText, ts: Date.now() };
       const messagesForModel = [...prevThread, nextUser];
+      const pitchCtx = (description.trim() || summary.trim()).trim();
       const replyText = await fetchStartupInnovationCoachReply(
         messagesForModel.map(({ role, content }) => ({ role, content })),
         {
           project_domain: projectDomain,
           title: title.trim() || 'Loyiha',
-          summary,
-          description,
+          summary: projectDomain === 'startup' ? pitchCtx.slice(0, 500) : summary,
+          description: projectDomain === 'startup' ? pitchCtx : description,
           workspace_profile_json: JSON.stringify(ws),
           analysis_json_excerpt: analysisExcerptForCoach(selected.ai_pack),
         },
@@ -478,8 +498,9 @@ export default function StartupWorkspace() {
   const hasCoachTextContext = useMemo(() => {
     const s = summary.trim();
     const d = description.trim();
+    const pitch = d || s;
     if (projectDomain === 'startup') {
-      return s.length >= 56 || d.length >= 48;
+      return pitch.length >= 48;
     }
     return d.length >= 90 || (s.length >= 28 && d.length >= 48);
   }, [summary, description, projectDomain]);
@@ -516,6 +537,10 @@ export default function StartupWorkspace() {
 
   const handleGenerateStartupQuestionnaire = async () => {
     if (!selected || selected.status === 'submitted' || projectDomain !== 'startup') return;
+    if (!analysisReady) {
+      setError('Avval «1-bosqich: AI tahlil»ni ishga tushiring — keyin 20–25 ta savollar ochiladi.');
+      return;
+    }
     const ev = evaluateStartupQuestionnaireReadiness({
       title,
       summary,
@@ -534,11 +559,16 @@ export default function StartupWorkspace() {
       if (!u) throw new Error('not-auth');
       const structuredCore = buildWorkspaceStructuredCore(ws, projectDomain);
       const pitchBody = description.trim() || summary.trim();
+      const analysisAugment =
+        selected?.ai_pack && hasMeaningfulAiPack(packForDisplay(selected.ai_pack))
+          ? `\n\n[AI strategik tahlildan kontekst]\n${analysisExcerptForCoach(selected.ai_pack).slice(0, 14000)}`
+          : '';
+      const structuredContextNote = [structuredCore, analysisAugment].filter(Boolean).join('\n');
       const items = await fetchStartupDiscoveryQuestionnaire({
         projectTitle: title.trim() || 'Loyiha',
-        summary,
+        summary: pitchBody.slice(0, 500),
         fullDescription: pitchBody,
-        structuredContextNote: structuredCore,
+        structuredContextNote,
         language: getAppLanguage(),
       });
       const nextQ: StartupQuestionnaireState = { items, answers: {}, generated_at: Date.now() };
@@ -565,10 +595,11 @@ export default function StartupWorkspace() {
       const u = getCurrentLocalUser();
       if (!u) throw new Error('not-auth');
       const qBlock = formatQuestionnaireForPrompt(ws.startup_questionnaire ?? EMPTY_STARTUP_QUESTIONNAIRE);
+      const pitchBody = description.trim() || summary.trim();
       const result = await fetchStartupTwentyCriteria({
         projectTitle: title.trim() || 'Loyiha',
-        summary,
-        fullDescription: description.trim() || summary.trim(),
+        summary: pitchBody.slice(0, 500),
+        fullDescription: pitchBody,
         structuredContextNote: buildWorkspaceStructuredCore(ws, projectDomain),
         questionnaireQaBlock: qBlock,
         language: getAppLanguage(),
@@ -625,8 +656,8 @@ export default function StartupWorkspace() {
           <div>
             <h1 className="text-xl font-bold text-black/90">Startap studiyasi</h1>
             <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">
-              Loyihangizni yozing — AI tahlil va maslahatchi haqiqiy keyingi qadamlar, pilot, bozor tekshiruvi va
-              xavflarni yechishga yo‘naltiradi. Administratorga yuborish alohida «Dossye» bo‘limida.
+              Startap rejasi: avval loyiha matni → AI tahlil → shunga mos 20–25 savol → 20 mezon bahosi → (yetarli bo‘lsa)
+              Word. Administratorga yuborish «Dossye» bo‘limida.
             </p>
           </div>
         </div>
@@ -696,8 +727,7 @@ export default function StartupWorkspace() {
           <p>Hozircha loyiha yo‘q.</p>
           <p className="text-[13px]">
             Yuqorida <strong>Startap</strong> yoki <strong>Ilmiy tadqiqot</strong>ni tanlang, keyin «Yangi loyiha»ni
-            bosing. Startap loyihasida matnni yozib, AI savolnoma va 20 mezon bahosi orqali loyihani tizimli
-            rivojlantirasiz.
+            bosing. Startapda ketma-ket: matn → AI tahlil → AI savollar → 20 mezon → Word.
           </p>
         </div>
       ) : (
@@ -798,36 +828,22 @@ export default function StartupWorkspace() {
               </div>
             ) : (
               <div className="space-y-1 shrink-0">
-                <label className="text-[11px] font-semibold text-black/50">Loyiha haqida (qischa)</label>
+                <label className="text-[11px] font-semibold text-black/50">
+                  Loyiha haqida — qisqa yoki batafsil (bitta maydon)
+                </label>
                 <p className="text-[11px] text-black/45 leading-relaxed">
-                  Savolnoma shu matndan tuziladi. Kamida ~60 belgi.
+                  Bu yerda faqat g‘oyangizni yozasiz (qo‘shimcha bo‘sh maydonlar yo‘q). Keyin «1-bosqich: AI tahlil»,
+                  undan keyin pastda 2–4-bosqichlar ochiladi. Kamida ~60 belgi.
                 </p>
                 <textarea
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                   disabled={isReadOnly}
-                  rows={5}
-                  className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[120px] disabled:opacity-60"
-                  placeholder="Kim uchun, qanday muammo, nima taklif qilasiz — 2–6 jumla."
+                  rows={14}
+                  className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[220px] disabled:opacity-60"
+                  placeholder="Masalan: qaysi jarayon/muammo, hozir qanday hal qilinadi, sizning yechimingiz, kim uchun, pilot reja…"
                 />
-                <p className="text-[11px] text-black/40 tabular-nums">{summary.trim().length} belgi</p>
-              </div>
-            )}
-
-            {selected && projectDomain === 'startup' && (
-              <div className="min-h-0 shrink-0">
-                <StartupDiscoveryFlow
-                  formDisabled={Boolean(isReadOnly)}
-                  questionnaire={startupQuestionnaire}
-                  onQuestionnaireChange={(next) => updateWs({ startup_questionnaire: next })}
-                  evaluation={twentyCriteriaEvaluation}
-                  generatingQuestions={questionnaireAiLoading}
-                  evaluating={twentyEvalLoading}
-                  generatingWord={wordDocLoading}
-                  onGenerateQuestions={() => void handleGenerateStartupQuestionnaire()}
-                  onEvaluate={() => void handleTwentyCriteriaEvaluate()}
-                  onDownloadWord={() => void handleStartupWordDownload()}
-                />
+                <p className="text-[11px] text-black/40 tabular-nums">{description.trim().length} belgi</p>
               </div>
             )}
 
@@ -869,9 +885,10 @@ export default function StartupWorkspace() {
               </>
             )}
 
-            {!isReadOnly && (
-              <div className="rounded-xl border border-black/8 bg-black/[0.02] px-3 py-2 text-[11px] text-black/45">
-                «AI tahlil» uchun startapda loyiha nomi va yuqoridagi qisqa matn yetarli.
+            {!isReadOnly && projectDomain === 'startup' && (
+              <div className="rounded-xl border border-violet-200/80 bg-violet-50/50 px-3 py-2 text-[11px] text-violet-950/90 leading-relaxed">
+                <strong className="font-semibold">1-bosqich:</strong> saqlang → «AI tahlil»ni bosing. Keyin pastda{' '}
+                <strong>2–4-bosqich</strong> (savollar, 20 mezon, Word) ochiladi.
               </div>
             )}
 
@@ -897,7 +914,7 @@ export default function StartupWorkspace() {
                 className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {aiLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                AI tahlil (strategiya + xavflar + yo‘l xaritasi)
+                1-bosqich: AI tahlil (strategiya + xavflar + yo‘l xaritasi)
               </button>
               <button
                 type="button"
@@ -928,8 +945,26 @@ export default function StartupWorkspace() {
 
             {selected && analysisReady && (
               <div className="mt-2 space-y-3">
-                <h3 className="text-[14px] font-bold text-black/90 tracking-tight">AI strategik tahlil</h3>
+                <h3 className="text-[14px] font-bold text-black/90 tracking-tight">1-bosqich — AI strategik tahlil</h3>
                 <StartupInnovationPackPanel pack={displayPack} />
+              </div>
+            )}
+
+            {selected && projectDomain === 'startup' && (
+              <div className="min-h-0 shrink-0 mt-4">
+                <StartupDiscoveryFlow
+                  formDisabled={Boolean(isReadOnly)}
+                  stage1AnalysisDone={analysisReady}
+                  questionnaire={startupQuestionnaire}
+                  onQuestionnaireChange={(next) => updateWs({ startup_questionnaire: next })}
+                  evaluation={twentyCriteriaEvaluation}
+                  generatingQuestions={questionnaireAiLoading}
+                  evaluating={twentyEvalLoading}
+                  generatingWord={wordDocLoading}
+                  onGenerateQuestions={() => void handleGenerateStartupQuestionnaire()}
+                  onEvaluate={() => void handleTwentyCriteriaEvaluate()}
+                  onDownloadWord={() => void handleStartupWordDownload()}
+                />
               </div>
             )}
 
@@ -974,8 +1009,10 @@ export default function StartupWorkspace() {
               </p>
               <h2>Qisqa tavsif</h2>
               <p style={{ whiteSpace: 'pre-wrap' }}>{summary}</p>
-              <h2>Batafsil</h2>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{description}</p>
+              <h2>Loyiha matni</h2>
+              <p style={{ whiteSpace: 'pre-wrap' }}>
+                {projectDomain === 'startup' ? description.trim() || summary : description}
+              </p>
               {hasMeaningfulAiPack(packForDisplay(selected.ai_pack)) ? (
                 <div
                   dangerouslySetInnerHTML={{

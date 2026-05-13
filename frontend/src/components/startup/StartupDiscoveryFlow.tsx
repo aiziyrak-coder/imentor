@@ -11,6 +11,7 @@ function titleForCriterion(id: string): string {
 
 export default function StartupDiscoveryFlow({
   formDisabled,
+  stage1AnalysisDone,
   questionnaire,
   onQuestionnaireChange,
   evaluation,
@@ -22,6 +23,8 @@ export default function StartupDiscoveryFlow({
   onDownloadWord,
 }: {
   formDisabled: boolean;
+  /** 1-bosqich: strategik AI tahlil tugagan bo‘lishi kerak */
+  stage1AnalysisDone: boolean;
   questionnaire: StartupQuestionnaireState;
   onQuestionnaireChange: (next: StartupQuestionnaireState) => void;
   evaluation: TwentyCriteriaEvaluation | null;
@@ -51,24 +54,31 @@ export default function StartupDiscoveryFlow({
 
   return (
     <section className="rounded-2xl border border-violet-200/80 bg-gradient-to-b from-violet-50/90 to-white shadow-sm flex flex-col min-h-0 max-h-[min(85dvh,720px)] overflow-hidden">
-      {/* Sticky: tugmalar va yo‘riqnoma yozilganda ham ko‘rinadi */}
       <div className="sticky top-0 z-20 shrink-0 border-b border-violet-200/70 bg-violet-50/95 backdrop-blur-md px-4 py-3 space-y-2 shadow-sm">
         <div>
-          <p className="text-[11px] font-bold text-violet-800 uppercase tracking-wide">Savolnoma va 20 mezon</p>
+          <p className="text-[11px] font-bold text-violet-800 uppercase tracking-wide">
+            2–4-bosqich: savollar → 20 mezon → Word
+          </p>
           <p className="text-[12px] text-black/70 mt-1 leading-snug">
-            1) «Savolnoma tayyorlash» — AI savollar chiqaradi. 2) Pastdagi maydonlarda javoblarni yozing (scroll shu
-            blok ichida). 3) «20 mezon baholash». 4) Tayyor bo‘lsa — Word.
+            <strong>2)</strong> AI loyiha matni va 1-bosqich tahliliga asoslangan <strong>20–25 ta</strong> savol tuzadi.
+            <strong> 3)</strong> Javoblardan keyin <strong>20 mezon</strong> bo‘yicha baholash.{' '}
+            <strong>4)</strong> Ballar yetarli bo‘lsa — Word yuklab olish.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={formDisabled || generatingQuestions}
+            disabled={formDisabled || generatingQuestions || !stage1AnalysisDone}
+            title={
+              !stage1AnalysisDone
+                ? 'Avval yuqoridagi «1-bosqich: AI tahlil»ni ishga tushiring'
+                : undefined
+            }
             onClick={onGenerateQuestions}
             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
           >
             {generatingQuestions ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
-            Savolnoma tayyorlash
+            2-bosqich: AI savollar
           </button>
           <button
             type="button"
@@ -82,26 +92,30 @@ export default function StartupDiscoveryFlow({
             className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
           >
             {evaluating ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-            20 mezon baholash
+            3-bosqich: 20 mezon
           </button>
           <button
             type="button"
             disabled={generatingWord || !wordAllowed}
+            title={!wordAllowed ? 'Ballar va tayyorgarlik talablari bajarilishi kerak' : undefined}
             onClick={onDownloadWord}
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/80 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-emerald-900 disabled:opacity-45"
           >
             {generatingWord ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
-            Word hujjat
+            4-bosqich: Word
           </button>
         </div>
       </div>
 
-      {/* Savollar: faqat shu zona scroll — yuqoridagi yo‘riqnova yo‘qolmaydi */}
       <div className="flex-1 min-h-[180px] overflow-y-auto overscroll-y-contain px-4 py-3 space-y-3">
-        {items.length === 0 ? (
+        {!stage1AnalysisDone ? (
+          <p className="text-[12px] text-amber-900/90 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
+            Bu yer ochiladi-yu, avval <strong>1-bosqich</strong>: yuqoridagi «AI tahlil (strategiya…)» tugmasini bosing.
+            Shundan keyin bu yerda 20–25 ta moslashtirilgan savollar paydo bo‘ladi.
+          </p>
+        ) : items.length === 0 ? (
           <p className="text-[12px] text-black/50 leading-relaxed">
-            Yuqorida «Savolnoma tayyorlash»ni bosing. Avvalo loyiha nomi va «Loyiha haqida (qischa)» maydoni kamida ~60
-            belgi bo‘lishi kerak.
+            «2-bosqich: AI savollar»ni bosing — loyiha matningiz va tahlilga qarab savollar generatsiya qilinadi.
           </p>
         ) : (
           items.map((it, idx) => (
@@ -128,7 +142,7 @@ export default function StartupDiscoveryFlow({
       {evaluation && (
         <div className="shrink-0 border-t border-black/10 bg-white/98 max-h-[min(42vh,380px)] overflow-y-auto px-4 py-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[13px] font-bold text-black/90">Natija</p>
+            <p className="text-[13px] font-bold text-black/90">20 mezon — natija</p>
             <span className="text-[12px] font-bold tabular-nums text-violet-800 bg-violet-100 rounded-full px-3 py-0.5">
               {evaluation.overall_0_100}/100
             </span>
@@ -136,7 +150,8 @@ export default function StartupDiscoveryFlow({
           <p className="text-[13px] text-black/80 whitespace-pre-wrap leading-relaxed">{evaluation.verdict_uz}</p>
           {!wordAllowed && (
             <p className="text-[12px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
-              Bu loyiha hozir bozorga tayyor emas — Word faqat yuqori tayyorgarlik (ball va mezonlar) uchun ochiladi.
+              Word faqat belgilangan tayyorgarlik darajasidan oshganda ochiladi — javoblarni kuchaytiring yoki qayta
+              baholang.
             </p>
           )}
           <div className="overflow-x-auto rounded-lg border border-black/8">

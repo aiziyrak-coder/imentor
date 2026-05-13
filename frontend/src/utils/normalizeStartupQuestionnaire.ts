@@ -14,7 +14,7 @@ export function normalizeQuestionnaireItemsFromAi(
     seen.add(id);
     const hint = typeof it.hint === 'string' ? it.hint.trim() : undefined;
     cleaned.push({ id, question, hint: hint || undefined });
-    if (cleaned.length >= 16) break;
+    if (cleaned.length >= 26) break;
   }
-  return cleaned.slice(0, 16);
+  return cleaned.slice(0, 25);
 }

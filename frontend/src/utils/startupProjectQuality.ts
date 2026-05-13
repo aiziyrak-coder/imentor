@@ -387,7 +387,8 @@ export function evaluateStartupQuestionnaireReadiness(input: WorkspaceFormInput)
   const s = input.summary.trim();
   const d = input.description.trim();
   const titleOk = t.length >= 4 && !DEFAULT_TITLES.has(normTitle(t));
-  const pitch = `${s}\n${d}`.trim();
+  /** Batafsil ustuvor; bo‘sh bo‘lsa qisqa tavsif (eski ma’lumotlar bilan mos). */
+  const pitch = (d || s).trim();
   const pitchOk = pitch.length >= 60;
   const blockMessages: string[] = [];
   if (!titleOk) {
@@ -395,7 +396,7 @@ export function evaluateStartupQuestionnaireReadiness(input: WorkspaceFormInput)
   }
   if (!pitchOk) {
     blockMessages.push(
-      '«Loyiha haqida» (qisqa tavsif) kamida ~60 belgi bo‘lsin — g‘oya, kim uchun, nima qilmoqchiligingiz.'
+      '«Loyiha haqida» maydoni kamida ~60 belgi bo‘lsin — g‘oya, muammo, yechim, kim uchun (qisqa yoki batafsil).'
     );
   }
   return { ok: titleOk && pitchOk, blockMessages };

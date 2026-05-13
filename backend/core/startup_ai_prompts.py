@@ -93,7 +93,8 @@ Full description:
 Extra structured notes (may be empty):
 {note}
 
-Generate 10-14 discovery questions in {out_lang}. Questions must be specific to THIS project (reference problem, user, setting, constraints from the text). Mix: problem/customer, solution fit, competition, regulation/privacy, pilot, team, metrics, GTM, sustainability.
+Generate EXACTLY between 20 and 25 discovery questions in {out_lang} (target 22). These deepen understanding AFTER the founder pitch — cover gaps the pitch leaves open: problem/customer, solution fit, clinical/regulatory, data/privacy, pilot/KPI, team, economics/GTM, risks, Uzbekistan/institute context.
+Questions must be specific to THIS project (reference problem, user, setting, constraints from the text). Avoid duplicate angles.
 Each item: id (stable unique snake_case, e.g. q_problem_segment), question (max 3 short sentences), hint optional (one short phrase).
 
 Return JSON only."""

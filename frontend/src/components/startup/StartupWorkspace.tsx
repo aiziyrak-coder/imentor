@@ -41,7 +41,7 @@ import {
 } from '../../utils/startupQuestionnaireModel';
 import { parseTwentyCriteriaFromAiPack } from '../../utils/normalizeTwentyCriteriaResult';
 
-/** Qo‘shimcha maydonlar — AI va saqlash uchun */
+/** Qo‘shimcha maydonlar — AI va saqlash uchun (workspace_profile) */
 export type WorkspaceFields = {
   research_question?: string;
   methodology_notes?: string;
@@ -795,7 +795,7 @@ export default function StartupWorkspace() {
               <div className="space-y-1 shrink-0">
                 <label className="text-[11px] font-semibold text-black/50">Loyiha haqida (qischa)</label>
                 <p className="text-[11px] text-black/45 leading-relaxed">
-                  Savolnoma shu matndan tuziladi. Kamida ~60 belgi. Batafsil va boshqa maydonlar pastda — ixtiyoriy.
+                  Savolnoma shu matndan tuziladi. Kamida ~60 belgi.
                 </p>
                 <textarea
                   value={summary}
@@ -826,98 +826,7 @@ export default function StartupWorkspace() {
               </div>
             )}
 
-            {projectDomain === 'startup' ? (
-              <details className="rounded-2xl border border-violet-200/50 bg-violet-50/30 open:bg-violet-50/45 shrink-0 group">
-                <summary className="cursor-pointer select-none list-none px-4 py-3 text-[13px] font-semibold text-violet-950 flex items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-                  <span>Qo‘shimcha maydonlar (ixtiyoriy — kuchliroq AI strategiya)</span>
-                  <span className="text-[11px] font-normal text-black/45 group-open:hidden">ochish</span>
-                </summary>
-                <div className="px-4 pb-4 pt-0 space-y-4 border-t border-violet-200/40">
-                  <div className="grid grid-cols-1 gap-3 rounded-xl border border-violet-200/50 bg-white/70 p-3">
-                    <p className="text-[12px] font-bold text-violet-900">Startap qatlami</p>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-black/50">Maqsadli mijozlar / beneficiarlar</label>
-                      <textarea
-                        value={ws.beneficiaries_or_segments}
-                        onChange={(e) => updateWs({ beneficiaries_or_segments: e.target.value })}
-                        disabled={isReadOnly}
-                        rows={2}
-                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                        placeholder="Kim uchun, qaysi segment, muammo va to‘lovchi"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-black/50">Monetizatsiya / barqarorlik</label>
-                      <textarea
-                        value={ws.monetization_or_sustainability}
-                        onChange={(e) => updateWs({ monetization_or_sustainability: e.target.value })}
-                        disabled={isReadOnly}
-                        rows={2}
-                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                        placeholder="Grant, B2B, litsenziya, jamoat budjeti…"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-black/50">
-                        Traksiya va tekshiruv (hozirgi holat)
-                      </label>
-                      <textarea
-                        value={ws.traction_validation_notes}
-                        onChange={(e) => updateWs({ traction_validation_notes: e.target.value })}
-                        disabled={isReadOnly}
-                        rows={2}
-                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                        placeholder="Masalan: 6 ta suhbat, 1 ta LOI, 40 beta-foydalanuvchi…"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-black/50">Eng katta noaniqlik yoki xavf</label>
-                      <textarea
-                        value={ws.biggest_uncertainty}
-                        onChange={(e) => updateWs({ biggest_uncertainty: e.target.value })}
-                        disabled={isReadOnly}
-                        rows={2}
-                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                        placeholder="Masalan: to‘lovchi kim? texnika ishlaydimi?"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-black/50">Hamkorlar va pilot maydoni</label>
-                      <textarea
-                        value={ws.partners_lab_equipment}
-                        onChange={(e) => updateWs({ partners_lab_equipment: e.target.value })}
-                        disabled={isReadOnly}
-                        rows={2}
-                        className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                        placeholder="Klinika, kafedra, tashqi tashkilot…"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-semibold text-black/50">Jamoa va kalit resurslar</label>
-                    <textarea
-                      value={ws.key_resources_team}
-                      onChange={(e) => updateWs({ key_resources_team: e.target.value })}
-                      disabled={isReadOnly}
-                      rows={2}
-                      className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y disabled:opacity-60"
-                      placeholder="Kim bor, kimga kerak, qaysi ko‘nikmalar"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-semibold text-black/50">Batafsil tavsif (ixtiyoriy)</label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      disabled={isReadOnly}
-                      rows={6}
-                      className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[120px] disabled:opacity-60"
-                      placeholder="Muammo, yechim, reja, cheklovlar — bo‘sh qoldirsangiz ham, yuqoridagi qisqa matn yetadi."
-                    />
-                  </div>
-                </div>
-              </details>
-            ) : (
+            {projectDomain === 'research' && (
               <>
                 <div className="space-y-1 shrink-0">
                   <label className="text-[11px] font-semibold text-black/50">Jamoa va kalit resurslar</label>
@@ -957,7 +866,7 @@ export default function StartupWorkspace() {
 
             {!isReadOnly && (
               <div className="rounded-xl border border-black/8 bg-black/[0.02] px-3 py-2 text-[11px] text-black/45">
-                «AI tahlil» uchun startapda loyiha nomi va yuqoridagi qisqa matn yetarli; qo‘shimcha maydonlar ixtiyoriy.
+                «AI tahlil» uchun startapda loyiha nomi va yuqoridagi qisqa matn yetarli.
               </div>
             )}
 

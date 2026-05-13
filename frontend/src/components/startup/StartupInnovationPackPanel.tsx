@@ -699,7 +699,7 @@ function FallbackUnknownKeys({ pack }: { pack: Record<string, unknown> }) {
 
   return (
     <div className="rounded-2xl border border-dashed border-black/15 bg-white/40 p-4">
-      <p className="text-[11px] font-bold text-black/45 uppercase tracking-wide mb-2">Qo‘shimcha maydonlar</p>
+      <p className="text-[11px] font-bold text-black/45 uppercase tracking-wide mb-2">Boshqa tahlil qatorlari</p>
       <div className="space-y-3">
         {rest.map(([k, v]) => (
           <div key={k}>

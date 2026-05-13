@@ -13,7 +13,12 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getAppLanguage } from '../../i18n/language';
-import { aiService } from '../../services/aiService';
+import {
+  fetchStartupDiscoveryQuestionnaire,
+  fetchStartupInnovationCoachReply,
+  fetchStartupInnovationPack,
+  fetchStartupTwentyCriteria,
+} from '../../services/startupAiApi';
 import { buildStartupProfileSnapshot, getCurrentLocalUser } from '../../utils/localStaffAuth';
 import {
   createStartupApplication,
@@ -342,7 +347,7 @@ export default function StartupWorkspace() {
           : `Guruh: ${u.studyGroup ?? '—'}`,
       ].join('. ');
       const extra = buildWorkspaceExtraNote(ws, projectDomain);
-      const rawPack = await aiService.generateStartupInnovationPack(
+      const rawPack = await fetchStartupInnovationPack(
         title.trim() || 'Loyiha',
         summary,
         description,
@@ -381,7 +386,7 @@ export default function StartupWorkspace() {
       const prevThread = parseCoachThread(selected.ai_pack?.coach_thread);
       const nextUser: CoachTurn = { role: 'user', content: userText, ts: Date.now() };
       const messagesForModel = [...prevThread, nextUser];
-      const replyText = await aiService.startupInnovationCoachReply(
+      const replyText = await fetchStartupInnovationCoachReply(
         messagesForModel.map(({ role, content }) => ({ role, content })),
         {
           project_domain: projectDomain,
@@ -529,13 +534,13 @@ export default function StartupWorkspace() {
       if (!u) throw new Error('not-auth');
       const structuredCore = buildWorkspaceStructuredCore(ws, projectDomain);
       const pitchBody = description.trim() || summary.trim();
-      const items = await aiService.generateStartupDiscoveryQuestionnaire(
-        title.trim() || 'Loyiha',
+      const items = await fetchStartupDiscoveryQuestionnaire({
+        projectTitle: title.trim() || 'Loyiha',
         summary,
-        pitchBody,
-        structuredCore,
-        getAppLanguage()
-      );
+        fullDescription: pitchBody,
+        structuredContextNote: structuredCore,
+        language: getAppLanguage(),
+      });
       const nextQ: StartupQuestionnaireState = { items, answers: {}, generated_at: Date.now() };
       const nextWs: WorkspaceFields = { ...ws, startup_questionnaire: nextQ };
       setWs(nextWs);
@@ -560,7 +565,7 @@ export default function StartupWorkspace() {
       const u = getCurrentLocalUser();
       if (!u) throw new Error('not-auth');
       const qBlock = formatQuestionnaireForPrompt(ws.startup_questionnaire ?? EMPTY_STARTUP_QUESTIONNAIRE);
-      const result = await aiService.evaluateStartupTwentyCriteria({
+      const result = await fetchStartupTwentyCriteria({
         projectTitle: title.trim() || 'Loyiha',
         summary,
         fullDescription: description.trim() || summary.trim(),

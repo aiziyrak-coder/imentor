@@ -18,6 +18,7 @@ services:
       DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: "True"
       DJANGO_SECURE_HSTS_PRELOAD: "True"
       DJANGO_ALLOW_LEGACY_PREPARED_CONTENT_API: "False"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     command: /app/entrypoint.sh
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]

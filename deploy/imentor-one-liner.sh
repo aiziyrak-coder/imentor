@@ -8,6 +8,9 @@
 # Bitta qator (loyiha yo‘lini moslang, masalan /opt/imentor):
 #   cd /opt/imentor && GAK='SIZNING_GEMINI_API_KEY' sh deploy/imentor-one-liner.sh
 #
+# Boshqa branch:
+#   cd /opt/imentor && GIT_REF=develop GAK='...' sh deploy/imentor-one-liner.sh
+#
 # Eslatma: GAK shell tarixida qolishi mumkin — ish tugagach "history -c" yoki yangi kalit.
 
 set -eu
@@ -32,9 +35,10 @@ else
 fi
 
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
+GIT_REF="${GIT_REF:-main}"
 git fetch origin
-git checkout main 2>/dev/null || git checkout -b main
-git pull --ff-only origin main
+git checkout "$GIT_REF" 2>/dev/null || git checkout -b "$GIT_REF"
+git pull --ff-only origin "$GIT_REF"
 
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file "$ENV_FILE" up -d --build
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file "$ENV_FILE" ps

@@ -1,5 +1,11 @@
 from django.urls import path
 
+from .startup_ai_views import (
+    StartupAiCoachReplyView,
+    StartupAiInnovationPackView,
+    StartupAiQuestionnaireView,
+    StartupAiTwentyCriteriaView,
+)
 from .views import (
     AdminCampusBuildingDetailView,
     AdminCampusBuildingListCreateView,
@@ -39,6 +45,10 @@ urlpatterns = [
     path('v1/live-tests/<str:session_key>/submissions/', LiveTestSubmissionView.as_view(), name='live-tests-submissions'),
     path('v1/auth/me/', AuthMeView.as_view(), name='auth-me'),
     path('v1/auth/local-login/', LocalLoginView.as_view(), name='auth-local-login'),
+    path('v1/startup-ai/questionnaire/', StartupAiQuestionnaireView.as_view(), name='startup-ai-questionnaire'),
+    path('v1/startup-ai/twenty-criteria/', StartupAiTwentyCriteriaView.as_view(), name='startup-ai-twenty-criteria'),
+    path('v1/startup-ai/innovation-pack/', StartupAiInnovationPackView.as_view(), name='startup-ai-innovation-pack'),
+    path('v1/startup-ai/coach-reply/', StartupAiCoachReplyView.as_view(), name='startup-ai-coach-reply'),
     path('v1/startup-applications/', StartupApplicationListCreateView.as_view(), name='startup-applications'),
     path('v1/startup-applications/admin/inbox/', StartupApplicationAdminInboxView.as_view(), name='startup-admin-inbox'),
     path('v1/startup-applications/<int:pk>/', StartupApplicationDetailView.as_view(), name='startup-application-detail'),

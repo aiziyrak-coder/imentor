@@ -2,6 +2,13 @@
 """
 Deploy imentor stack over SSH (password or private key).
 
+Bitta buyruq — lokal git push + serverda pull/restart (SSH):
+  python deploy/remote_deploy.py --push-then-server
+  python deploy/remote_deploy.py --push-then-server --ref main --verbose
+
+PowerShell (loyiha ildizidan):
+  cd E:\\path\\to\\salomatlik-ai; python deploy/remote_deploy.py --push-then-server
+
 Setup (this machine):
   pip install -r deploy/requirements-deploy.txt
 
@@ -18,9 +25,20 @@ Credentials — choose ONE:
      SSH_PASSWORD=...
      REMOTE_REPO_PATH=/opt/imentor
      GIT_REPO_URL=https://github.com/aiziyrak-coder/imentor.git
+     GIT_REF=main
+     IMENTOR_BACKEND_PORT=31002
 
-Run from repo root:
+CLI:
   python deploy/remote_deploy.py
+  python deploy/remote_deploy.py --dry-run
+  python deploy/remote_deploy.py --skip-nginx
+  python deploy/remote_deploy.py --no-health
+  python deploy/remote_deploy.py --ref main
+  python deploy/remote_deploy.py --verbose
+  python deploy/remote_deploy.py --push-then-server
+
+Server-only (SSHsiz, repoda allaqachon klon bor):
+  cd /opt/imentor && sh deploy/server-pull.sh
 
 Do not commit passwords. Rotate any password ever pasted into chat.
 """
@@ -29,8 +47,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
+
 
 def _import_paramiko():
     try:
@@ -50,6 +71,8 @@ def load_env_file(path: Path) -> dict[str, str]:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
+        if line.lower().startswith("export "):
+            line = line[7:].strip()
         k, _, v = line.partition("=")
         out[k.strip()] = v.strip().strip('"').strip("'")
     return out
@@ -64,16 +87,34 @@ def merge_env() -> dict[str, str]:
     return out
 
 
+def sh_single_quote(s: str) -> str:
+    """POSIX single-quoted string literal (safe for paths and URLs)."""
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def preflight(cfg: dict[str, str]) -> None:
+    host = cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST")
+    if not (host or "").strip():
+        raise SystemExit("Set SSH_HOST (or IMENTOR_SSH_HOST) in environment or deploy/.env.deploy.local")
+    rp = (cfg.get("REMOTE_REPO_PATH") or "").strip()
+    if rp and not rp.startswith("/"):
+        raise SystemExit(f"REMOTE_REPO_PATH must be absolute (got {rp!r})")
+    port_raw = (cfg.get("SSH_PORT") or "22").strip()
+    try:
+        p = int(port_raw)
+        if not (1 <= p <= 65535):
+            raise ValueError
+    except ValueError:
+        raise SystemExit(f"Invalid SSH_PORT: {port_raw!r}")
+
+
 def ssh_connect(cfg: dict[str, str]):
     paramiko = _import_paramiko()
-    host = cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST")
-    user = cfg.get("SSH_USER") or cfg.get("IMENTOR_SSH_USER") or "root"
+    host = (cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST") or "").strip()
+    user = (cfg.get("SSH_USER") or cfg.get("IMENTOR_SSH_USER") or "root").strip()
     password = cfg.get("SSH_PASSWORD") or cfg.get("IMENTOR_SSH_PASSWORD")
     key_path = cfg.get("SSH_KEY_PATH") or cfg.get("IMENTOR_SSH_KEY_PATH")
-    port = int(cfg.get("SSH_PORT") or "22")
-
-    if not host:
-        raise SystemExit("Set SSH_HOST (or IMENTOR_SSH_HOST)")
+    port = int((cfg.get("SSH_PORT") or "22").strip())
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -119,6 +160,48 @@ def ssh_connect(cfg: dict[str, str]):
     return client
 
 
+def ssh_connect_with_retry(cfg: dict[str, str], *, attempts: int = 3, verbose: bool = False):
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return ssh_connect(cfg)
+        except Exception as e:
+            last = e
+            if verbose:
+                print(f"SSH connect attempt {i + 1}/{attempts} failed: {e}", file=sys.stderr)
+            if i + 1 < attempts:
+                time.sleep(min(8, 2 * (i + 1)))
+    assert last is not None
+    raise SystemExit(f"SSH connection failed after {attempts} attempts: {last}") from last
+
+
+def run_git_push(repo_root: Path, git_ref: str, *, dry_run: bool, verbose: bool) -> None:
+    cmd = ["git", "-C", str(repo_root), "push", "origin", git_ref]
+    if dry_run:
+        print("[dry-run]", " ".join(cmd))
+        return
+    if verbose:
+        print("Local:", " ".join(cmd), file=sys.stderr)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.stdout:
+        print(r.stdout, end="")
+    if r.stderr:
+        print(r.stderr, end="", file=sys.stderr)
+    if r.returncode != 0:
+        raise SystemExit(f"git push failed with exit {r.returncode}")
+
+
+def build_remote_server_pull_script(remote_path: str, git_ref: str) -> str:
+    """On server: cd repo, set GIT_REF, run deploy/server-pull.sh (pull + docker + health)."""
+    rp = sh_single_quote(remote_path)
+    gr = sh_single_quote(git_ref)
+    return f"""set -eu
+cd {rp}
+export GIT_REF={gr}
+exec sh deploy/server-pull.sh
+"""
+
+
 def run(
     client,
     cmd: str,
@@ -131,38 +214,72 @@ def run(
     return code, out, err
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="SSH deploy imentor")
-    parser.add_argument("--dry-run", action="store_true", help="Only print remote commands")
-    args = parser.parse_args()
+def build_remote_deploy_script(
+    *,
+    remote_path: str,
+    git_url: str,
+    git_ref: str,
+    health_port: int,
+    run_health: bool,
+) -> str:
+    rp = sh_single_quote(remote_path)
+    gu = sh_single_quote(git_url)
+    gr = sh_single_quote(git_ref)
+    hp = str(int(health_port))
+    rh = "1" if run_health else "0"
+    return f"""set -eu
+REMOTE_PATH={rp}
+GIT_URL={gu}
+GIT_REF={gr}
+HEALTH_PORT={hp}
+RUN_HEALTH={rh}
 
-    cfg = merge_env()
-    repo_root = Path(__file__).resolve().parents[1]
-    nginx_local = repo_root / "deploy" / "nginx" / "imentor.conf.example"
+echo "== Preconditions =="
+command -v docker >/dev/null 2>&1 || {{ echo "ERROR: docker not found on server" >&2; exit 1; }}
+docker compose version >/dev/null 2>&1 || {{ echo "ERROR: docker compose (v2) not found" >&2; exit 1; }}
 
-    remote_path = cfg.get("REMOTE_REPO_PATH") or "/opt/imentor"
-    git_url = cfg.get("GIT_REPO_URL") or "https://github.com/aiziyrak-coder/imentor.git"
-
-    remote_script = f"""set -e
-REMOTE_PATH="{remote_path}"
-GIT_URL="{git_url}"
 if [ ! -d "$REMOTE_PATH/.git" ]; then
   mkdir -p "$(dirname "$REMOTE_PATH")"
   git clone "$GIT_URL" "$REMOTE_PATH"
 fi
 cd "$REMOTE_PATH"
+git config --global --add safe.directory "$REMOTE_PATH" 2>/dev/null || true
 git fetch origin
-git checkout main 2>/dev/null || git checkout -b main
-git pull origin main
+git checkout "$GIT_REF" 2>/dev/null || git checkout -b "$GIT_REF"
+git pull --ff-only origin "$GIT_REF"
+
 if [ ! -f deploy/.env.production ]; then
   echo "ERROR: create deploy/.env.production on server (copy from deploy/.env.production.example)" >&2
   exit 1
 fi
+
+echo "== Docker compose =="
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production up -d --build
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production ps
+
+if [ "$RUN_HEALTH" = "1" ]; then
+  echo "== Backend health (127.0.0.1:$HEALTH_PORT/api/health/) =="
+  ok=0
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -sfS --max-time 12 "http://127.0.0.1:$HEALTH_PORT/api/health/" >/dev/null; then
+      echo "OK: backend responded"
+      ok=1
+      break
+    fi
+    echo "  waiting ($i/10)..."
+    sleep 4
+  done
+  if [ "$ok" != "1" ]; then
+    echo "ERROR: backend health check failed after deploy (port $HEALTH_PORT)." >&2
+    echo "Hint: check IMENTOR_BACKEND_PORT in deploy/.env.production and docker compose ps." >&2
+    exit 1
+  fi
+fi
 """
 
-    nginx_install = r"""set -e
+
+def build_nginx_install_script() -> str:
+    return r"""set -e
 test -f /tmp/imentor.nginx.conf
 cp /tmp/imentor.nginx.conf /etc/nginx/sites-available/imentor
 ln -sf /etc/nginx/sites-available/imentor /etc/nginx/sites-enabled/imentor
@@ -171,6 +288,82 @@ systemctl reload nginx
 echo "nginx reloaded for imentor"
 """
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="SSH deploy imentor")
+    parser.add_argument("--dry-run", action="store_true", help="Only print remote commands")
+    parser.add_argument("--skip-nginx", action="store_true", help="Do not upload/reload nginx config")
+    parser.add_argument(
+        "--no-health",
+        action="store_true",
+        help="Skip post-deploy curl to backend /api/health/ on the server",
+    )
+    parser.add_argument(
+        "--ref",
+        default=None,
+        metavar="BRANCH",
+        help="Git branch to deploy (default: GIT_REF env or main)",
+    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Print SSH target and retry noise")
+    parser.add_argument(
+        "--push-then-server",
+        action="store_true",
+        help="Run git push origin REF locally, then SSH: sh deploy/server-pull.sh on the server (no nginx upload)",
+    )
+    args = parser.parse_args()
+
+    cfg = merge_env()
+    preflight(cfg)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    nginx_local = repo_root / "deploy" / "nginx" / "imentor.conf.example"
+
+    remote_path = (cfg.get("REMOTE_REPO_PATH") or "/opt/imentor").strip()
+    git_url = (cfg.get("GIT_REPO_URL") or "https://github.com/aiziyrak-coder/imentor.git").strip()
+    git_ref = (args.ref or cfg.get("GIT_REF") or cfg.get("REMOTE_GIT_REF") or "main").strip()
+
+    if args.push_then_server:
+        pull_remote = build_remote_server_pull_script(remote_path, git_ref)
+        if args.dry_run:
+            run_git_push(repo_root, git_ref, dry_run=True, verbose=args.verbose)
+            print("--- remote server-pull ---")
+            print(pull_remote)
+            return
+        run_git_push(repo_root, git_ref, dry_run=False, verbose=args.verbose)
+        host = (cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST") or "").strip()
+        user = (cfg.get("SSH_USER") or cfg.get("IMENTOR_SSH_USER") or "root").strip()
+        port = (cfg.get("SSH_PORT") or "22").strip()
+        if args.verbose:
+            print(f"SSH {user}@{host}:{port} -> {remote_path} (server-pull, ref={git_ref})", file=sys.stderr)
+        client = ssh_connect_with_retry(cfg, attempts=3, verbose=args.verbose)
+        try:
+            code, out, err = run(client, pull_remote, timeout=2400)
+            print(out)
+            if err:
+                print(err, file=sys.stderr)
+            if code != 0:
+                raise SystemExit(f"Remote server-pull failed with exit {code}")
+        finally:
+            client.close()
+        print("Done: git push + server pull/restart.")
+        return
+
+    try:
+        health_port = int((cfg.get("IMENTOR_BACKEND_PORT") or "31002").strip())
+    except ValueError:
+        raise SystemExit("Invalid IMENTOR_BACKEND_PORT in env or .env.deploy.local")
+    if not (1 <= health_port <= 65535):
+        raise SystemExit("IMENTOR_BACKEND_PORT out of range")
+
+    remote_script = build_remote_deploy_script(
+        remote_path=remote_path,
+        git_url=git_url,
+        git_ref=git_ref,
+        health_port=health_port,
+        run_health=not args.no_health,
+    )
+    nginx_install = build_nginx_install_script()
+
     if args.dry_run:
         print("--- remote deploy script ---")
         print(remote_script)
@@ -178,34 +371,41 @@ echo "nginx reloaded for imentor"
         print(nginx_install)
         return
 
-    if not nginx_local.is_file():
-        raise SystemExit(f"Missing {nginx_local}")
+    if not args.skip_nginx and not nginx_local.is_file():
+        raise SystemExit(f"Missing {nginx_local} (use --skip-nginx to omit nginx step)")
 
-    client = ssh_connect(cfg)
+    host = (cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST") or "").strip()
+    user = (cfg.get("SSH_USER") or cfg.get("IMENTOR_SSH_USER") or "root").strip()
+    port = (cfg.get("SSH_PORT") or "22").strip()
+    if args.verbose:
+        print(f"SSH {user}@{host}:{port} -> {remote_path} (ref={git_ref})", file=sys.stderr)
+
+    client = ssh_connect_with_retry(cfg, attempts=3, verbose=args.verbose)
     try:
-        # Upload nginx config
-        sftp = client.open_sftp()
-        try:
-            sftp.put(str(nginx_local), "/tmp/imentor.nginx.conf")
-        finally:
-            sftp.close()
+        if not args.skip_nginx:
+            sftp = client.open_sftp()
+            try:
+                sftp.put(str(nginx_local), "/tmp/imentor.nginx.conf")
+            finally:
+                sftp.close()
 
-        code, out, err = run(client, remote_script, timeout=1200)
+        code, out, err = run(client, remote_script, timeout=2400)
         print(out)
         if err:
             print(err, file=sys.stderr)
         if code != 0:
             raise SystemExit(f"Deploy script failed with exit {code}")
 
-        code, out, err = run(client, nginx_install, timeout=120)
-        print(out)
-        if err:
-            print(err, file=sys.stderr)
-        if code != 0:
-            print(
-                "Warning: nginx reload failed (maybe path differs). Fix SSH user=root or adjust sudo.",
-                file=sys.stderr,
-            )
+        if not args.skip_nginx:
+            code, out, err = run(client, nginx_install, timeout=120)
+            print(out)
+            if err:
+                print(err, file=sys.stderr)
+            if code != 0:
+                print(
+                    "Warning: nginx reload failed (maybe path differs). Fix SSH user=root or adjust sudo.",
+                    file=sys.stderr,
+                )
     finally:
         client.close()
 

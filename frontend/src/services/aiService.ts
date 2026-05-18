@@ -421,7 +421,7 @@ export const aiService = {
 
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-3.1-pro-preview",
+          model: "gemini-3-flash-preview",
           contents: [
             {
               role: 'user',
@@ -472,7 +472,7 @@ If language is ambiguous, default to ${uiLangName}.` }
       const docLangName = languageName(docLang);
       try {
         const fallbackResponse = await ai.models.generateContent({
-          model: "gemini-3.1-pro-preview",
+          model: "gemini-3-flash-preview",
           contents: `Extract as many syllabus topics as possible from the text below.
 Lecture ids can be M/L/Л and practical ids can be A/P/П.
 Keep title language in ${docLangName}. Return only JSON array.
@@ -559,9 +559,9 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
         return parseJSONSafe<Slide[]>(response.text);
       };
 
-      let raw = await requestDeck("gemini-3.1-pro-preview", false);
+      let raw = await requestDeck("gemini-3-flash-preview", false);
       if (looksLikeWeakDeck(raw, safeCount)) {
-        raw = await requestDeck("gemini-3.1-pro-preview", true);
+        raw = await requestDeck("gemini-3-flash-preview", true);
       }
       const normalized = normalizePedagogicSlides(raw, topic, safeCount);
       return compressSlideCopy(enrichSlidesWithVisualLayouts(normalized));
@@ -638,7 +638,7 @@ Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun t
       const outLang = languageName(language);
       const requestCases = async (strict: boolean): Promise<CaseStudySession> => {
         const response = await ai.models.generateContent({
-          model: "gemini-3.1-pro-preview",
+          model: "gemini-3-flash-preview",
           contents: `Mavzu: "${topic}".
 3 ta real klinik, murakkab vaziyatli case yarating (talabalar uchun).
 Har bir case quyidagilarni o'z ichiga olsin:
@@ -707,7 +707,7 @@ ${strict ? "Sifat talabi juda yuqori: intern/rezident darsida darhol ishlatishga
     const outLang = languageName(language);
     const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3-flash-preview",
         contents: `Mavzu: "${topic}".
 ${requestedCount} ta yuqori darajadagi klinik test tuzing.
 Har bir savol real klinik vignette bo'lsin (3-6 gap): anamnez, shikoyat, ko'rik, laborator yoki instrumental topilmalar bo'lsin.
@@ -801,7 +801,7 @@ Faqat valid JSON qaytaring.`,
     try {
       const outLang = languageName(language);
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3-flash-preview",
         contents: `Mavzu: "${topic}".\nQo'shimcha ma'lumot (agar mavjud bo'lsa): ${description}\n\nO'qituvchilar uchun mo'ljallangan oliy ta'lim darajasidagi, tibbiyot sohasiga oid batafsil ma'ruza matnini tayyorlang. Ma'ruza mukammal metodik tuzilishga ega bo'lishi kerak. Strukturada: Kirish (mavzuning dolzarbligi), Asosiy qism (kasallik, mexanizm, etiologiya nazariyalari yoki diagnostik kriteriylar tahlili - kamida 3-4 sohalar), Klinik amaliyotda qo'llanilishi va Xulosa (qisqacha qaytariq). Matnni faqat Markdown (MD) formatida qaytaring, ortiqcha izohlarsiz.`,
         config: {
           maxOutputTokens: 8000,
@@ -841,7 +841,7 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
   async translatePageVisual(imageBase64: string, targetLang: string = 'Uzbek'): Promise<any[]> {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-3-flash-preview",
         contents: [
           `Analyze the image and identify all distinct readable text blocks (titles, paragraphs, labels, list items, table cells).
           For each text block, provide its bounding box [ymin, xmin, ymax, xmax] using coordinates from 0 to 1000.

@@ -1,0 +1,173 @@
+"""QR juftlash: kompyuter sessiyasi telefon login orqali tasdiqlanadi."""
+
+from __future__ import annotations
+
+import secrets
+from datetime import timedelta
+
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from .models import DevicePairingSession
+from .permissions import IsHodimRole, resolve_user_role
+
+PAIRING_TTL_MINUTES = 4
+
+
+def _expire_stale() -> None:
+    now = timezone.now()
+    DevicePairingSession.objects.filter(
+        status=DevicePairingSession.STATUS_PENDING,
+        expires_at__lt=now,
+    ).update(status=DevicePairingSession.STATUS_EXPIRED)
+
+
+class DevicePairCreateSerializer(serializers.Serializer):
+    pass
+
+
+class DevicePairCreateResponseSerializer(serializers.Serializer):
+    pairing_token = serializers.CharField()
+    expires_at = serializers.DateTimeField()
+    qr_payload = serializers.CharField()
+
+
+class DevicePairConfirmSerializer(serializers.Serializer):
+    pairing_token = serializers.CharField(max_length=64)
+    profile = serializers.JSONField(required=False)
+
+
+class DevicePairStatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    expires_at = serializers.DateTimeField(required=False)
+    access = serializers.CharField(required=False, allow_blank=True)
+    refresh = serializers.CharField(required=False, allow_blank=True)
+    role = serializers.CharField(required=False, allow_blank=True)
+    username = serializers.CharField(required=False, allow_blank=True)
+    profile = serializers.JSONField(required=False)
+
+
+class DevicePairCreateView(APIView):
+    """Kompyuter: yangi QR sessiya."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses=DevicePairCreateResponseSerializer)
+    def post(self, request):
+        _expire_stale()
+        token = secrets.token_urlsafe(24)
+        expires = timezone.now() + timedelta(minutes=PAIRING_TTL_MINUTES)
+        DevicePairingSession.objects.create(
+            pairing_token=token,
+            status=DevicePairingSession.STATUS_PENDING,
+            expires_at=expires,
+        )
+        qr_payload = f"imentor-pair:{token}"
+        return Response(
+            {
+                "pairing_token": token,
+                "expires_at": expires,
+                "qr_payload": qr_payload,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class DevicePairStatusView(APIView):
+    """Kompyuter: polling — tasdiqlanganda JWT + profil (bir marta)."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses=DevicePairStatusResponseSerializer)
+    def get(self, request, pairing_token: str):
+        _expire_stale()
+        token = (pairing_token or "").strip()
+        if not token:
+            return Response({"detail": "Token kerak."}, status=400)
+        obj = DevicePairingSession.objects.filter(pairing_token=token).first()
+        if not obj:
+            return Response({"detail": "Topilmadi."}, status=404)
+        now = timezone.now()
+        if obj.status == DevicePairingSession.STATUS_PENDING and obj.expires_at < now:
+            obj.status = DevicePairingSession.STATUS_EXPIRED
+            obj.save(update_fields=["status"])
+        if obj.status == DevicePairingSession.STATUS_CONFIRMED:
+            payload = {
+                "status": "confirmed",
+                "expires_at": obj.expires_at,
+                "access": obj.access_token,
+                "refresh": obj.refresh_token,
+                "role": obj.role,
+                "username": obj.owner_key,
+                "profile": obj.profile_snapshot,
+            }
+            obj.status = DevicePairingSession.STATUS_PICKED_UP
+            obj.picked_up_at = now
+            obj.access_token = ""
+            obj.refresh_token = ""
+            obj.profile_snapshot = {}
+            obj.save(
+                update_fields=[
+                    "status",
+                    "picked_up_at",
+                    "access_token",
+                    "refresh_token",
+                    "profile_snapshot",
+                ]
+            )
+            return Response(payload)
+        return Response(
+            {
+                "status": obj.status,
+                "expires_at": obj.expires_at,
+            }
+        )
+
+
+class DevicePairConfirmView(APIView):
+    """Telefon (hodim JWT): QR skan qilinganda sessiyani bog'lash."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsHodimRole]
+
+    @extend_schema(request=DevicePairConfirmSerializer, responses=DevicePairStatusResponseSerializer)
+    def post(self, request):
+        _expire_stale()
+        serializer = DevicePairConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data["pairing_token"].strip()
+        profile = serializer.validated_data.get("profile")
+        if not isinstance(profile, dict):
+            profile = {}
+
+        obj = DevicePairingSession.objects.filter(pairing_token=token).first()
+        if not obj:
+            return Response({"detail": "QR kod eskirgan yoki noto'g'ri."}, status=404)
+        now = timezone.now()
+        if obj.expires_at < now or obj.status != DevicePairingSession.STATUS_PENDING:
+            return Response({"detail": "QR kod muddati tugagan. Kompyuterda yangilang."}, status=400)
+
+        role = resolve_user_role(request.user, request) or "hodim"
+        refresh = RefreshToken.for_user(request.user)
+        refresh["role"] = role
+        access = refresh.access_token
+        access["role"] = role
+
+        obj.status = DevicePairingSession.STATUS_CONFIRMED
+        obj.owner_key = request.user.username
+        obj.role = role
+        obj.profile_snapshot = profile
+        obj.access_token = str(access)
+        obj.refresh_token = str(refresh)
+        obj.confirmed_at = now
+        obj.save()
+
+        return Response({"status": "confirmed", "ok": True})

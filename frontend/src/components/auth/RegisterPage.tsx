@@ -12,9 +12,10 @@ import {
 
 interface RegisterPageProps {
   onSwitchToLogin: () => void;
+  onBackToQr?: () => void;
 }
 
-export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
+export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPageProps) {
   const [phone, setPhone] = useState(TEST_STAFF_PHONE);
   const [password, setPassword] = useState(TEST_STAFF_PASSWORD);
   const [confirmPassword, setConfirmPassword] = useState(TEST_STAFF_PASSWORD);

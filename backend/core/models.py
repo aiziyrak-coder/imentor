@@ -281,3 +281,41 @@ class StaffLocationAlert(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}:alert@{self.created_at}"
+
+
+class DevicePairingSession(models.Model):
+    """
+    Hodim: kompyuter QR ↔ telefon login. GPS faqat telefondan.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_PICKED_UP = "picked_up"
+    STATUS_EXPIRED = "expired"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_CONFIRMED, "Confirmed"),
+        (STATUS_PICKED_UP, "Picked up"),
+        (STATUS_EXPIRED, "Expired"),
+    ]
+
+    pairing_token = models.CharField(max_length=64, unique=True, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    owner_key = models.CharField(max_length=128, blank=True, db_index=True)
+    role = models.CharField(max_length=16, default="hodim")
+    profile_snapshot = models.JSONField(default=dict)
+    access_token = models.TextField(blank=True)
+    refresh_token = models.TextField(blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    picked_up_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "expires_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.pairing_token[:8]}…:{self.status}"

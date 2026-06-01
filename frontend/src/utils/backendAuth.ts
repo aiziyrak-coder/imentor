@@ -55,6 +55,21 @@ export function clearBackendAuthTokens(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/** QR juftlashdan keyin kompyuter JWT saqlash */
+export function writeBackendTokensFromPair(bundle: {
+  access: string;
+  refresh: string;
+  role: BackendTokenBundle['role'];
+  username: string;
+}): void {
+  writeCached({
+    access: bundle.access,
+    refresh: bundle.refresh,
+    role: bundle.role,
+    username: bundle.username,
+  });
+}
+
 async function localLoginAndGetTokens(): Promise<CachedBundle | null> {
   const user = getCurrentLocalUser();
   if (!user?.phoneDigits || !user?.password) return null;

@@ -5,17 +5,22 @@ import {
   isValidPhoneDigits,
   ensureDefaultRoleDemosExist,
   loginLocalStaff,
+  logoutLocalStaff,
   normalizePhoneDigits,
+  normalizeUserRole,
   DEMO_ROLE_LOGINS,
   TEST_STAFF_PHONE,
   TEST_STAFF_PASSWORD,
 } from '../../utils/localStaffAuth';
+import { getBackendAccessToken } from '../../utils/backendAuth';
+import { isDesktopBrowser } from '../../utils/deviceDetection';
 
 interface LoginPageProps {
   onSwitchToRegister: () => void;
+  onBackToQr?: () => void;
 }
 
-export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
+export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageProps) {
   const [phone, setPhone] = useState(TEST_STAFF_PHONE);
   const [password, setPassword] = useState(TEST_STAFF_PASSWORD);
   const [loading, setLoading] = useState(false);
@@ -34,9 +39,24 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
       setError("Telefon raqamini to'liq kiriting (masalan: +998 90 111 22 33).");
       return;
     }
+    if (isDesktopBrowser()) {
+      const digits = normalizePhoneDigits(phoneVal);
+      const users = JSON.parse(localStorage.getItem('salomatlik-local-staff-users-v1') || '[]') as { phoneDigits?: string; role?: string }[];
+      const found = users.find((u) => u.phoneDigits === digits);
+      if (found && (found.role === 'hodim' || !found.role)) {
+        setError("Hodim kompyuterda faqat QR orqali kiradi. «QR orqali kirish» sahifasiga qayting.");
+        return;
+      }
+    }
     setLoading(true);
     try {
-      loginLocalStaff(phoneVal, passwordVal);
+      const u = loginLocalStaff(phoneVal, passwordVal);
+      if (normalizeUserRole(u) === 'hodim' && isDesktopBrowser()) {
+        setError("Hodim kompyuterda faqat QR orqali kiradi.");
+        logoutLocalStaff();
+        return;
+      }
+      if (normalizeUserRole(u) === 'hodim') void getBackendAccessToken();
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {
@@ -50,7 +70,11 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
     }
   };
 
-  const handleDemoRoleClick = (phoneVal: string, passwordVal: string) => {
+  const handleDemoRoleClick = (phoneVal: string, passwordVal: string, role: string) => {
+    if (isDesktopBrowser() && role === 'hodim') {
+      setError("Hodim demo kompyuterda ishlamaydi — QR orqali kiriting.");
+      return;
+    }
     loginWithCredentials(phoneVal, passwordVal);
   };
 
@@ -62,9 +86,24 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
       setError("Telefon raqamini to'liq kiriting (masalan: +998 90 111 22 33).");
       return;
     }
+    if (isDesktopBrowser()) {
+      const digits = normalizePhoneDigits(phone);
+      const users = JSON.parse(localStorage.getItem('salomatlik-local-staff-users-v1') || '[]') as { phoneDigits?: string; role?: string }[];
+      const found = users.find((u) => u.phoneDigits === digits);
+      if (found && (found.role === 'hodim' || !found.role)) {
+        setError("Hodim kompyuterda faqat QR orqali kiradi. «QR orqali kirish» sahifasiga qayting.");
+        return;
+      }
+    }
     setLoading(true);
     try {
-      loginLocalStaff(phone, password);
+      const u = loginLocalStaff(phone, password);
+      if (normalizeUserRole(u) === 'hodim' && isDesktopBrowser()) {
+        setError("Hodim kompyuterda faqat QR orqali kiradi.");
+        logoutLocalStaff();
+        return;
+      }
+      if (normalizeUserRole(u) === 'hodim') void getBackendAccessToken();
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {
@@ -95,6 +134,15 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
           <p className="text-[13px] text-black/50 mt-2 font-medium">
             iMentor uchun telefon raqam va parol
           </p>
+          {onBackToQr && (
+            <button
+              type="button"
+              onClick={onBackToQr}
+              className="mt-3 text-[12px] font-semibold text-sky-700 underline underline-offset-2"
+            >
+              ← Hodim: kompyuter QR orqali kirish
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -172,7 +220,7 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
                 <button
                   key={demo.role}
                   type="button"
-                  onClick={() => handleDemoRoleClick(demo.phone, demo.password)}
+                  onClick={() => handleDemoRoleClick(demo.phone, demo.password, demo.role)}
                   disabled={loading}
                   className="flex items-center gap-3 w-full text-left rounded-xl border border-black/10 bg-white/80 hover:bg-white hover:border-blue-300/60 px-3 py-2.5 transition shadow-sm disabled:opacity-60"
                 >

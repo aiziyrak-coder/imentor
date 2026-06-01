@@ -5,6 +5,7 @@ import {
   type StaffGeoDetail,
 } from '../utils/staffLocationGeo';
 import { isLikelyPhoneOrSmallTablet } from '../utils/deviceDetection';
+import { isDesktopPairedSession } from '../utils/deviceSession';
 
 /** Telefon: tezroq yangilanish; kompyuter: biroz sekinroq (batareya) */
 function minSendIntervalMs(): number {
@@ -35,7 +36,13 @@ export function useStaffLocationTracking(enabled: boolean): void {
   }, []);
 
   useEffect(() => {
-    if (!enabled || typeof navigator === 'undefined' || !navigator.geolocation) {
+    if (
+      !enabled ||
+      isDesktopPairedSession() ||
+      !isLikelyPhoneOrSmallTablet() ||
+      typeof navigator === 'undefined' ||
+      !navigator.geolocation
+    ) {
       return;
     }
 

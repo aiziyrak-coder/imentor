@@ -328,6 +328,7 @@ class StaffLocationPingCreateSerializer(serializers.Serializer):
     longitude = serializers.FloatField()
     accuracy_m = serializers.FloatField(required=False, allow_null=True)
     client_ts_ms = serializers.IntegerField(required=False, allow_null=True)
+    client_kind = serializers.CharField(required=False, allow_blank=True, max_length=16)
 
 
 class StaffLocationAlertSerializer(serializers.ModelSerializer):

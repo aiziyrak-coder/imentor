@@ -53,6 +53,10 @@ import { isPublicStudentTestUrl } from './utils/liveTestApi';
 // Components
 import LoginPage from './components/auth/LoginPage';
 import RegisterPage from './components/auth/RegisterPage';
+import DesktopHodimQrLogin from './components/auth/DesktopHodimQrLogin';
+import HodimMobileCompanion from './components/staff/HodimMobileCompanion';
+import { isDesktopBrowser } from './utils/deviceDetection';
+import { clearDesktopPairedSession, shouldHodimUseMobileCompanion } from './utils/deviceSession';
 import PresentationBuilder from './components/PresentationBuilder';
 import CaseStudies from './components/CaseStudies';
 import Translator from './components/Translator';
@@ -220,6 +224,8 @@ export default function App() {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
+  /** Kompyuterda admin/tarjimon/startuper uchun klassik login */
+  const [desktopStaffLogin, setDesktopStaffLogin] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopic | null>(null);
   const [latestLectureContent, setLatestLectureContent] = useState(readStoredLectureDraft);
   const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
@@ -331,13 +337,15 @@ export default function App() {
 
   const handleLogout = async () => {
     clearBackendAuthTokens();
+    clearDesktopPairedSession();
     logoutLocalStaff();
   };
 
   const userRole = user ? normalizeUserRole(user) : null;
   const navItems = useMemo(() => (userRole ? navItemsForRole(userRole) : []), [userRole]);
 
-  useStaffLocationTracking(Boolean(user && userRole === 'hodim'));
+  /** Hodim GPS faqat HodimMobileCompanion ichida (telefon) */
+  useStaffLocationTracking(false);
 
   useEffect(() => {
     if (!user || !userRole) return;
@@ -490,10 +498,18 @@ export default function App() {
 
           <section className="p-4 md:p-6 lg:p-8 flex items-center justify-center bg-white/80 backdrop-blur-xl h-full overflow-y-auto scrollbar-hide">
             <div className="w-full max-w-[560px]">
-              {authScreen === 'login' ? (
-                <LoginPage onSwitchToRegister={() => setAuthScreen('register')} />
+              {isDesktopBrowser() && !desktopStaffLogin ? (
+                <DesktopHodimQrLogin onOtherRoles={() => setDesktopStaffLogin(true)} />
+              ) : authScreen === 'login' ? (
+                <LoginPage
+                  onSwitchToRegister={() => setAuthScreen('register')}
+                  onBackToQr={isDesktopBrowser() ? () => setDesktopStaffLogin(false) : undefined}
+                />
               ) : (
-                <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />
+                <RegisterPage
+                  onSwitchToLogin={() => setAuthScreen('login')}
+                  onBackToQr={isDesktopBrowser() ? () => { setAuthScreen('login'); setDesktopStaffLogin(false); } : undefined}
+                />
               )}
             </div>
           </section>
@@ -553,6 +569,8 @@ export default function App() {
         <>
           {authShell}
         </>
+      ) : shouldHodimUseMobileCompanion(user) ? (
+        <HodimMobileCompanion />
       ) : (
       <>
       <div className="flex flex-col h-[100dvh] min-h-0 w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">

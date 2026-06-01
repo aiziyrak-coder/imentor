@@ -364,6 +364,28 @@ export function touchCurrentUserActivityIfNeeded(): void {
   emitAuthChanged();
 }
 
+/** QR juftlash yoki serverdan kelgan profil bilan sessiya (kompyuter) */
+export function establishLocalSessionFromProfile(profile: LocalStaffUser): LocalStaffUser {
+  const users = readUsers();
+  const idx = users.findIndex((u) => u.phoneDigits === profile.phoneDigits);
+  const now = Date.now();
+  const sessionUser = withRoleDefault({
+    ...(idx >= 0 ? users[idx] : profile),
+    ...profile,
+    lastActiveAt: now,
+    updatedAt: now,
+  });
+  if (idx >= 0) {
+    users[idx] = sessionUser;
+  } else {
+    users.unshift(sessionUser);
+  }
+  writeUsers(users);
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+  emitAuthChanged();
+  return sessionUser;
+}
+
 export function loginLocalStaff(phoneInput: string, password: string): LocalStaffUser {
   const digits = normalizePhoneDigits(phoneInput);
   const users = readUsers();

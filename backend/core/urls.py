@@ -6,6 +6,11 @@ from .startup_ai_views import (
     StartupAiQuestionnaireView,
     StartupAiTwentyCriteriaView,
 )
+from .device_pairing_views import (
+    DevicePairConfirmView,
+    DevicePairCreateView,
+    DevicePairStatusView,
+)
 from .views import (
     AdminCampusBuildingDetailView,
     AdminCampusBuildingListCreateView,
@@ -45,6 +50,9 @@ urlpatterns = [
     path('v1/live-tests/<str:session_key>/submissions/', LiveTestSubmissionView.as_view(), name='live-tests-submissions'),
     path('v1/auth/me/', AuthMeView.as_view(), name='auth-me'),
     path('v1/auth/local-login/', LocalLoginView.as_view(), name='auth-local-login'),
+    path('v1/device-pair/create/', DevicePairCreateView.as_view(), name='device-pair-create'),
+    path('v1/device-pair/confirm/', DevicePairConfirmView.as_view(), name='device-pair-confirm'),
+    path('v1/device-pair/status/<str:pairing_token>/', DevicePairStatusView.as_view(), name='device-pair-status'),
     path('v1/startup-ai/questionnaire/', StartupAiQuestionnaireView.as_view(), name='startup-ai-questionnaire'),
     path('v1/startup-ai/twenty-criteria/', StartupAiTwentyCriteriaView.as_view(), name='startup-ai-twenty-criteria'),
     path('v1/startup-ai/innovation-pack/', StartupAiInnovationPackView.as_view(), name='startup-ai-innovation-pack'),

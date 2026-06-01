@@ -90,7 +90,10 @@ export async function postStaffLocationPing(body: {
   return httpJson(`${apiBaseUrl()}/v1/staff/location-ping/`, {
     method: 'POST',
     headers: await authHeaders(),
-    body,
+    body: {
+      ...body,
+      client_kind: 'mobile',
+    },
     timeoutMs: 20000,
   });
 }

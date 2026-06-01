@@ -463,6 +463,12 @@ class StaffLocationPingView(APIView):
         serializer = StaffLocationPingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
+        client_kind = (d.get("client_kind") or "").strip().lower()
+        if client_kind and client_kind != "mobile":
+            return Response(
+                {"detail": "Joylashuv faqat telefon (mobil) qurilmadan qabul qilinadi."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         _ping, alerts = record_ping_and_evaluate(
             request.user.username,
             d['latitude'],

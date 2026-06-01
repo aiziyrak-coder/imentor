@@ -74,7 +74,6 @@ import AdminStaffLocationConsole from './components/admin/AdminStaffLocationCons
 import AdminCampusBuildingsPage from './components/admin/AdminCampusBuildingsPage';
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
-import HodimMobileExperienceBanner from './components/staff/HodimMobileExperienceBanner';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 
@@ -725,7 +724,6 @@ export default function App() {
           </header>
 
           {userRole === 'hodim' && <HodimGpsPromptBar />}
-          {userRole === 'hodim' && <HodimMobileExperienceBanner />}
 
           {isNotificationsOpen && (
             <div

@@ -17,19 +17,3 @@ export function isLikelyPhoneOrSmallTablet(): boolean {
     return window.innerWidth < 640;
   }
 }
-
-export function isHodimMobileHintDismissed(): boolean {
-  try {
-    return localStorage.getItem('imentor-hodim-mobile-hint-v1') === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function dismissHodimMobileHint(): void {
-  try {
-    localStorage.setItem('imentor-hodim-mobile-hint-v1', '1');
-  } catch {
-    /* ignore */
-  }
-}

@@ -12,16 +12,22 @@ import {
 } from '../../utils/localStaffAuth';
 import { markDesktopPairedSession } from '../../utils/deviceSession';
 
+const DESKTOP_STEPS = [
+  { n: 1, text: 'Telefoningizda brauzerda imentor.uz ni oching.' },
+  { n: 2, text: 'Telefon va parol bilan kiring (shu qurilmada emas).' },
+  { n: 3, text: 'Telefonda QR skaner ochiladi — quyidagi kodni skanerlang.' },
+];
+
 type Props = {
   onOtherRoles: () => void;
 };
 
 export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [pairingToken, setPairingToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [expiresLabel, setExpiresLabel] = useState('');
+  const [waitingPhone, setWaitingPhone] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = useCallback(() => {
@@ -35,9 +41,9 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
     stopPoll();
     setLoading(true);
     setError(null);
+    setWaitingPhone(false);
     try {
       const created = await createDevicePairingSession();
-      setPairingToken(created.pairing_token);
       const url = await QRCode.toDataURL(created.qr_payload, {
         width: 280,
         margin: 2,
@@ -46,15 +52,17 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
       setQrDataUrl(url);
       const exp = new Date(created.expires_at);
       setExpiresLabel(exp.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }));
+      setWaitingPhone(true);
 
       pollRef.current = setInterval(async () => {
         try {
           const st = await pollDevicePairingStatus(created.pairing_token);
           if (st.status !== 'confirmed' || !st.access || !st.refresh) return;
           stopPoll();
+          setWaitingPhone(false);
           const profile = st.profile as LocalStaffUser | undefined;
           if (!profile?.phoneDigits || !profile.password) {
-            setError('Telefon tasdiqladi, lekin profil maʼlumoti yetarli emas. Qayta skanerlang.');
+            setError('Telefon tasdiqladi, lekin ulanish yakunlanmadi. Telefonda qayta skanerlang.');
             return;
           }
           writeBackendTokensFromPair({
@@ -89,32 +97,44 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
         </div>
         <h2 className="text-2xl font-bold text-[#083047] tracking-tight">Kompyuter orqali kirish</h2>
         <p className="text-[14px] text-black/55 leading-relaxed">
-          Telefoningizda iMentor ga <strong>login / parol</strong> bilan kiring, keyin shu QR kodni skanerlang.
-          Joylashuv (GPS) faqat telefondan yuboriladi.
+          Avval telefonda kiring, keyin shu ekrandagi QR kodni skanerlang.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-sky-100 bg-sky-50/90 px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Smartphone size={18} className="text-sky-700 shrink-0" />
+          <span className="text-[13px] font-bold text-sky-900">Telefonda qiling</span>
+        </div>
+        <ol className="space-y-2">
+          {DESKTOP_STEPS.map((s) => (
+            <li key={s.n} className="flex gap-2.5 text-[13px] text-sky-950/90 leading-snug">
+              <span className="font-bold text-sky-700 shrink-0">{s.n}.</span>
+              <span>{s.text}</span>
+            </li>
+          ))}
+        </ol>
       </div>
 
       <div className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-xl flex flex-col items-center gap-4">
         {loading && !qrDataUrl ? (
-          <div className="py-16 flex flex-col items-center gap-3 text-black/50">
+          <div className="py-12 flex flex-col items-center gap-3 text-black/50">
             <Loader2 className="animate-spin text-sky-600" size={36} />
             <span className="text-sm font-medium">QR tayyorlanmoqda…</span>
           </div>
         ) : qrDataUrl ? (
           <>
-            <img src={qrDataUrl} alt="Kirish QR kodi" className="w-[280px] h-[280px] rounded-2xl" />
+            <img src={qrDataUrl} alt="Kirish QR kodi" className="w-[260px] h-[260px] rounded-2xl" />
             {expiresLabel && (
-              <p className="text-[12px] text-black/45">Amal qilish: ~{expiresLabel} gacha</p>
+              <p className="text-[12px] text-black/45">Kod amal qiladi: ~{expiresLabel} gacha</p>
+            )}
+            {waitingPhone && (
+              <p className="text-[13px] text-sky-700 font-medium text-center animate-pulse">
+                Telefondan skaner kutilmoqda…
+              </p>
             )}
           </>
         ) : null}
-
-        <div className="flex items-start gap-2 text-left w-full rounded-xl bg-sky-50/80 border border-sky-100 px-3 py-2.5">
-          <Smartphone size={18} className="text-sky-700 shrink-0 mt-0.5" />
-          <p className="text-[12px] text-sky-900/80 leading-snug">
-            1) Telefon brauzerida kirish → 2) «Kompyuterni ulash» → 3) Shu kodni skanerlash
-          </p>
-        </div>
 
         {error && (
           <p className="text-[13px] text-rose-600 font-medium text-center">{error}</p>

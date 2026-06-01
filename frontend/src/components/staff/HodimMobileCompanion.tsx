@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Check, Loader2, LogOut } from 'lucide-react';
+import { Check, Loader2, LogOut, Monitor, Smartphone } from 'lucide-react';
 import {
   confirmDevicePairing,
   parsePairingTokenFromScan,
@@ -12,14 +12,17 @@ import { useStaffLocationTracking } from '../../hooks/useStaffLocationTracking';
 
 const SCANNER_ID = 'hodim-qr-scanner-region';
 
+const PHONE_STEPS = [
+  { n: 1, text: 'Kompyuter yoki noutbukda brauzerda imentor.uz saytini oching.' },
+  { n: 2, text: 'Kompyuterda login sahifasida QR kod chiqadi (parol kiritish shart emas).' },
+  { n: 3, text: 'Pastdagi tugmani bosing va kompyuterdagi QR kodni skanerlang.' },
+];
+
 export default function HodimMobileCompanion() {
   const user = getCurrentLocalUser();
-  const [scanning, setScanning] = useState(false);
+  const [phase, setPhase] = useState<'ready' | 'scanning' | 'linked' | 'error'>('ready');
   const [busy, setBusy] = useState(false);
-  const [linked, setLinked] = useState(false);
-  const [cameraError, setCameraError] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const startedRef = useRef(false);
 
   useStaffLocationTracking(true, { silent: true });
 
@@ -33,7 +36,6 @@ export default function HodimMobileCompanion() {
     } catch {
       /* ignore */
     }
-    setScanning(false);
   }, []);
 
   const onScanSuccess = useCallback(
@@ -44,9 +46,10 @@ export default function HodimMobileCompanion() {
       try {
         await stopScanner();
         await confirmDevicePairing(token, user);
-        setLinked(true);
+        setPhase('linked');
       } catch {
-        setCameraError(true);
+        setPhase('error');
+        await stopScanner();
       } finally {
         setBusy(false);
       }
@@ -55,33 +58,25 @@ export default function HodimMobileCompanion() {
   );
 
   const startScanner = useCallback(async () => {
-    setCameraError(false);
+    setBusy(true);
+    setPhase('scanning');
     await stopScanner();
-    setScanning(true);
     try {
       const scanner = new Html5Qrcode(SCANNER_ID);
       scannerRef.current = scanner;
       await scanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: (w, h) => ({ width: Math.min(w, h) * 0.72, height: Math.min(w, h) * 0.72 }) },
+        { fps: 10, qrbox: (w, h) => ({ width: Math.min(w, h) * 0.65, height: Math.min(w, h) * 0.65 }) },
         (text) => void onScanSuccess(text),
         () => {},
       );
     } catch {
-      setScanning(false);
-      setCameraError(true);
+      await stopScanner();
+      setPhase('error');
+    } finally {
+      setBusy(false);
     }
   }, [onScanSuccess, stopScanner]);
-
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    const t = window.setTimeout(() => void startScanner(), 400);
-    return () => {
-      window.clearTimeout(t);
-      void stopScanner();
-    };
-  }, [startScanner, stopScanner]);
 
   const handleLogout = () => {
     void stopScanner();
@@ -93,62 +88,115 @@ export default function HodimMobileCompanion() {
   if (!user) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-black text-white">
-      <header
-        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3"
-        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-      >
-        <img src="/imentor-logo.png" alt="" className="w-9 h-9 rounded-xl object-cover opacity-90" />
+    <div
+      className="min-h-[100dvh] flex flex-col bg-[#0a1628] text-white"
+      style={{
+        paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+      }}
+    >
+      <header className="flex items-center justify-between px-4 py-2 shrink-0">
+        <img src="/imentor-logo.png" alt="iMentor" className="w-10 h-10 rounded-xl object-cover" />
         <button
           type="button"
           onClick={handleLogout}
           aria-label="Chiqish"
-          className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center active:bg-black/60"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 text-[13px] font-medium"
         >
-          <LogOut size={20} />
+          <LogOut size={16} />
+          Chiqish
         </button>
       </header>
 
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-        <div id={SCANNER_ID} className="absolute inset-0 w-full h-full [&_video]:object-cover" />
+      {phase === 'linked' ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-6">
+          <div className="w-24 h-24 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30">
+            <Check size={52} strokeWidth={2.5} />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold">Kompyuter ulandi</h2>
+            <p className="text-[15px] text-white/70 leading-relaxed">
+              Endi kompyuterda taqdimot, test va boshqa modullardan foydalaning. Telefonni yonida qoldiring — u orqali tizim ishlaydi.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <section className="px-4 pt-2 pb-3 shrink-0">
+            <div className="flex items-center gap-2 mb-3">
+              <Monitor size={20} className="text-sky-400 shrink-0" />
+              <h1 className="text-[17px] font-bold leading-snug">Kompyuterni ulash</h1>
+            </div>
+            <ol className="space-y-2.5">
+              {PHONE_STEPS.map((s) => (
+                <li key={s.n} className="flex gap-3 text-[14px] leading-snug text-white/85">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[12px] font-bold">
+                    {s.n}
+                  </span>
+                  <span className="pt-0.5">{s.text}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
 
-        {!scanning && !linked && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/90 z-10">
-            {busy ? (
-              <Loader2 size={48} className="animate-spin text-white/80" />
-            ) : cameraError ? (
-              <button
-                type="button"
-                onClick={() => void startScanner()}
-                className="px-6 py-3 rounded-full bg-white text-black font-semibold text-[15px]"
-              >
-                Kamerani yoqish
-              </button>
-            ) : (
-              <Loader2 size={40} className="animate-spin text-white/60" />
+          <div className="flex-1 relative mx-4 mb-3 min-h-[220px] rounded-2xl overflow-hidden bg-black/40 border border-white/15">
+            <div
+              id={SCANNER_ID}
+              className={`absolute inset-0 w-full h-full [&_video]:object-cover ${phase === 'scanning' ? '' : 'hidden'}`}
+            />
+
+            {phase !== 'scanning' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
+                <Smartphone size={40} className="text-white/30" />
+                <p className="text-[13px] text-white/50">Kamera skanerlash uchun yoqiladi</p>
+              </div>
+            )}
+
+            {phase === 'scanning' && (
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+                <div className="w-[min(65vw,240px)] aspect-square rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
+              </div>
             )}
           </div>
-        )}
 
-        {scanning && !linked && (
-          <div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
-            <div className="w-[min(72vw,280px)] aspect-square rounded-3xl border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
+          <div className="px-4 shrink-0 space-y-2">
+            {phase === 'error' && (
+              <p className="text-center text-[14px] text-amber-300 font-medium">
+                Kamera ochilmadi. Ruxsat bering va qayta urinib ko&apos;ring.
+              </p>
+            )}
+
+            {phase === 'ready' || phase === 'error' ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void startScanner()}
+                className="w-full h-14 rounded-2xl bg-sky-600 text-white text-[16px] font-semibold shadow-lg active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {busy ? <Loader2 size={22} className="animate-spin" /> : null}
+                QR kodni skanerlash
+              </button>
+            ) : (
+              <p className="text-center text-[14px] text-white/70 py-2">
+                Kompyuterdagi QR kodni ramka ichiga tuting
+              </p>
+            )}
+
+            {phase === 'scanning' && (
+              <button
+                type="button"
+                onClick={() => {
+                  void stopScanner();
+                  setPhase('ready');
+                }}
+                className="w-full py-3 text-[14px] text-white/60 font-medium"
+              >
+                Bekor qilish
+              </button>
+            )}
           </div>
-        )}
-
-        {linked && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/75 backdrop-blur-sm">
-            <div className="w-20 h-20 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg">
-              <Check size={44} strokeWidth={2.5} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div
-        className="absolute bottom-0 left-0 right-0 z-20 h-8 bg-gradient-to-t from-black/50 to-transparent pointer-events-none"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      />
+        </>
+      )}
     </div>
   );
 }

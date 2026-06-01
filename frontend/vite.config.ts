@@ -5,12 +5,12 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  const geminiKey =
-    env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  const anthropicKey =
+    env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
   return {
     plugins: [react(), tailwindcss()],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
+      'process.env.ANTHROPIC_API_KEY': JSON.stringify(anthropicKey),
     },
     resolve: {
       alias: {

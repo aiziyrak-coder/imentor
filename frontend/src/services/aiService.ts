@@ -1,21 +1,22 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import * as pdfjsLib from 'pdfjs-dist';
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
+import {
+  CLAUDE_HAIKU,
+  CLAUDE_SONNET,
+  assertAnthropicApiKey,
+  claudeJson,
+  claudeText,
+  claudeWithImage,
+  claudeWithPdf,
+} from './claudeClient';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
   import.meta.url
 ).toString();
 
-function assertGeminiApiKey(): void {
-  const k = typeof process.env.GEMINI_API_KEY === 'string' ? process.env.GEMINI_API_KEY.trim() : '';
-  if (!k) {
-    throw new Error(
-      'GEMINI_API_KEY sozlanmagan. Mahalliy: frontend/.env da GEMINI_API_KEY. Server: deploy/.env.production ichida kalit va docker compose --build (kalit frontend build vaqtida biqinadi).'
-    );
-  }
-}
+const SYS_MEDICAL =
+  'Siz FJSTI tibbiyot professori va klinik ta\'lim metodistisiz. Javoblar ilmiy, aniq, darsga tayyor.';
 
 export interface Slide {
   title: string;
@@ -294,8 +295,7 @@ function looksLikeWeakDeck(slides: Slide[], expected: number): boolean {
   if (!Array.isArray(slides) || slides.length < Math.max(6, Math.floor(expected * 0.7))) return true;
   const filledTitles = slides.filter((s) => (s.title || '').trim().length >= 5).length;
   const withBullets = slides.filter((s) => Array.isArray(s.content) && s.content.length >= 2).length;
-  const withImagePrompt = slides.filter((s) => (s.imagePrompt || '').trim().length >= 18).length;
-  return filledTitles < Math.max(5, expected - 2) || withBullets < Math.max(5, expected - 2) || withImagePrompt < Math.max(5, expected - 2);
+  return filledTitles < Math.max(5, expected - 2) || withBullets < Math.max(5, expected - 2);
 }
 
 function normalizePedagogicSlides(raw: Slide[], topic: string, count: number): Slide[] {
@@ -420,45 +420,17 @@ export const aiService = {
       });
 
       try {
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  inlineData: {
-                    data: base64Data,
-                    mimeType: file.type
-                  }
-                },
-                { text: `Analyze this syllabus PDF and extract lecture/practical topic list.
-Return only JSON.
-Keep each topic title in the SAME language as the source PDF text.
-Allowed id prefixes: M/L/Л for lecture and A/P/П for practical, preserving the document style when possible.
-If language is ambiguous, default to ${uiLangName}.` }
-              ]
-            }
-          ],
-          config: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 8000,
-            systemInstruction: "You are an expert syllabus parser. Return JSON list only: [{ 'id': 'M1/L1/Л1 or A1/P1/П1', 'title': 'Topic title', 'type': 'lecture' | 'practical' }]. Keep title language equal to source PDF language.",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  title: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ["lecture", "practical"] }
-                },
-                required: ["id", "title", "type"]
-              }
-            }
-          }
+        assertAnthropicApiKey();
+        const raw = await claudeWithPdf({
+          model: CLAUDE_SONNET,
+          system:
+            "Syllabus PDF dan faqat mavzular ro'yxatini JSON massiv qilib chiqaring: [{\"id\":\"M1\",\"title\":\"...\",\"type\":\"lecture|practical\"}]. id: M/L/Л+raqam (ma'ruza), A/P/П+raqam (amaliyot).",
+          userText: `PDF tahlil. Mavzu sarlavhalari PDF tilida qolsin. Noaniq bo'lsa ${uiLangName}.`,
+          pdfBase64: base64Data,
+          mimeType: file.type || 'application/pdf',
+          maxTokens: 4096,
         });
-        firstPass = normalizeSyllabusTopics(parseJSONSafe<SyllabusTopic[]>(response.text));
+        firstPass = normalizeSyllabusTopics(parseJSONSafe<SyllabusTopic[]>(raw));
         if (!needsSyllabusFallback(firstPass)) {
           return firstPass;
         }
@@ -471,33 +443,14 @@ If language is ambiguous, default to ${uiLangName}.` }
       const docLang = inferPdfLanguage(pdfText);
       const docLangName = languageName(docLang);
       try {
-        const fallbackResponse = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Extract as many syllabus topics as possible from the text below.
-Lecture ids can be M/L/Л and practical ids can be A/P/П.
-Keep title language in ${docLangName}. Return only JSON array.
-
-Syllabus matni:
-${pdfText.slice(0, 120000)}`,
-          config: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 12000,
-            systemInstruction: "You are a strict syllabus parser. Return only detected topics. id format: M/L/Л + number for lecture, A/P/П + number for practical. type must be lecture or practical.",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  title: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ["lecture", "practical"] }
-                },
-                required: ["id", "title", "type"]
-              }
-            }
-          }
+        const fallbackRaw = await claudeJson({
+          model: CLAUDE_HAIKU,
+          system: "Syllabus matndan mavzular: JSON massiv, id M/L/Л yoki A/P/П + raqam.",
+          user: `Til: ${docLangName}. Matn:\n${pdfText.slice(0, 80000)}`,
+          maxTokens: 4096,
+          parse: (t) => parseJSONSafe<SyllabusTopic[]>(t),
         });
-        const secondPass = normalizeSyllabusTopics(parseJSONSafe<SyllabusTopic[]>(fallbackResponse.text));
+        const secondPass = normalizeSyllabusTopics(fallbackRaw);
         if (secondPass.length > firstPass.length) return secondPass;
       } catch (secondAiError) {
         console.warn("Syllabus second-pass AI failed, trying regex-only fallback:", secondAiError);
@@ -515,6 +468,7 @@ ${pdfText.slice(0, 120000)}`,
 
   async generatePresentation(topic: string, description: string = '', count: number = 12, language: AppLanguage = 'uz'): Promise<Slide[]> {
     try {
+      assertAnthropicApiKey();
       const outLang = languageName(language);
       const safeCount = Math.min(30, Math.max(8, count));
       const plan = buildPedagogicSlidePlan(topic, safeCount);
@@ -533,35 +487,20 @@ ${plan.map((x, i) => `${i + 1}) ${x}`).join('\n')}
 - Output language must be ${outLang}.
 ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatishga tayyor daraja." : ""}`;
 
-      const requestDeck = async (model: string, strict: boolean): Promise<Slide[]> => {
-        const response = await ai.models.generateContent({
-          model,
-          contents: buildPrompt(strict),
-          config: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 32000,
-            systemInstruction:
-              `Siz klinik professor va tibbiy taqdimot arxitektorisiz. Natija real dars o'tishga tayyor bo'lishi kerak. Har slaydda: title, content (2-3 bullet), notes (teacher script). Minimalistik text-only uslub; rasm, diagramma, infografika yo'q. Output language: ${outLang}. JSON massivdan boshqa narsa qaytarmang.`,
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  content: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  notes: { type: Type.STRING },
-                },
-                required: ["title", "content", "notes"],
-              },
-            },
-          },
+      const requestDeck = async (strict: boolean): Promise<Slide[]> =>
+        claudeJson({
+          model: CLAUDE_SONNET,
+          system: `${SYS_MEDICAL} Tibbiy taqdimot JSON massivi: har slayd {title, content[string 2-3], notes}. Text-only. Til: ${outLang}.`,
+          user: buildPrompt(strict),
+          maxTokens: 8192,
+          temperature: strict ? 0.25 : 0.35,
+          parse: (t) => parseJSONSafe<Slide[]>(t),
         });
-        return parseJSONSafe<Slide[]>(response.text);
-      };
 
-      let raw = await requestDeck("gemini-3-flash-preview", false);
+      assertAnthropicApiKey();
+      let raw = await requestDeck(false);
       if (looksLikeWeakDeck(raw, safeCount)) {
-        raw = await requestDeck("gemini-3-flash-preview", true);
+        raw = await requestDeck(true);
       }
       const normalized = normalizePedagogicSlides(raw, topic, safeCount);
       return compressSlideCopy(enrichSlidesWithVisualLayouts(normalized));
@@ -578,45 +517,17 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
       reader.onloadend = async () => {
         try {
           const base64Data = (reader.result as string).split(',')[1];
-          const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    inlineData: {
-                      data: base64Data,
-                      mimeType: file.type
-                    }
-                  },
-                  { text: `Fayldan asosiy ma'lumotlarni ajratib oling va taqdimot slaydlariga aylantiring. 8-14 ta slayd.
-Birinchi slayd: sarlavha. Qolganlari: har birida 2-3 ta JUDA QISQA punkt (O'zbek tilida).
-Har bir slayd uchun 'notes' ham yozing: o'qituvchi nimani gapirishi kerak (3-5 gap).
-Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun tez o'qiladigan tezislar. Output language: ${outLang}.` }
-                ]
-              }
-            ],
-            config: {
-              responseMimeType: "application/json",
-              maxOutputTokens: 8000,
-              systemInstruction:
-                `Siz professional taqdimot dizayneri va tibbiyot o'qituvchisisiz. Fayldan ixcham, real darsga tayyor, text-only taqdimot JSON qaytaring. Har slayd: title, content (2-3 bullet), notes (3-5 gaplik teacher script). Output language: ${outLang}.`,
-              responseSchema: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    content: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    notes: { type: Type.STRING },
-                  },
-                  required: ["title", "content", "notes"],
-                },
-              },
-            }
+          assertAnthropicApiKey();
+          const raw = await claudeWithPdf({
+            model: CLAUDE_SONNET,
+            system: `${SYS_MEDICAL} Fayldan 8-14 slayd JSON: {title, content[2-3], notes}. Text-only. Til: ${outLang}.`,
+            userText:
+              "Fayldan taqdimot slaydlari. Birinchi slayd sarlavha. Qisqa punktlar, o'qituvchi notes 3-5 gap.",
+            pdfBase64: base64Data,
+            mimeType: file.type || 'application/pdf',
+            maxTokens: 8192,
           });
-          const parsed = parseJSONSafe<Slide[]>(response.text);
+          const parsed = parseJSONSafe<Slide[]>(raw);
           const targetCount = Math.min(14, Math.max(8, parsed.length || 10));
           const topicFromFile = file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
           const normalized = normalizePedagogicSlides(parsed, topicFromFile, targetCount);
@@ -635,56 +546,17 @@ Rasm/diagramma/infografika ishlatmang. Uzoq matn yozmang — faqat slayd uchun t
 
   async generateCaseStudy(topic: string, language: AppLanguage = 'uz'): Promise<CaseStudySession> {
     try {
+      assertAnthropicApiKey();
       const outLang = languageName(language);
-      const requestCases = async (strict: boolean): Promise<CaseStudySession> => {
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Mavzu: "${topic}".
-3 ta real klinik, murakkab vaziyatli case yarating (talabalar uchun).
-Har bir case quyidagilarni o'z ichiga olsin:
-1) scenario: kamida 3-5 paragraf, juda batafsil:
-- bemor profili (yosh, jins, asosiy fon kasalliklar),
-- chief complaint va HPI (timeline bilan),
-- dori tarixi, allergiya, ijtimoiy tarix,
-- fizik ko'rik (vital signs bilan),
-- laborator/instrumental topilmalar (real qiymatlar bilan, kerak bo'lsa birliklar).
-2) answer: o'qituvchi uchun batafsil tahlil:
-- ehtimoliy tashxislar (differensiallar, kamida 3 ta),
-- asosiy tashxisni dalillar bilan asoslash,
-- keyingi diagnostik qadamlar,
-- davolash va monitoring rejasi,
-- amaliy xatolar va ularning oldini olish.
-
-Variantlar bermang. Test formatga o'tmang. Faqat klinik case va yechim.
-Til: ${outLang}.
-${strict ? "Sifat talabi juda yuqori: intern/rezident darsida darhol ishlatishga tayyor bo'lsin; umumiy gaplar, qisqa javoblar qat'iyan taqiqlanadi." : ""}`,
-          config: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 32000,
-            systemInstruction:
-              `Siz professor-darajadagi klinik mentor va case-based learning ekspertsiz. Har bir case real hayotiy bo'lishi shart. Qisqa, umumiy, kitobiy gaplardan qoching. Dalilga asoslangan klinik reasoning yozing. Output language: ${outLang}.`,
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                topic: { type: Type.STRING },
-                questions: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      scenario: { type: Type.STRING },
-                      answer: { type: Type.STRING },
-                    },
-                    required: ["scenario", "answer"],
-                  },
-                },
-              },
-              required: ["topic", "questions"],
-            },
-          },
+      const requestCases = async (strict: boolean): Promise<CaseStudySession> =>
+        claudeJson({
+          model: CLAUDE_SONNET,
+          system: `${SYS_MEDICAL} 3 ta klinik case JSON: {topic, questions:[{scenario, answer}]}. Til: ${outLang}.`,
+          user: `Mavzu: "${topic}". Har scenario 3-5 paragraf (anamnez, ko'rik, lab). Har answer: differensial, tashxis, davolash. ${strict ? 'Maksimal sifat.' : ''}`,
+          maxTokens: 8192,
+          temperature: strict ? 0.28 : 0.38,
+          parse: (t) => parseJSONSafe<CaseStudySession>(t),
         });
-        return parseJSONSafe<CaseStudySession>(response.text);
-      };
 
       let data: CaseStudySession;
       try {
@@ -704,58 +576,17 @@ ${strict ? "Sifat talabi juda yuqori: intern/rezident darsida darhol ishlatishga
   },
 
   async generateTests(topic: string, count: number = 10, language: AppLanguage = 'uz'): Promise<TestSession> {
+    assertAnthropicApiKey();
     const outLang = languageName(language);
     const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Mavzu: "${topic}".
-${requestedCount} ta yuqori darajadagi klinik test tuzing.
-Har bir savol real klinik vignette bo'lsin (3-6 gap): anamnez, shikoyat, ko'rik, laborator yoki instrumental topilmalar bo'lsin.
-Savollar klinik fikrlashni talab qilsin (diagnostika, differensial diagnostika, keyingi qadam, management).
-Har savol uchun 5 ta variant yozing.
-MUHIM: barcha variantlar uzunligi va uslubi bir-biriga yaqin bo'lsin; to'g'ri javob uzunligi bilan ajralib turmasin.
-Distraktorlar aqlli va chalg'ituvchi bo'lsin, lekin ilmiy jihatdan mantiqli bo'lsin.
-${strict ? "JSON hech qachon buzilmasin: faqat valid JSON obyekt qaytaring, ortiqcha matn mutlaqo yozmang." : ""}
-`,
-        config: {
-          responseMimeType: "application/json",
-          maxOutputTokens: 32000,
-          systemInstruction: `Siz ekspert klinik o'qituvchisiz. ${requestedCount} ta murakkab, imtihon darajasidagi test tuzing.
-Talablar:
-1) 'question' qisqa savol emas, balki klinik vaziyatli vignette bo'lsin (3-6 gap).
-2) 'options' doimo 5 ta bo'lsin; har bir variant mazmunli va deyarli bir xil uzunlikda bo'lsin.
-3) To'g'ri javob matni uzunligi yoki uslubi bilan bilinmasin.
-4) Distraktorlar kuchli bo'lsin: klinik amaliyotda uchrashi mumkin bo'lgan xatolarni aks ettirsin.
-5) 'explanation' ${shortMode ? "2-3 gap" : "3-5 gap"} bo'lsin, nima uchun to'g'ri va nega qolganlari noto'g'riligini qisqa tahlil qilsin.
-6) Til: ${outLang}, terminlar tibbiy standartga mos.
-7) JSON valid bo'lishi shart; markdown, izoh, prefiks/suffiks matn yozmang.
-Faqat valid JSON qaytaring.`,
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              topic: { type: Type.STRING },
-              questions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    question: { type: Type.STRING },
-                    options: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING }
-                    },
-                    correctOptionIndex: { type: Type.INTEGER },
-                    explanation: { type: Type.STRING },
-                  },
-                  required: ["question", "options", "correctOptionIndex", "explanation"]
-                }
-              }
-            },
-            required: ["topic", "questions"]
-          }
-        }
+      const parsed = await claudeJson({
+        model: CLAUDE_SONNET,
+        system: `${SYS_MEDICAL} ${requestedCount} ta test JSON: {topic, questions:[{question, options[5], correctOptionIndex, explanation}]}. Til: ${outLang}.`,
+        user: `Mavzu: "${topic}". Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap. ${strict ? 'Faqat valid JSON.' : ''}`,
+        maxTokens: 4096,
+        temperature: strict ? 0.3 : 0.4,
+        parse: (t) => parseJSONSafe<TestSession>(t),
       });
-      const parsed = parseJSONSafe<TestSession>(response.text);
       return normalizeTestSession(topic, parsed, requestedCount);
     };
 
@@ -799,19 +630,19 @@ Faqat valid JSON qaytaring.`,
 
   async generateLectureNotes(topic: string, description: string = '', language: AppLanguage = 'uz'): Promise<LectureNote> {
     try {
+      assertAnthropicApiKey();
       const outLang = languageName(language);
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Mavzu: "${topic}".\nQo'shimcha ma'lumot (agar mavjud bo'lsa): ${description}\n\nO'qituvchilar uchun mo'ljallangan oliy ta'lim darajasidagi, tibbiyot sohasiga oid batafsil ma'ruza matnini tayyorlang. Ma'ruza mukammal metodik tuzilishga ega bo'lishi kerak. Strukturada: Kirish (mavzuning dolzarbligi), Asosiy qism (kasallik, mexanizm, etiologiya nazariyalari yoki diagnostik kriteriylar tahlili - kamida 3-4 sohalar), Klinik amaliyotda qo'llanilishi va Xulosa (qisqacha qaytariq). Matnni faqat Markdown (MD) formatida qaytaring, ortiqcha izohlarsiz.`,
-        config: {
-          maxOutputTokens: 8000,
-          systemInstruction: `Siz ekspert tibbiyot professori va metodistsiz. O'qituvchilar darsda to'g'ridan-to'g'ri foydalanishi uchun boy, mukammal va akademik tarzdagi ma'ruza matnlarini Markdown formatida tuzasiz. Iloji boricha batafsil, ilmiy faktlar va oxirgi tibbiy ma'lumotlarga tayaning. Output language: ${outLang}.`
-        }
+      const content = await claudeText({
+        model: CLAUDE_SONNET,
+        system: `${SYS_MEDICAL} Ma'ruza faqat Markdown. Kirish, 3-4 bo'lim, klinik qo'llash, xulosa. Til: ${outLang}.`,
+        user: `Mavzu: "${topic}". Qo'shimcha: ${description || '—'}. Batafsil ma'ruza matni.`,
+        maxTokens: 8192,
+        temperature: 0.4,
       });
-      
+
       return {
         topic: topic,
-        content: response.text || ''
+        content: content || ''
       };
     } catch (error) {
       console.error("Lecture Note generation failed:", error);
@@ -821,17 +652,15 @@ Faqat valid JSON qaytaring.`,
 
   async generateImagePrompt(title: string, content: string[]): Promise<string> {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Create one concise English image-generation prompt for a medical lecture slide.
-Choose the BEST fit: educational infographic / pathway diagram / anatomical schematic / statistics chart / OR realistic clinical photograph — whichever matches the bullets.
-
-Title: ${title}
-Bullets: ${content.join('\n')}
-
-Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or infographic wording when the content describes processes, comparisons, or mechanisms.`,
+      const text = await claudeText({
+        model: CLAUDE_HAIKU,
+        system: 'One English image prompt for medical slide. Output prompt only, no quotes.',
+        user: `Title: ${title}\nBullets:\n${content.join('\n')}`,
+        maxTokens: 200,
+        temperature: 0.5,
+        cacheSystem: false,
       });
-      return response.text.trim();
+      return text.trim();
     } catch (error) {
       console.error(error);
       return `Professional medical illustration for: ${title}`;
@@ -840,29 +669,16 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
 
   async translatePageVisual(imageBase64: string, targetLang: string = 'Uzbek'): Promise<any[]> {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          `Analyze the image and identify all distinct readable text blocks (titles, paragraphs, labels, list items, table cells).
-          For each text block, provide its bounding box [ymin, xmin, ymax, xmax] using coordinates from 0 to 1000.
-          Also, translate the text of that block into ${targetLang}.
-          Respond ONLY with a valid JSON array of objects.
-          Format: [{"box": [ymin, xmin, ymax, xmax], "text": "Translated text here"}]`,
-          {
-            inlineData: {
-              data: imageBase64,
-              mimeType: 'image/jpeg'
-            }
-          }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.2
-        }
+      assertAnthropicApiKey();
+      const raw = await claudeWithImage({
+        model: CLAUDE_SONNET,
+        system: 'OCR + translate. JSON array: [{"box":[ymin,xmin,ymax,xmax],"text":"..."}] coords 0-1000.',
+        userText: `Translate text blocks to ${targetLang}.`,
+        imageBase64,
+        mimeType: 'image/jpeg',
+        maxTokens: 4096,
       });
-      
-      const text = response.text.trim();
-      return JSON.parse(text);
+      return JSON.parse(raw.trim());
     } catch (error) {
       console.error("Visual translation failed:", error);
       throw error;
@@ -877,14 +693,13 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
         dictInstruction = `\n\nPlease use the following custom dictionary for terminology:\n${dictEntries}`;
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Translate the following text to ${targetLang}: \n\n${text}`,
-        config: {
-          systemInstruction: `You are a professional medical translator. Preserve technical accuracy while making it readable in the target language.${dictInstruction}`
-        }
+      return claudeText({
+        model: CLAUDE_HAIKU,
+        system: `Professional medical translator. Target: ${targetLang}.${dictInstruction}`,
+        user: text,
+        maxTokens: 4096,
+        temperature: 0.2,
       });
-      return response.text;
     } catch (error) {
       console.error("Translation failed:", error);
       throw error;
@@ -893,35 +708,13 @@ Output ONLY the prompt string (no markdown, no quotes). Prefer clear diagram or 
 
   async generateExercises(topic: string): Promise<Exercise> {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate interactive exercises for students on "${topic}".`,
-        config: {
-          responseMimeType: "application/json",
-          maxOutputTokens: 2048,
-          systemInstruction: "Create a set of learning tasks. Return JSON with 'title', 'description', and 'tasks'. Tasks should have 'task', 'type' (multiple_choice, true_false, short_answer), 'options' (if applicable), and 'answer'. Language: Uzbek.",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              tasks: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    task: { type: Type.STRING },
-                    type: { type: Type.STRING },
-                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    answer: { type: Type.STRING }
-                  }
-                }
-              }
-            }
-          }
-        }
+      return claudeJson({
+        model: CLAUDE_SONNET,
+        system: `${SYS_MEDICAL} JSON: {title, description, tasks:[{task, type, options?, answer}]}. Til: O'zbek.`,
+        user: `Mavzu: "${topic}". Interaktiv mashqlar.`,
+        maxTokens: 2048,
+        parse: (t) => parseJSONSafe<Exercise>(t),
       });
-      return parseJSONSafe<Exercise>(response.text);
     } catch (error) {
       console.error("Exercise generation failed:", error);
       throw error;

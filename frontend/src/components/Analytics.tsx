@@ -11,9 +11,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import { claudeText } from '../services/claudeClient';
 
 interface Message {
   role: 'user' | 'ai';
@@ -45,15 +43,15 @@ export default function Analytics() {
     setLoading(true);
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: userMsg,
-        config: {
-          systemInstruction: "Siz Farg'ona jamoat salomatlik instituti uchun ixtisoslashgan AI mutaxassisiz. Jamoat salomatligi, epidemiologiya va tibbiy ma'lumotlar tahlili bo'yicha chuqur bilimga egasiz. Javoblaringizni o'zbek tilida, ilmiy asoslangan va tushunarli tarzda bering."
-        }
+      const reply = await claudeText({
+        system:
+          "Siz Farg'ona jamoat salomatlik instituti uchun ixtisoslashtilgan AI mutaxassisiz. Jamoat salomatligi, epidemiologiya va tibbiy ma'lumotlar tahlili. Javoblar o'zbek tilida, ilmiy va tushunarli.",
+        user: userMsg,
+        maxTokens: 1024,
+        temperature: 0.45,
       });
-      
-      setMessages(prev => [...prev, { role: 'ai', text: response.text }]);
+
+      setMessages(prev => [...prev, { role: 'ai', text: reply }]);
     } catch (error) {
       setMessages(prev => [...prev, { role: 'ai', text: "Kechirasiz, tizimda xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring." }]);
     } finally {

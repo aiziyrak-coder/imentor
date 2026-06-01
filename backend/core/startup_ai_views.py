@@ -1,4 +1,4 @@
-"""Authenticated REST endpoints: startup Gemini calls run on the server."""
+"""Authenticated REST endpoints: startup Claude calls run on the server."""
 
 from __future__ import annotations
 
@@ -13,11 +13,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .gemini_client import GeminiClientError, generate_content_with_model_fallback
+from .anthropic_client import AnthropicClientError, generate_claude_text
 from .permissions import IsStartuperOrAdmin
 from .startup_ai_prompts import (
-    QUESTIONNAIRE_RESPONSE_SCHEMA,
-    TWENTY_CRITERIA_RESPONSE_SCHEMA,
     coach_user_prompt,
     innovation_pack_user_prompt,
     language_name,
@@ -60,8 +58,8 @@ def _parse_json_loose(text: str) -> Any:
         raise
 
 
-def _gemini_key() -> str:
-    return getattr(settings, "GEMINI_API_KEY", "") or ""
+def _anthropic_key() -> str:
+    return getattr(settings, "ANTHROPIC_API_KEY", "") or ""
 
 
 class StartupAiQuestionnaireView(APIView):
@@ -69,10 +67,10 @@ class StartupAiQuestionnaireView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _gemini_key()
+        key = _anthropic_key()
         if not key:
             return Response(
-                {"detail": "GEMINI_API_KEY serverda sozlanmagan."},
+                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -92,22 +90,16 @@ class StartupAiQuestionnaireView(APIView):
             structured_context_note=structured_context_note,
             out_lang=out_lang,
         )
-        gen_cfg: dict[str, Any] = {
-            "responseMimeType": "application/json",
-            "maxOutputTokens": 8192,
-            "temperature": 0.35,
-            "responseSchema": QUESTIONNAIRE_RESPONSE_SCHEMA,
-        }
         try:
-            raw_text = generate_content_with_model_fallback(
+            raw_text = generate_claude_text(
                 key,
-                models=["gemini-1.5-flash", "gemini-2.0-flash", "gemini-3-flash-preview"],
                 user_text=user_text,
-                system_instruction=None,
-                generation_config=gen_cfg,
+                max_tokens=8192,
+                temperature=0.35,
+                json_only=True,
             )
             parsed = _parse_json_loose(raw_text)
-        except (GeminiClientError, ValueError, json.JSONDecodeError) as e:
+        except (AnthropicClientError, ValueError, json.JSONDecodeError) as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         if not isinstance(parsed, dict):
             return Response({"detail": "Model javobi JSON obyekt emas."}, status=502)
@@ -119,10 +111,10 @@ class StartupAiTwentyCriteriaView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _gemini_key()
+        key = _anthropic_key()
         if not key:
             return Response(
-                {"detail": "GEMINI_API_KEY serverda sozlanmagan."},
+                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -144,27 +136,16 @@ class StartupAiTwentyCriteriaView(APIView):
             questionnaire_qa_block=questionnaire_qa_block,
             out_lang=out_lang,
         )
-        gen_cfg: dict[str, Any] = {
-            "responseMimeType": "application/json",
-            "maxOutputTokens": 8192,
-            "temperature": 0.28,
-            "responseSchema": TWENTY_CRITERIA_RESPONSE_SCHEMA,
-        }
         try:
-            raw_text = generate_content_with_model_fallback(
+            raw_text = generate_claude_text(
                 key,
-                models=[
-                    "gemini-1.5-pro",
-                    "gemini-1.5-flash",
-                    "gemini-2.0-flash",
-                    "gemini-3.1-pro-preview",
-                ],
                 user_text=user_text,
-                system_instruction=None,
-                generation_config=gen_cfg,
+                max_tokens=8192,
+                temperature=0.28,
+                json_only=True,
             )
             parsed = _parse_json_loose(raw_text)
-        except (GeminiClientError, ValueError, json.JSONDecodeError) as e:
+        except (AnthropicClientError, ValueError, json.JSONDecodeError) as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         if not isinstance(parsed, dict):
             return Response({"detail": "Model javobi JSON obyekt emas."}, status=502)
@@ -176,10 +157,10 @@ class StartupAiInnovationPackView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _gemini_key()
+        key = _anthropic_key()
         if not key:
             return Response(
-                {"detail": "GEMINI_API_KEY serverda sozlanmagan."},
+                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -205,21 +186,17 @@ class StartupAiInnovationPackView(APIView):
             out_lang=out_lang,
             project_domain=project_domain,
         )
-        gen_cfg: dict[str, Any] = {
-            "responseMimeType": "application/json",
-            "maxOutputTokens": 16384,
-            "temperature": 0.36 if project_domain == "startup" else 0.42,
-        }
+        temp = 0.36 if project_domain == "startup" else 0.42
         try:
-            raw_text = generate_content_with_model_fallback(
+            raw_text = generate_claude_text(
                 key,
-                models=["gemini-3.1-pro-preview", "gemini-1.5-pro", "gemini-2.0-flash"],
                 user_text=user_text,
-                system_instruction=None,
-                generation_config=gen_cfg,
+                max_tokens=16384,
+                temperature=temp,
+                json_only=True,
             )
             parsed = _parse_json_loose(raw_text)
-        except (GeminiClientError, ValueError, json.JSONDecodeError) as e:
+        except (AnthropicClientError, ValueError, json.JSONDecodeError) as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         if not isinstance(parsed, dict):
             return Response({"detail": "Model javobi JSON obyekt emas."}, status=502)
@@ -231,10 +208,10 @@ class StartupAiCoachReplyView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _gemini_key()
+        key = _anthropic_key()
         if not key:
             return Response(
-                {"detail": "GEMINI_API_KEY serverda sozlanmagan."},
+                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -275,19 +252,15 @@ class StartupAiCoachReplyView(APIView):
             analysis_json_excerpt=analysis_json_excerpt,
             out_lang=out_lang,
         )
-        gen_cfg: dict[str, Any] = {
-            "maxOutputTokens": 4096,
-            "temperature": 0.45,
-        }
         try:
-            raw_text = generate_content_with_model_fallback(
+            raw_text = generate_claude_text(
                 key,
-                models=["gemini-3-flash-preview", "gemini-2.0-flash", "gemini-1.5-flash"],
                 user_text=user_text,
-                system_instruction=None,
-                generation_config=gen_cfg,
+                max_tokens=4096,
+                temperature=0.45,
+                json_only=False,
             )
-        except GeminiClientError as e:
+        except AnthropicClientError as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         reply = (raw_text or "").strip()
         if not reply:

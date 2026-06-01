@@ -58,7 +58,7 @@ Stack listens only on **127.0.0.1:31001** (frontend) and **127.0.0.1:31002** (AP
 
 1. On GitHub, create an empty repo (e.g. `imentor`) and push this project (`git init`, `git remote add`, `git push`).
 2. On the server: install Docker + Compose; clone the repo (SSH deploy key recommended).
-3. `cp deploy/.env.production.example deploy/.env.production` and set `DJANGO_SECRET_KEY`, `GEMINI_API_KEY` (only on the server file — never in git), and hosts/CORS values.
+3. `cp deploy/.env.production.example deploy/.env.production` and set `DJANGO_SECRET_KEY`, `ANTHROPIC_API_KEY` (only on the server file — never in git), and hosts/CORS values.
 4. `docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file deploy/.env.production up -d --build`
 5. Add **new** nginx server blocks from `deploy/nginx/imentor.conf.example` (do not edit existing sites). Point DNS `A` records for `imentor.uz`, `www`, and `api.imentor.uz` to the server.
 6. Issue TLS (e.g. `certbot --nginx -d imentor.uz -d www.imentor.uz -d api.imentor.uz`) and merge HTTPS `listen 443 ssl` blocks as certbot suggests.
@@ -71,7 +71,7 @@ If OpenSSH to the server is not set up, you can still deploy with Paramiko (no m
 
 1. `pip install -r deploy/requirements-deploy.txt`
 2. Copy `deploy/.env.deploy.local.example` to `deploy/.env.deploy.local` and set `SSH_HOST`, `SSH_USER`, and either `SSH_PASSWORD` or ensure your public key is on the server and use `SSH_KEY_PATH` if the key is not the default.
-3. On the server, create `deploy/.env.production` once (see `deploy/.env.production.example`) with `DJANGO_SECRET_KEY`, `GEMINI_API_KEY`, etc.
+3. On the server, create `deploy/.env.production` once (see `deploy/.env.production.example`) with `DJANGO_SECRET_KEY`, `ANTHROPIC_API_KEY`, etc.
 4. From the repo root: `python deploy/remote_deploy.py`
 
 The script runs `git pull`, `docker compose`, uploads the nginx example, and reloads nginx. Use `python deploy/remote_deploy.py --dry-run` to view commands only.

@@ -6,7 +6,7 @@
 # keyin yana shu faylni ishga tushiring.
 #
 # Bitta qator (loyiha yo‘lini moslang, masalan /opt/imentor):
-#   cd /opt/imentor && GAK='SIZNING_GEMINI_API_KEY' sh deploy/imentor-one-liner.sh
+#   cd /opt/imentor && GAK='sk-ant-...' sh deploy/imentor-one-liner.sh
 #
 # Boshqa branch:
 #   cd /opt/imentor && GIT_REF=develop GAK='...' sh deploy/imentor-one-liner.sh
@@ -28,10 +28,12 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-if grep -q '^GEMINI_API_KEY=' "$ENV_FILE" 2>/dev/null; then
-  sed -i.bak "s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${GAK}|" "$ENV_FILE"
+if grep -q '^ANTHROPIC_API_KEY=' "$ENV_FILE" 2>/dev/null; then
+  sed -i.bak "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${GAK}|" "$ENV_FILE"
+elif grep -q '^GEMINI_API_KEY=' "$ENV_FILE" 2>/dev/null; then
+  sed -i.bak "s|^GEMINI_API_KEY=.*|ANTHROPIC_API_KEY=${GAK}|" "$ENV_FILE"
 else
-  printf '\nGEMINI_API_KEY=%s\n' "$GAK" >> "$ENV_FILE"
+  printf '\nANTHROPIC_API_KEY=%s\n' "$GAK" >> "$ENV_FILE"
 fi
 
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
@@ -43,4 +45,4 @@ git pull --ff-only origin "$GIT_REF"
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file "$ENV_FILE" up -d --build
 docker compose -f docker-compose.prod.yml -f docker-compose.imentor.yml --env-file "$ENV_FILE" ps
 
-echo "Tayyor. GEMINI_API_KEY yangilandi va stack qayta yig‘ildi."
+echo "Tayyor. ANTHROPIC_API_KEY yangilandi va stack qayta yig‘ildi."

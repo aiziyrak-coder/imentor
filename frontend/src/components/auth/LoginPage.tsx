@@ -9,8 +9,6 @@ import {
   normalizePhoneDigits,
   normalizeUserRole,
   DEMO_ROLE_LOGINS,
-  TEST_STAFF_PHONE,
-  TEST_STAFF_PASSWORD,
 } from '../../utils/localStaffAuth';
 import { getBackendAccessToken } from '../../utils/backendAuth';
 import { isDesktopBrowser } from '../../utils/deviceDetection';
@@ -21,8 +19,8 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageProps) {
-  const [phone, setPhone] = useState(TEST_STAFF_PHONE);
-  const [password, setPassword] = useState(TEST_STAFF_PASSWORD);
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -156,7 +154,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 className="w-full rounded-xl border border-black/10 bg-white/70 py-3.5 pl-12 pr-4 text-[15px] font-medium text-black/90 outline-none focus:ring-2 focus:ring-blue-500/40"
-                placeholder="+998901112233"
+                placeholder="+998 90 123 45 67"
               />
             </div>
           </div>

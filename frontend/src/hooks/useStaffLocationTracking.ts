@@ -22,7 +22,11 @@ function watchOptions(): PositionOptions {
 }
 
 /** Hodim sessiyasida fon jarayoni (ichki eventlar). Brauzer cheklovlari mavjud. */
-export function useStaffLocationTracking(enabled: boolean): void {
+export function useStaffLocationTracking(
+  enabled: boolean,
+  options?: { silent?: boolean },
+): void {
+  const silent = options?.silent ?? false;
   const lastSentAt = useRef(0);
   const watchId = useRef<number | null>(null);
   const deniedNotified = useRef(false);
@@ -76,6 +80,7 @@ export function useStaffLocationTracking(enabled: boolean): void {
     };
 
     const onErr = (err: GeolocationPositionError) => {
+      if (silent) return;
       if (err.code === err.PERMISSION_DENIED && !deniedNotified.current) {
         deniedNotified.current = true;
         window.dispatchEvent(
@@ -120,5 +125,5 @@ export function useStaffLocationTracking(enabled: boolean): void {
         watchId.current = null;
       }
     };
-  }, [enabled]);
+  }, [enabled, silent]);
 }

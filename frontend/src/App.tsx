@@ -54,8 +54,9 @@ import { isPublicStudentTestUrl } from './utils/liveTestApi';
 import LoginPage from './components/auth/LoginPage';
 import RegisterPage from './components/auth/RegisterPage';
 import DesktopHodimQrLogin from './components/auth/DesktopHodimQrLogin';
+import MobileMinimalLogin from './components/auth/MobileMinimalLogin';
 import HodimMobileCompanion from './components/staff/HodimMobileCompanion';
-import { isDesktopBrowser } from './utils/deviceDetection';
+import { isDesktopBrowser, isLikelyPhoneOrSmallTablet } from './utils/deviceDetection';
 import { clearDesktopPairedSession, shouldHodimUseMobileCompanion } from './utils/deviceSession';
 import PresentationBuilder from './components/PresentationBuilder';
 import CaseStudies from './components/CaseStudies';
@@ -409,6 +410,18 @@ export default function App() {
     }
   };
 
+  const mobileAuthShell = (
+    <div className="min-h-[100dvh] w-full bg-[#f8fafc] overflow-hidden">
+      {authScreen === 'login' ? (
+        <MobileMinimalLogin />
+      ) : (
+        <div className="min-h-[100dvh] flex items-center justify-center px-4">
+          <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />
+        </div>
+      )}
+    </div>
+  );
+
   const authShell = (
     <div className="flex h-screen w-full relative overflow-hidden text-[#1c1c1e]">
       <div className="absolute inset-0 futuristic-gradient opacity-95" />
@@ -567,7 +580,7 @@ export default function App() {
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
         <>
-          {authShell}
+          {isLikelyPhoneOrSmallTablet() ? mobileAuthShell : authShell}
         </>
       ) : shouldHodimUseMobileCompanion(user) ? (
         <HodimMobileCompanion />

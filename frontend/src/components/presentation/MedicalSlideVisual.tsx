@@ -23,9 +23,13 @@ export default function MedicalSlideVisual({ visual, variant = 'editor', accent 
           {visual.stats.slice(0, 4).map((s, i) => (
             <div
               key={i}
-              className="rounded-xl border border-sky-200/80 bg-gradient-to-br from-white to-sky-50/90 p-3 flex flex-col justify-center shadow-sm"
+              className="rounded-2xl border border-white/40 bg-white/20 backdrop-blur-md p-3 flex flex-col justify-center shadow-lg"
+              style={{ boxShadow: `0 8px 32px ${accent}22` }}
             >
-              <div className="text-2xl md:text-3xl font-black tabular-nums" style={{ color: accent }}>
+              <div
+                className="text-2xl md:text-4xl font-black tabular-nums tracking-tight"
+                style={{ color: accent, textShadow: `0 0 24px ${accent}55` }}
+              >
                 {s.value}
                 {s.unit && <span className="text-base font-semibold ml-0.5 opacity-80">{s.unit}</span>}
               </div>

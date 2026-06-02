@@ -12,7 +12,9 @@ import {
 import type { Slide, SlideKind, SlideLayout, VisualBlock, VisualBlockType } from './presentationTypes';
 
 const SYS =
-  "Siz FJSTI jamoat salomatligi va klinik tibbiyot professorisiz. PowerPoint darajasidagi, talabalar uchun qiziqarli, vizual taqdimotlar tuzasiz. Har bir slaydda aniq vizual blok bo'lishi shart.";
+  "Siz xalqaro tibbiy konferensiya darajasidagi taqdimot dizayneri va FJSTI professorisiz. " +
+  "Har bir slayd zamonaviy infografika, raqamli diagramma yoki klinik karta bilan — oddiy bullet-list emas. " +
+  "2020+ yil PowerPoint/Keynote estetikasi: qisqa matn, kuchli vizual, klinik aniqlik.";
 
 const VISUAL_TYPES: VisualBlockType[] = [
   'flow',
@@ -305,9 +307,10 @@ Didaktik reja (har slaydga mos visual tanlang):
 ${plan.map((p, i) => `${i + 1}. ${p}`).join('\n')}
 
 Qoidalar:
-- Har slaydda majburiy "visual" — haqiqiy diagramma/infografika/klinik karta (oddiy bullet-list emas).
-- "content" qisqa (har biri 8–18 so'z), slayd asosiy ko'rinishi VISUAL panelda.
-- Kamida 2 ta "clinical" slayd, 2 ta "stats", 2 ta "flow" yoki "timeline".
+- Har slaydda majburiy "visual" — to'liq to'ldirilgan JSON (steps, stats, vignette va h.k.).
+- "content" qisqa (har biri 6–14 so'z), asosiy ma'lumot VISUALda; matn faqat qo'llab-quvvatlovchi.
+- Kamida 3 ta "clinical", 3 ta "stats" (haqiqiy raqamlar % yoki n/1000), 2 ta "flow", 1 ta "compare", 1 ta "timeline".
+- stats.value — raqamli (masalan "24", "1.2", "85"), unit "%" yoki "ml" bo'lishi mumkin.
 - Birinchi slayd: slideKind "title", stats yoki icon-grid.
 - Oxirgi slayd: slideKind "summary".
 - Talabalar uchun qiziqarli: raqamlar, klinik savol, taqqoslash.

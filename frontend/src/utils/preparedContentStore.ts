@@ -94,6 +94,35 @@ export async function savePreparedContent(
   }
 }
 
+export type PreparedContentSummary = {
+  id: string;
+  topic: string;
+  createdAt: number;
+  source: 'local' | 'cloud';
+};
+
+export function listPreparedForTopic(kind: PreparedContentKind, topic: string): PreparedContentSummary[] {
+  const owner = ownerKey();
+  if (!owner || !topic.trim()) return [];
+  const wanted = normTopic(topic);
+  return readLocal(owner, kind)
+    .filter((r) => r.topicNorm === wanted)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((r) => ({
+      id: r.id,
+      topic: r.topic,
+      createdAt: r.createdAt,
+      source: r.source,
+    }));
+}
+
+export function loadPreparedById<T>(kind: PreparedContentKind, id: string): T | null {
+  const owner = ownerKey();
+  if (!owner) return null;
+  const row = readLocal(owner, kind).find((r) => r.id === id);
+  return row ? (row.payload as T) : null;
+}
+
 export async function loadLatestPreparedContent<T>(
   kind: PreparedContentKind,
   topic: string

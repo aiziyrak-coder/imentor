@@ -16,7 +16,14 @@ import { aiService, TestSession, TestQuestion } from '../services/aiService';
 import { AppLanguageContext, GlobalTopicContext } from '../App';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendTestToLibrary } from '../utils/staffContentLibrary';
-import { loadLatestPreparedContent, savePreparedContent } from '../utils/preparedContentStore';
+import {
+  listPreparedForTopic,
+  loadLatestPreparedContent,
+  loadPreparedById,
+  savePreparedContent,
+  type PreparedContentSummary,
+} from '../utils/preparedContentStore';
+import ContentTopicToolbar from './staff/ContentTopicToolbar';
 import {
   upsertLiveTestSessionOnServer,
   fetchLiveTestSessionFromServer,
@@ -85,6 +92,16 @@ export default function TestQuestions() {
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [loading, setLoading] = useState(false);
   const [testSession, setTestSession] = useState<TestSession | null>(null);
+  const [versions, setVersions] = useState<PreparedContentSummary[]>([]);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+
+  const refreshVersions = React.useCallback(() => {
+    if (!topic.trim()) {
+      setVersions([]);
+      return;
+    }
+    setVersions(listPreparedForTopic('test', topic));
+  }, [topic]);
 
   useEffect(() => {
     if (globalTopic && !isStudentMode) {
@@ -182,18 +199,32 @@ export default function TestQuestions() {
   }, [isStudentMode, studentSessionId]);
 
   useEffect(() => {
+    refreshVersions();
+  }, [refreshVersions]);
+
+  useEffect(() => {
     if (isStudentMode || !topic.trim()) return;
     let mounted = true;
     (async () => {
       const prepared = await loadLatestPreparedContent<TestSession>('test', topic);
-      if (!mounted || !prepared) return;
+      if (!mounted) return;
+      refreshVersions();
+      if (!prepared) {
+        setTestSession(null);
+        setTeacherSessionId('');
+        setJoinUrl('');
+        setActiveVersionId(null);
+        return;
+      }
+      const list = listPreparedForTopic('test', topic);
       setTestSession(prepared);
       setupTeacherLiveSession(prepared);
+      setActiveVersionId(list[0]?.id ?? null);
     })();
     return () => {
       mounted = false;
     };
-  }, [isStudentMode, topic]);
+  }, [isStudentMode, topic, refreshVersions]);
 
   useEffect(() => {
     if (isStudentMode || !teacherSessionId) return;
@@ -239,17 +270,37 @@ export default function TestQuestions() {
     };
   }, [isStudentMode, teacherSessionId]);
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSelectVersion = (id: string) => {
+    const data = loadPreparedById<TestSession>('test', id);
+    if (!data) return;
+    setTestSession(data);
+    setupTeacherLiveSession(data);
+    setActiveVersionId(id);
+    setShowAnalysis(false);
+    setError(null);
+  };
+
+  const handleGenerate = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!topic.trim()) return;
+
+    if (testSession && teacherSessionId) {
+      const ok = window.confirm(
+        "Yangi test yangi QR kod va havola beradi. Avvalgi QR bilan kirgan talabalar eski sessiyada qoladi. Davom etasizmi?",
+      );
+      if (!ok) return;
+    }
 
     setLoading(true);
     setError(null);
     try {
       const data = await aiService.generateTests(topic, 10, language);
-      setTestSession(data);
-      const sid = setupTeacherLiveSession(data);
       await savePreparedContent('test', topic, data);
+      refreshVersions();
+      const list = listPreparedForTopic('test', topic);
+      const sid = setupTeacherLiveSession(data);
+      setTestSession(data);
+      setActiveVersionId(list[0]?.id ?? null);
       try {
         const u = getCurrentLocalUser();
         if (u && normalizeUserRole(u) === 'hodim') {
@@ -264,7 +315,7 @@ export default function TestQuestions() {
         /* bazaga yozish ixtiyoriy */
       }
     } catch (err) {
-      console.error("Test generation error:", err);
+      console.error('Test generation error:', err);
       setError("Test savollarini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
     } finally {
       setLoading(false);
@@ -423,27 +474,22 @@ export default function TestQuestions() {
           </p>
         </div>
 
-        <motion.div 
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="bg-white p-2 flex flex-col sm:flex-row shadow-xl rounded-2xl border border-gray-100 gap-2 max-w-3xl mx-auto items-center"
-        >
-          <input
-            type="text"
-            className="flex-1 px-5 py-4 min-w-[200px] outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-transparent w-full"
-            placeholder="Qanday mavzuda test tuzmoqchisiz? (Masalan: Yurak qon-tomir)"
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
+        <div className="max-w-3xl mx-auto w-full">
+          <ContentTopicToolbar
+            topic={topic}
+            onTopicChange={setTopic}
+            topicLabel="Test mavzusi"
+            topicPlaceholder="Masalan: Yurak qon-tomir kasalliklari"
+            createLabel="Yangi 10 savolli test"
+            loading={loading}
+            onCreate={() => void handleGenerate()}
+            accent="indigo"
+            versions={versions}
+            activeVersionId={activeVersionId}
+            onSelectVersion={handleSelectVersion}
+            versionsTitle="Saqlangan testlar"
           />
-          <button
-            onClick={handleGenerate}
-            disabled={loading || !topic.trim()}
-            className="bg-gray-900 text-white w-full sm:w-auto px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
-          >
-            {loading ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
-            Yaratish
-          </button>
-        </motion.div>
+        </div>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl max-w-3xl mx-auto text-center font-medium">
@@ -601,19 +647,15 @@ export default function TestQuestions() {
               </div>
             )}
 
-            <div className="flex justify-center pt-2">
+            <div className="flex flex-wrap justify-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  setTestSession(null);
-                  setTeacherSessionId('');
-                  setJoinUrl('');
-                  setSubmissions([]);
-                  setShowAnalysis(false);
-                }}
-                className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors"
+                onClick={() => void handleGenerate()}
+                disabled={loading}
+                className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 flex items-center gap-2"
               >
-                Yangi yaratish
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                Yana yangi test (yangi QR)
               </button>
             </div>
           </motion.div>

@@ -86,7 +86,9 @@ if command -v curl >/dev/null 2>&1; then
     sleep 4
   done
   if [ "$ok" != "1" ]; then
-    echo "Xato: health javob bermadi. IMENTOR_BACKEND_PORT va 'docker compose ps' ni tekshiring." >&2
+    echo "Xato: health javob bermadi. Log:" >&2
+    dc logs backend --tail 40 2>&1 || true
+    echo "Tekshiring: deploy/.env.production ichida DJANGO_SECRET_KEY (>=40 belgi) va 'docker compose ps'." >&2
     exit 1
   fi
 else

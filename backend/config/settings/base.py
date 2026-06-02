@@ -130,6 +130,8 @@ CSRF_TRUSTED_ORIGINS = env_list(
 )
 
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", default=not DEBUG)
+# Docker / ichki healthcheck HTTP bilan ishlashi uchun
+SECURE_REDIRECT_EXEMPT = [r"^/api/health/?$"]
 SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=not DEBUG)
 CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
 SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000"))

@@ -109,9 +109,9 @@ type NavItemDef = { id: View; label: string; icon: LucideIcon };
 /** Hodim: dars kontenti + keys/test yaratish (bazaga yoziladi) */
 const HODIM_NAV: NavItemDef[] = [
   { id: 'syllabus', label: 'Syllabus (Mavzu tanlash)', icon: BookOpen },
-  { id: 'handouts', label: 'Tarqatma materiallar', icon: Files },
   { id: 'lectures', label: "Ma'ruza matni", icon: FileText },
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
+  { id: 'handouts', label: 'Tarqatma materiallar', icon: Files },
   { id: 'cases', label: 'Keys yaratish', icon: BriefcaseMedical },
   { id: 'tests', label: 'Test yaratish', icon: ClipboardList },
   { id: 'profile', label: 'Profil', icon: UserCircle },

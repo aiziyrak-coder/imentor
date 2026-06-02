@@ -81,7 +81,7 @@ export default function HodimMobileCompanion() {
   const handleLogout = () => {
     void stopScanner();
     clearBackendAuthTokens();
-    clearDesktopPairedSession();
+    clearDesktopPairedSession(user?.uid);
     logoutLocalStaff();
   };
 

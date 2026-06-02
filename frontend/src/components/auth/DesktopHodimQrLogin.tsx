@@ -71,8 +71,8 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
             role: (st.role as 'hodim') || 'hodim',
             username: st.username || profile.phoneDigits,
           });
-          establishLocalSessionFromProfile({ ...profile, role: 'hodim' });
-          markDesktopPairedSession();
+          const sessionUser = establishLocalSessionFromProfile({ ...profile, role: 'hodim' });
+          markDesktopPairedSession(sessionUser.uid);
         } catch {
           /* polling */
         }

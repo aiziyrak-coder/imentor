@@ -57,7 +57,11 @@ import DesktopHodimQrLogin from './components/auth/DesktopHodimQrLogin';
 import MobileMinimalLogin from './components/auth/MobileMinimalLogin';
 import HodimMobileCompanion from './components/staff/HodimMobileCompanion';
 import { isDesktopBrowser, isLikelyPhoneOrSmallTablet } from './utils/deviceDetection';
-import { clearDesktopPairedSession, shouldHodimUseMobileCompanion } from './utils/deviceSession';
+import {
+  clearDesktopPairedSession,
+  isDesktopPairedSession,
+  shouldHodimUseMobileCompanion,
+} from './utils/deviceSession';
 import PresentationBuilder from './components/PresentationBuilder';
 import CaseStudies from './components/CaseStudies';
 import Translator from './components/Translator';
@@ -337,7 +341,7 @@ export default function App() {
 
   const handleLogout = async () => {
     clearBackendAuthTokens();
-    clearDesktopPairedSession();
+    clearDesktopPairedSession(user?.uid);
     logoutLocalStaff();
   };
 
@@ -583,6 +587,16 @@ export default function App() {
         </>
       ) : shouldHodimUseMobileCompanion(user) ? (
         <HodimMobileCompanion />
+      ) : userRole === 'hodim' && isDesktopBrowser() && !isDesktopPairedSession(user.uid) ? (
+        <div className="min-h-[100dvh] w-full flex items-center justify-center bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] p-4 overflow-y-auto">
+          <DesktopHodimQrLogin
+            onOtherRoles={() => {
+              clearBackendAuthTokens();
+              clearDesktopPairedSession(user.uid);
+              logoutLocalStaff();
+            }}
+          />
+        </div>
       ) : (
       <>
       <div className="flex flex-col h-[100dvh] min-h-0 w-full relative overflow-hidden bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] text-[#1c1c1e] selection:bg-sky-500/30">

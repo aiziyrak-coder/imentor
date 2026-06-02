@@ -21,6 +21,7 @@ import {
   loadLatestPreparedContent,
   loadPreparedById,
   savePreparedContent,
+  normTopicKey,
   type PreparedContentSummary,
 } from '../utils/preparedContentStore';
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
@@ -47,6 +48,37 @@ interface TestSubmissionDoc {
 
 const LOCAL_TEST_SESSION_PREFIX = 'salomatlik-live-test-session-';
 const LOCAL_TEST_SUBMISSIONS_PREFIX = 'salomatlik-live-test-submissions-';
+const TEACHER_SID_BY_TOPIC = 'imentor-teacher-live-sid-v1';
+
+function teacherSidStorageKey(topic: string): string {
+  return `${TEACHER_SID_BY_TOPIC}:${normTopicKey(topic)}`;
+}
+
+function readStoredTeacherSid(topic: string): string | null {
+  try {
+    return sessionStorage.getItem(teacherSidStorageKey(topic));
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredTeacherSid(topic: string, sid: string): void {
+  try {
+    sessionStorage.setItem(teacherSidStorageKey(topic), sid);
+  } catch {
+    /* ignore */
+  }
+}
+
+function tryReuseTeacherSessionId(data: TestSession): string | null {
+  const stored = readStoredTeacherSid(data.topic);
+  if (!stored) return null;
+  const doc = loadLocalSession(stored);
+  if (!doc) return null;
+  if (normTopicKey(doc.topic) !== normTopicKey(data.topic)) return null;
+  if (doc.questions.length !== data.questions.length) return null;
+  return stored;
+}
 
 function makeLocalSessionId(): string {
   return `lts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -109,8 +141,8 @@ export default function TestQuestions() {
     }
   }, [globalTopic, isStudentMode]);
 
-  const setupTeacherLiveSession = (data: TestSession): string => {
-    const sid = makeLocalSessionId();
+  const setupTeacherLiveSession = (data: TestSession, reuseSid?: string): string => {
+    const sid = reuseSid || makeLocalSessionId();
     const doc: LiveTestSessionDoc = {
       topic: data.topic,
       questions: data.questions,
@@ -131,6 +163,7 @@ export default function TestQuestions() {
     }).catch(() => {
       /* o‘qituvchi API yo‘q bo‘lsa ham mahalliy QR ishlaydi (faqat shu brauzer) */
     });
+    writeStoredTeacherSid(data.topic, sid);
     return sid;
   };
 
@@ -218,7 +251,8 @@ export default function TestQuestions() {
       }
       const list = listPreparedForTopic('test', topic);
       setTestSession(prepared);
-      setupTeacherLiveSession(prepared);
+      const reused = tryReuseTeacherSessionId(prepared);
+      setupTeacherLiveSession(prepared, reused ?? undefined);
       setActiveVersionId(list[0]?.id ?? null);
     })();
     return () => {
@@ -274,7 +308,8 @@ export default function TestQuestions() {
     const data = loadPreparedById<TestSession>('test', id);
     if (!data) return;
     setTestSession(data);
-    setupTeacherLiveSession(data);
+    const reused = tryReuseTeacherSessionId(data);
+    setupTeacherLiveSession(data, reused ?? undefined);
     setActiveVersionId(id);
     setShowAnalysis(false);
     setError(null);

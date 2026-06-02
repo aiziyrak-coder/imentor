@@ -195,17 +195,25 @@ class LocalLoginView(APIView):
             "first_name": (data.get("first_name") or "").strip(),
             "last_name": (data.get("last_name") or "").strip(),
         }
+        allowed_self_register = {"hodim", "startuper", "tarjimon"}
+
         user, created = User.objects.get_or_create(username=username, defaults=defaults)
         if created:
             user.set_password(password)
             user.save(update_fields=["password"])
-        elif not user.check_password(password):
-            user.set_password(password)
-            user.save(update_fields=["password"])
-
-        group, _ = Group.objects.get_or_create(name=role)
-        user.groups.clear()
-        user.groups.add(group)
+            reg_role = (role or "hodim").strip().lower()
+            if reg_role not in allowed_self_register:
+                reg_role = "hodim"
+            group, _ = Group.objects.get_or_create(name=reg_role)
+            user.groups.add(group)
+            role = reg_role
+        else:
+            if not user.check_password(password):
+                return Response(
+                    {"detail": "Telefon yoki parol noto‘g‘ri."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+            role = resolve_user_role(user, request) or "hodim"
 
         refresh = RefreshToken.for_user(user)
         refresh["role"] = role

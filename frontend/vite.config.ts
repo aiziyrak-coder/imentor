@@ -5,8 +5,10 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  const deepseekKey =
-    env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
+  const isProd = mode === 'production';
+  const deepseekKey = isProd
+    ? ''
+    : env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
   return {
     plugins: [react(), tailwindcss()],
     define: {

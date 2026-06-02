@@ -19,6 +19,30 @@ from .permissions import IsHodimRole, resolve_user_role
 
 PAIRING_TTL_MINUTES = 4
 
+_SENSITIVE_PROFILE_KEYS = frozenset(
+    {
+        "password",
+        "phoneDigits",
+        "phone_digits",
+        "access",
+        "refresh",
+        "token",
+    }
+)
+
+
+def _sanitize_profile_snapshot(profile: dict) -> dict:
+    """JWT yetarli — parol va tokenlarni kompyuterga yubormaymiz."""
+    safe: dict = {}
+    for key, value in profile.items():
+        if key in _SENSITIVE_PROFILE_KEYS:
+            continue
+        if isinstance(value, str) and len(value) > 4000:
+            safe[key] = value[:4000]
+        else:
+            safe[key] = value
+    return safe
+
 
 def _expire_stale() -> None:
     now = timezone.now()
@@ -164,7 +188,7 @@ class DevicePairConfirmView(APIView):
         obj.status = DevicePairingSession.STATUS_CONFIRMED
         obj.owner_key = request.user.username
         obj.role = role
-        obj.profile_snapshot = profile
+        obj.profile_snapshot = _sanitize_profile_snapshot(profile)
         obj.access_token = str(access)
         obj.refresh_token = str(refresh)
         obj.confirmed_at = now

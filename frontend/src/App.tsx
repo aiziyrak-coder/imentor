@@ -56,7 +56,8 @@ import RegisterPage from './components/auth/RegisterPage';
 import DesktopHodimQrLogin from './components/auth/DesktopHodimQrLogin';
 import MobileMinimalLogin from './components/auth/MobileMinimalLogin';
 import HodimMobileCompanion from './components/staff/HodimMobileCompanion';
-import { isDesktopBrowser, isLikelyPhoneOrSmallTablet } from './utils/deviceDetection';
+import { isDesktopBrowser } from './utils/deviceDetection';
+import { useDeviceProfile } from './hooks/useDeviceProfile';
 import {
   clearDesktopPairedSession,
   isDesktopPairedSession,
@@ -223,6 +224,7 @@ function readStoredNotifications(): AppNotification[] {
 }
 
 export default function App() {
+  const { isMobile: isMobileDevice } = useDeviceProfile();
   const [activeView, setActiveView] = useState<View>('syllabus');
   const [mountedViews, setMountedViews] = useState<View[]>(['syllabus']);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
@@ -583,9 +585,9 @@ export default function App() {
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
         <>
-          {isLikelyPhoneOrSmallTablet() ? mobileAuthShell : authShell}
+          {isMobileDevice ? mobileAuthShell : authShell}
         </>
-      ) : shouldHodimUseMobileCompanion(user) ? (
+      ) : shouldHodimUseMobileCompanion(user, isMobileDevice) ? (
         <HodimMobileCompanion />
       ) : userRole === 'hodim' && isDesktopBrowser() && !isDesktopPairedSession(user.uid) ? (
         <div className="min-h-[100dvh] w-full flex items-center justify-center bg-gradient-to-br from-[#eef6ff] via-[#f5f8ff] to-[#f3f0ff] p-4 overflow-y-auto">

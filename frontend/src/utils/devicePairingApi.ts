@@ -59,7 +59,6 @@ export async function confirmDevicePairing(
         department: profile.department,
         direction: profile.direction,
         email: profile.email,
-        password: profile.password,
         role: profile.role ?? 'hodim',
         photoURL: profile.photoURL ?? null,
       },

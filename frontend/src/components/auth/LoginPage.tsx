@@ -9,6 +9,7 @@ import {
   normalizePhoneDigits,
   normalizeUserRole,
   DEMO_ROLE_LOGINS,
+  isDemoAuthEnabled,
 } from '../../utils/localStaffAuth';
 import { getBackendAccessToken } from '../../utils/backendAuth';
 import { isDesktopBrowser } from '../../utils/deviceDetection';
@@ -200,6 +201,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
           </button>
         </form>
 
+        {isDemoAuthEnabled() && (
         <div className="mt-8 pt-6 border-t border-black/10 space-y-3">
           <p className="text-[11px] font-semibold text-black/45 uppercase tracking-wide text-center">
             Demo kirish (ustiga bosing — forma to‘ldiriladi va tizimga kiriladi)
@@ -237,6 +239,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
             })}
           </div>
         </div>
+        )}
 
         <p className="mt-6 text-center text-[13px] text-black/50">
           Hisobingiz yo‘qmi?{' '}

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Check, Loader2, LogOut, Monitor, Smartphone } from 'lucide-react';
 import {
@@ -77,6 +77,12 @@ export default function HodimMobileCompanion() {
       setBusy(false);
     }
   }, [onScanSuccess, stopScanner]);
+
+  useEffect(() => {
+    return () => {
+      void stopScanner();
+    };
+  }, [stopScanner]);
 
   const handleLogout = () => {
     void stopScanner();

@@ -11,6 +11,7 @@ from .device_pairing_views import (
     DevicePairCreateView,
     DevicePairStatusView,
 )
+from .education_ai_views import EducationAiCompletionView
 from .views import (
     AdminCampusBuildingDetailView,
     AdminCampusBuildingListCreateView,
@@ -53,6 +54,7 @@ urlpatterns = [
     path('v1/device-pair/create/', DevicePairCreateView.as_view(), name='device-pair-create'),
     path('v1/device-pair/confirm/', DevicePairConfirmView.as_view(), name='device-pair-confirm'),
     path('v1/device-pair/status/<str:pairing_token>/', DevicePairStatusView.as_view(), name='device-pair-status'),
+    path('v1/education-ai/completion/', EducationAiCompletionView.as_view(), name='education-ai-completion'),
     path('v1/startup-ai/questionnaire/', StartupAiQuestionnaireView.as_view(), name='startup-ai-questionnaire'),
     path('v1/startup-ai/twenty-criteria/', StartupAiTwentyCriteriaView.as_view(), name='startup-ai-twenty-criteria'),
     path('v1/startup-ai/innovation-pack/', StartupAiInnovationPackView.as_view(), name='startup-ai-innovation-pack'),

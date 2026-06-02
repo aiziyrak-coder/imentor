@@ -86,7 +86,8 @@ if command -v curl >/dev/null 2>&1; then
     sleep 4
   done
   if [ "$ok" != "1" ]; then
-    echo "Ogohlantirish: health javob bermadi. IMENTOR_BACKEND_PORT va 'docker compose ps' ni tekshiring." >&2
+    echo "Xato: health javob bermadi. IMENTOR_BACKEND_PORT va 'docker compose ps' ni tekshiring." >&2
+    exit 1
   fi
 else
   echo "Eslatma: curl yo‘q — health tekshiruvi o‘tkazib yuborildi." >&2

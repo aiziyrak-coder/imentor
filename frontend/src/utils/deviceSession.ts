@@ -9,19 +9,20 @@ function pairKey(uid?: string): string {
 
 export function markDesktopPairedSession(uid?: string): void {
   try {
-    if (uid) localStorage.setItem(pairKey(uid), '1');
-    localStorage.setItem(DESKTOP_PAIR_FLAG, '1');
-    sessionStorage.setItem(DESKTOP_PAIR_FLAG, '1');
+    if (!uid) return;
+    localStorage.setItem(pairKey(uid), '1');
+    sessionStorage.setItem(pairKey(uid), '1');
   } catch {
     /* ignore */
   }
 }
 
+/** Faqat shu foydalanuvchi uchun juftlangan sessiya (global flag yo‘q). */
 export function isDesktopPairedSession(uid?: string): boolean {
+  if (!uid) return false;
   try {
-    if (uid && localStorage.getItem(pairKey(uid)) === '1') return true;
-    if (localStorage.getItem(DESKTOP_PAIR_FLAG) === '1') return true;
-    return sessionStorage.getItem(DESKTOP_PAIR_FLAG) === '1';
+    if (localStorage.getItem(pairKey(uid)) === '1') return true;
+    return sessionStorage.getItem(pairKey(uid)) === '1';
   } catch {
     return false;
   }
@@ -29,7 +30,10 @@ export function isDesktopPairedSession(uid?: string): boolean {
 
 export function clearDesktopPairedSession(uid?: string): void {
   try {
-    if (uid) localStorage.removeItem(pairKey(uid));
+    if (uid) {
+      localStorage.removeItem(pairKey(uid));
+      sessionStorage.removeItem(pairKey(uid));
+    }
     localStorage.removeItem(DESKTOP_PAIR_FLAG);
     sessionStorage.removeItem(DESKTOP_PAIR_FLAG);
   } catch {
@@ -38,7 +42,10 @@ export function clearDesktopPairedSession(uid?: string): void {
 }
 
 /** Hodim mobil hamroh: faqat telefon/planshetda (kompyuterda QR skaner emas). */
-export function shouldHodimUseMobileCompanion(user: LocalStaffUser | null): boolean {
+export function shouldHodimUseMobileCompanion(
+  user: LocalStaffUser | null,
+  isMobileDevice?: boolean,
+): boolean {
   if (!user || (user.role ?? 'hodim') !== 'hodim') return false;
-  return isLikelyPhoneOrSmallTablet();
+  return isMobileDevice ?? isLikelyPhoneOrSmallTablet();
 }

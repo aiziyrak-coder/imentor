@@ -29,6 +29,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
   const [expiresLabel, setExpiresLabel] = useState('');
   const [waitingPhone, setWaitingPhone] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const aliveRef = useRef(true);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -55,23 +56,48 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
       setWaitingPhone(true);
 
       pollRef.current = setInterval(async () => {
+        if (!aliveRef.current) return;
         try {
           const st = await pollDevicePairingStatus(created.pairing_token);
+          if (!aliveRef.current) return;
+          if (st.status === 'expired') {
+            stopPoll();
+            setWaitingPhone(false);
+            setError('QR kod muddati tugagan. «Yangi QR kod» tugmasini bosing.');
+            return;
+          }
           if (st.status !== 'confirmed' || !st.access || !st.refresh) return;
           stopPoll();
           setWaitingPhone(false);
-          const profile = st.profile as LocalStaffUser | undefined;
-          if (!profile?.phoneDigits || !profile.password) {
-            setError('Telefon tasdiqladi, lekin ulanish yakunlanmadi. Telefonda qayta skanerlang.');
+          const profile = (st.profile ?? {}) as Partial<LocalStaffUser>;
+          const phoneDigits = profile.phoneDigits || st.username || '';
+          if (!phoneDigits) {
+            setError('Telefon tasdiqladi, lekin profil yetarli emas. Telefonda qayta skanerlang.');
             return;
           }
           writeBackendTokensFromPair({
             access: st.access,
             refresh: st.refresh,
             role: (st.role as 'hodim') || 'hodim',
-            username: st.username || profile.phoneDigits,
+            username: st.username || phoneDigits,
           });
-          const sessionUser = establishLocalSessionFromProfile({ ...profile, role: 'hodim' });
+          const sessionUser = establishLocalSessionFromProfile({
+            uid: profile.uid || `pair_${phoneDigits}`,
+            displayName: profile.displayName || phoneDigits,
+            firstName: profile.firstName || '',
+            lastName: profile.lastName || '',
+            phoneDisplay: profile.phoneDisplay || phoneDigits,
+            phoneDigits,
+            faculty: profile.faculty || '',
+            department: profile.department || '',
+            direction: profile.direction || '',
+            email: profile.email || '',
+            password: '',
+            role: 'hodim',
+            photoURL: profile.photoURL ?? null,
+            createdAt: profile.createdAt ?? Date.now(),
+            updatedAt: Date.now(),
+          });
           markDesktopPairedSession(sessionUser.uid);
         } catch {
           /* polling */
@@ -85,8 +111,12 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
   }, [stopPoll]);
 
   useEffect(() => {
+    aliveRef.current = true;
     void startPairing();
-    return () => stopPoll();
+    return () => {
+      aliveRef.current = false;
+      stopPoll();
+    };
   }, [startPairing, stopPoll]);
 
   return (

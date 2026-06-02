@@ -115,8 +115,15 @@ function upsertDemoUser(user: LocalStaffUser): void {
   writeUsers(users);
 }
 
+/** Productionda demo hisoblar yaratilmaydi (faqat dev yoki VITE_ENABLE_DEMO_AUTH=true). */
+export function isDemoAuthEnabled(): boolean {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | boolean | undefined> }).env;
+  return Boolean(env?.DEV) || env?.VITE_ENABLE_DEMO_AUTH === 'true';
+}
+
 /** Uchta demo rol uchun login/parol bilan foydalanuvchilarni yaratadi yoki yangilaydi */
 export function ensureDefaultRoleDemosExist(): void {
+  if (!isDemoAuthEnabled()) return;
   const now = Date.now();
 
   upsertDemoUser({

@@ -24,8 +24,12 @@ function ownerKey(): string | null {
   return u.phoneDigits || u.uid || null;
 }
 
-function normTopic(topic: string): string {
+export function normTopicKey(topic: string): string {
   return topic.trim().toLowerCase();
+}
+
+function normTopic(topic: string): string {
+  return normTopicKey(topic);
 }
 
 function localKey(owner: string, kind: PreparedContentKind): string {

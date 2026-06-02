@@ -1,8 +1,11 @@
 /**
  * DeepSeek API (OpenAI-compatible chat/completions).
- * Asosiy: deepseek-chat; murakkab tahlil: deepseek-reasoner.
+ * Production: server proxy (kalit brauzerga kirmaydi).
+ * Dev: to‘g‘ridan-to‘g‘ri API (frontend/.env.local DEEPSEEK_API_KEY).
  */
 import * as pdfjsLib from 'pdfjs-dist';
+import { httpJson } from '../api/httpClient';
+import { getBackendAccessToken } from '../utils/backendAuth';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -13,23 +16,39 @@ export const DEEPSEEK_CHAT = 'deepseek-chat';
 export const DEEPSEEK_FAST = 'deepseek-chat';
 export const DEEPSEEK_REASONER = 'deepseek-reasoner';
 
-const API_URL = 'https://api.deepseek.com/chat/completions';
+const DIRECT_API_URL = 'https://api.deepseek.com/chat/completions';
 
 const JSON_ONLY_SUFFIX =
   '\n\nReturn ONLY valid JSON (no markdown fences, no commentary before or after).';
 
-function apiKey(): string {
+function apiBaseUrl(): string {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  return env?.VITE_API_BASE_URL?.trim() || '/api';
+}
+
+function localApiKey(): string {
   const k =
     typeof process.env.DEEPSEEK_API_KEY === 'string' ? process.env.DEEPSEEK_API_KEY.trim() : '';
   return k;
 }
 
+function viteEnv(): Record<string, string | boolean | undefined> {
+  return (import.meta as ImportMeta & { env?: Record<string, string | boolean | undefined> }).env ?? {};
+}
+
+function preferBackendProxy(): boolean {
+  const env = viteEnv();
+  if (env.PROD) return true;
+  const flag = env.VITE_AI_VIA_BACKEND;
+  return flag === 'true' || flag === '1';
+}
+
 export function assertDeepseekApiKey(): void {
-  if (!apiKey()) {
-    throw new Error(
-      'DEEPSEEK_API_KEY sozlanmagan. Mahalliy: frontend/.env.local. Server: deploy/.env.production va docker compose --build.'
-    );
-  }
+  if (localApiKey()) return;
+  if (preferBackendProxy()) return;
+  throw new Error(
+    'DEEPSEEK_API_KEY sozlanmagan. Mahalliy: frontend/.env.local. Server: deploy/.env.production (backend proxy).'
+  );
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] };
@@ -54,28 +73,53 @@ async function extractTextFromPdfBase64(pdfBase64: string): Promise<string> {
   return pageTexts.join('\n');
 }
 
-async function chatCompletion(params: {
+async function chatViaBackend(params: {
   model: string;
-  system: string;
   messages: ChatMessage[];
   maxTokens: number;
   temperature?: number;
 }): Promise<string> {
-  assertDeepseekApiKey();
-  const msgs: ChatMessage[] = [];
-  const sys = params.system.trim();
-  if (sys) msgs.push({ role: 'system', content: sys });
-  msgs.push(...params.messages);
+  const token = await getBackendAccessToken();
+  if (!token) {
+    throw new Error('AI uchun tizimga kirish kerak (JWT).');
+  }
+  const data = await httpJson<{ content?: string; detail?: string }>(
+    `${apiBaseUrl()}/v1/education-ai/completion/`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        model: params.model,
+        messages: params.messages,
+        max_tokens: params.maxTokens,
+        temperature: params.temperature ?? 0.35,
+      },
+      timeoutMs: 180_000,
+    }
+  );
+  const text = data.content?.trim();
+  if (!text) throw new Error(data.detail || 'DeepSeek: bo‘sh javob (server proxy)');
+  return text;
+}
 
-  const res = await fetch(API_URL, {
+async function chatViaDirectApi(params: {
+  model: string;
+  messages: ChatMessage[];
+  maxTokens: number;
+  temperature?: number;
+}): Promise<string> {
+  const key = localApiKey();
+  if (!key) throw new Error('DEEPSEEK_API_KEY yo‘q (mahalliy dev).');
+
+  const res = await fetch(DIRECT_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey()}`,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
       model: params.model,
-      messages: msgs,
+      messages: params.messages,
       max_tokens: params.maxTokens,
       temperature: params.temperature ?? 0.35,
       stream: false,
@@ -101,6 +145,35 @@ async function chatCompletion(params: {
   const text = data.choices?.[0]?.message?.content;
   if (!text || !String(text).trim()) throw new Error('DeepSeek: bo‘sh javob');
   return String(text).trim();
+}
+
+async function chatCompletion(params: {
+  model: string;
+  system: string;
+  messages: ChatMessage[];
+  maxTokens: number;
+  temperature?: number;
+}): Promise<string> {
+  const msgs: ChatMessage[] = [];
+  const sys = params.system.trim();
+  if (sys) msgs.push({ role: 'system', content: sys });
+  msgs.push(...params.messages);
+
+  const useProxy = preferBackendProxy() || !localApiKey();
+  if (useProxy) {
+    return chatViaBackend({
+      model: params.model,
+      messages: msgs,
+      maxTokens: params.maxTokens,
+      temperature: params.temperature,
+    });
+  }
+  return chatViaDirectApi({
+    model: params.model,
+    messages: msgs,
+    maxTokens: params.maxTokens,
+    temperature: params.temperature,
+  });
 }
 
 export async function deepseekText(opts: {

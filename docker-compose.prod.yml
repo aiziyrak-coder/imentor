@@ -21,7 +21,15 @@ services:
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
     command: /app/entrypoint.sh
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "-H",
+          "X-Forwarded-Proto: https",
+          "http://localhost:8000/api/health/",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -33,7 +41,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: /api
-        DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     ports:
       - "3000:80"
     depends_on:

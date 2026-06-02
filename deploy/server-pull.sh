@@ -54,6 +54,22 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+# Backend ImproperlyConfigured oldini olish
+_sk="$(grep -E '^DJANGO_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' | sed 's/^["'\'']//;s/["'\'']$//')"
+_sk_len="$(printf '%s' "$_sk" | wc -c | tr -d ' ')"
+case "$_sk" in
+  ''|change-me*|CHANGE_ME*|changeme*|django-insecure*|please_replace*|replace_with*)
+    echo "Xato: deploy/.env.production da haqiqiy DJANGO_SECRET_KEY yo‘q (hozir placeholder yoki bo‘sh)." >&2
+    echo "  sh deploy/set-django-secret.sh" >&2
+    echo "  yoki: nano deploy/.env.production" >&2
+    exit 1
+    ;;
+esac
+if [ "$_sk_len" -lt 40 ] 2>/dev/null; then
+  echo "Xato: DJANGO_SECRET_KEY juda qisqa (${_sk_len} belgi, min 40). sh deploy/set-django-secret.sh" >&2
+  exit 1
+fi
+
 git config --global --add safe.directory "$ROOT" 2>/dev/null || true
 git fetch origin
 git checkout "$GIT_REF" 2>/dev/null || git checkout -b "$GIT_REF"

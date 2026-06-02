@@ -26,6 +26,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { aiService, Slide } from '../services/aiService';
+import { migrateLegacySlide } from '../services/presentationEngine';
+import type { SlideLayout } from '../services/presentationTypes';
+import RichSlideView from './presentation/RichSlideView';
 import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../App';
 import {
   loadPresentationArchive,
@@ -37,8 +40,6 @@ import { loadLatestPreparedContent, savePreparedContent } from '../utils/prepare
 import { pushAppNotification } from '../utils/notifications';
 
 export type ThemeId = 'modern-dark' | 'clinical-light' | 'ocean-blue' | 'minimal-glass';
-
-export type SlideLayout = 'standard' | 'split' | 'title' | 'image-focus';
 
 interface Theme {
   id: ThemeId;
@@ -52,9 +53,11 @@ interface Theme {
   badgeClass: string;
 }
 
-const TEMPLATES = [
-  { id: 'standard', name: "Standart", icon: <FileText size={16}/> },
-  { id: 'title', name: "Sarlavha", icon: <Type size={16}/> },
+const TEMPLATES: { id: SlideLayout; name: string; icon: React.ReactNode }[] = [
+  { id: 'split', name: 'Matn + diagramma', icon: <LayoutTemplate size={16} /> },
+  { id: 'visual-focus', name: 'Klinik vizual', icon: <ImageIcon size={16} /> },
+  { id: 'full-visual', name: 'Infografika', icon: <Sparkles size={16} /> },
+  { id: 'title', name: 'Sarlavha', icon: <Type size={16} /> },
 ];
 
 const THEMES: Theme[] = [
@@ -266,7 +269,7 @@ export default function PresentationBuilder() {
     (async () => {
       const prepared = await loadLatestPreparedContent<{ topic: string; slides: Slide[] }>('presentation', topic);
       if (!mounted || !prepared?.slides?.length) return;
-      setSlides(prepared.slides);
+      setSlides(prepared.slides.map((s, i) => migrateLegacySlide(s, i)));
       setCurrentSlideIndex(0);
       setError(null);
     })();
@@ -303,7 +306,9 @@ export default function PresentationBuilder() {
       await savePreparedContent('presentation', topic, { topic, slides: data });
       refreshArchive();
     } catch (err) {
-      setError('Taqdimot yaratishda xatolik yuz berdi. Iltimos qaytadan urinib ko\'ring.');
+      setError(
+        "Taqdimot yaratishda xatolik. Internet va DEEPSEEK_API_KEY ni tekshirib, 1–2 daqiqadan keyin qayta urinib ko'ring.",
+      );
     } finally {
       setLoading(false);
     }
@@ -311,7 +316,7 @@ export default function PresentationBuilder() {
 
   const loadArchiveEntry = (entry: ArchivedPresentation) => {
     setTopic(entry.topic);
-    setSlides(entry.slides.map((s, i) => ({ ...s, layout: i === 0 ? 'title' : 'standard', imageUrl: undefined, imagePrompt: undefined })));
+    setSlides(entry.slides.map((s, i) => migrateLegacySlide({ ...s, imageUrl: undefined }, i)));
     setCurrentSlideIndex(0);
     setCustomPrompt('');
     setError(null);
@@ -591,7 +596,7 @@ export default function PresentationBuilder() {
              });
           }
         } 
-        else if (layoutType === 'image-focus') {
+        else if (layoutType === 'visual-focus') {
           pptxSlide = pres.addSlide({ masterName: 'MASTER_STANDARD' });
           
           pptxSlide.addText(slide.title || '', {
@@ -730,7 +735,7 @@ export default function PresentationBuilder() {
             </button>
             <h2 className="text-xl font-bold text-black/90 tracking-tight">Yangi taqdimot yaratish</h2>
             <p className="text-[13px] text-black/50 mt-1 font-medium">
-              Sohaga oid ma'lumotlar asosida mukammal vizual taqdimot tayyorlash.
+              Diagramma, infografika, klinik kartalar va statistika — haqiqiy dars taqdimoti (matnli ro‘yxat emas).
             </p>
           </div>
 
@@ -824,8 +829,17 @@ export default function PresentationBuilder() {
                 disabled={loading || !topic.trim()}
                 className="h-12 px-8 bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-50 disabled:active:scale-100 text-white shadow-lg shadow-blue-600/20 rounded-2xl text-[14px] font-semibold transition-all flex items-center justify-center gap-2 lg:mb-0"
               >
-                {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-                Yaratish
+                {loading ? (
+                  <>
+                    <Loader2 className="animate-spin shrink-0" size={18} />
+                    Diagrammalar yaratilmoqda…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={18} />
+                    Vizual taqdimot yaratish
+                  </>
+                )}
               </button>
             </div>
             
@@ -1012,135 +1026,16 @@ export default function PresentationBuilder() {
                        
                     </div>
 
-                    <div className="flex items-center gap-4 mb-6">
-                      <div className={`px-3 py-1 border rounded-lg text-[12px] font-mono font-medium backdrop-blur-md ${activeTheme.badgeClass} transition-colors duration-500`}>
-                        {currentSlideIndex + 1}
-                      </div>
-                      <span className={`${activeTheme.textMutedClass} opacity-60 font-medium text-[13px] tracking-wide transition-colors duration-500`}>{topic}</span>
-                    </div>
-                    
-                    <div className="flex-1 w-full h-full relative">
-                      {/* Standard Layout */}
-                      {(slides[currentSlideIndex].layout === 'standard' || (!slides[currentSlideIndex].layout && !slides[currentSlideIndex].imageUrl)) && (
-                        <div className="flex flex-col justify-center h-full">
-                          <h1 className={`font-bold mb-8 leading-tight tracking-tight ${activeTheme.textClass} transition-colors duration-500 text-3xl md:text-4xl`}>
-                            {slides[currentSlideIndex].title}
-                          </h1>
-                          <ul className="space-y-4">
-                            {slides[currentSlideIndex].content.map((point, pi) => (
-                              <motion.li 
-                                key={pi}
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: 0.2 + pi * 0.1, duration: 0.4 }}
-                                className={`flex items-start gap-4 ${activeTheme.textMutedClass} font-medium leading-relaxed transition-colors duration-500 text-lg max-w-[85%]`}
-                              >
-                                <div className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${activeTheme.bulletClass} transition-colors duration-500`} />
-                                <span>{point}</span>
-                              </motion.li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Split Layout */}
-                      {(slides[currentSlideIndex].layout === 'split' || (!slides[currentSlideIndex].layout && slides[currentSlideIndex].imageUrl)) && (
-                        <div className="flex gap-8 h-full items-center">
-                          <div className="flex-1 flex flex-col justify-center">
-                            <h1 className={`font-bold mb-8 leading-tight tracking-tight ${activeTheme.textClass} transition-colors duration-500 text-2xl md:text-3xl`}>
-                              {slides[currentSlideIndex].title}
-                            </h1>
-                            <ul className="space-y-4">
-                              {slides[currentSlideIndex].content.map((point, pi) => (
-                                <motion.li 
-                                  key={pi}
-                                  initial={{ opacity: 0, x: 20 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  transition={{ delay: 0.2 + pi * 0.1, duration: 0.4 }}
-                                  className={`flex items-start gap-4 ${activeTheme.textMutedClass} font-medium leading-relaxed transition-colors duration-500 text-base`}
-                                >
-                                  <div className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${activeTheme.bulletClass} transition-colors duration-500`} />
-                                  <span>{point}</span>
-                                </motion.li>
-                              ))}
-                            </ul>
-                          </div>
-                          
-                          <div className="flex-1 h-full max-h-[360px] rounded-2xl overflow-hidden shadow-2xl border border-black/10 relative bg-black/5 flex items-center justify-center">
-                            {slides[currentSlideIndex].imageUrl ? (
-                              <motion.img 
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                src={slides[currentSlideIndex].imageUrl} 
-                                alt="Slide Visual" 
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                  e.currentTarget.src = buildFallbackInfographicDataUrl(
-                                    slides[currentSlideIndex],
-                                    currentSlideIndex + 1
-                                  );
-                                }}
-                              />
-                            ) : (
-                              <div className="text-black/30 flex flex-col items-center">
-                                <ImageIcon size={32} className="mb-2 opacity-50"/>
-                                <span className="text-[12px] font-medium">Rasm yo'q</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Title Layout */}
-                      {slides[currentSlideIndex].layout === 'title' && (
-                        <div className="flex flex-col items-center justify-center h-full text-center max-w-3xl mx-auto">
-                          <h1 className={`font-bold mb-6 leading-tight tracking-tight ${activeTheme.textClass} transition-colors duration-500 text-4xl md:text-5xl lg:text-6xl`}>
-                            {slides[currentSlideIndex].title}
-                          </h1>
-                          <p className={`text-xl ${activeTheme.textMutedClass} transition-colors duration-500 mt-4 leading-relaxed`}>
-                            {slides[currentSlideIndex].content.join(' ')}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Image Focus Layout */}
-                      {slides[currentSlideIndex].layout === 'image-focus' && (
-                        <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black/5 group">
-                           {slides[currentSlideIndex].imageUrl ? (
-                              <img 
-                                src={slides[currentSlideIndex].imageUrl} 
-                                alt="Slide Visual" 
-                                className="absolute inset-0 w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                  e.currentTarget.src = buildFallbackInfographicDataUrl(
-                                    slides[currentSlideIndex],
-                                    currentSlideIndex + 1
-                                  );
-                                }}
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center text-black/30">
-                                <ImageIcon size={48} className="mb-2 opacity-50"/>
-                                <span className="text-[14px] font-medium">Rasm yuklang yoki yarating</span>
-                              </div>
-                            )}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col justify-end p-8">
-                               <h1 className="font-bold mb-4 leading-tight tracking-tight text-white text-3xl">
-                                {slides[currentSlideIndex].title}
-                              </h1>
-                              <div className="flex flex-wrap gap-x-6 gap-y-2">
-                                {slides[currentSlideIndex].content.map((point, pi) => (
-                                  <div key={pi} className="flex items-center gap-2 text-white/90 font-medium text-sm">
-                                    <div className="w-1 h-1 rounded-full bg-blue-400" />
-                                    <span>{point}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                        </div>
-                      )}
+                    <div className="flex-1 w-full h-full relative min-h-0">
+                      <RichSlideView
+                        slide={slides[currentSlideIndex]}
+                        slideIndex={currentSlideIndex}
+                        totalSlides={slides.length}
+                        topic={topic}
+                        theme={activeTheme}
+                        variant="editor"
+                        transitionEffect={transitionEffect}
+                      />
                     </div>
                   </motion.div>
                 </AnimatePresence>
@@ -1446,148 +1341,17 @@ export default function PresentationBuilder() {
             <div
               className={`absolute bottom-0 left-0 w-[60%] h-[60%] bg-gradient-to-tr ${activeTheme.gradient2} to-transparent rounded-tr-full blur-3xl pointer-events-none`}
             />
-            {(() => {
-              const ps = slides[currentSlideIndex];
-              const showTitleOnly = ps.layout === 'title';
-              const showImageFocus = ps.layout === 'image-focus';
-              const showSplit =
-                ps.layout === 'split' || (!ps.layout && !!ps.imageUrl);
-              const showStandard =
-                ps.layout === 'standard' ||
-                (!ps.layout && !ps.imageUrl && !showTitleOnly);
-
-              return (
-                <div className="relative z-10 flex-1 flex flex-col min-h-0 overflow-auto">
-                  {!showTitleOnly && !showImageFocus && (
-                    <div className={`flex items-center gap-3 mb-4 ${activeTheme.textMutedClass}`}>
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-sm font-mono border ${activeTheme.badgeClass}`}
-                      >
-                        {currentSlideIndex + 1} / {slides.length}
-                      </span>
-                      <span className="text-sm opacity-70 truncate">{topic}</span>
-                    </div>
-                  )}
-
-                  {showStandard && (
-                    <div className="flex flex-col justify-center flex-1 min-h-0">
-                      <h2
-                        className={`font-bold mb-6 leading-tight ${activeTheme.textClass} text-3xl md:text-5xl`}
-                      >
-                        {ps.title}
-                      </h2>
-                      <ul className="space-y-4 md:space-y-5">
-                        {ps.content.map((point, pi) => (
-                          <li
-                            key={pi}
-                            className={`flex items-start gap-4 ${activeTheme.textMutedClass} text-lg md:text-2xl font-medium leading-snug`}
-                          >
-                            <div
-                              className={`mt-2.5 w-2 h-2 rounded-full shrink-0 ${activeTheme.bulletClass}`}
-                            />
-                            <span>{point}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {showSplit && (
-                    <div className="flex flex-col md:flex-row gap-8 flex-1 min-h-0 items-center">
-                      <div className="flex-1 flex flex-col justify-center min-w-0">
-                        <h2
-                          className={`font-bold mb-4 leading-tight ${activeTheme.textClass} text-2xl md:text-4xl`}
-                        >
-                          {ps.title}
-                        </h2>
-                        <ul className="space-y-3">
-                          {ps.content.map((point, pi) => (
-                            <li
-                              key={pi}
-                              className={`flex items-start gap-3 ${activeTheme.textMutedClass} text-base md:text-xl`}
-                            >
-                              <div
-                                className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${activeTheme.bulletClass}`}
-                              />
-                              <span>{point}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="flex-1 w-full max-h-[55vh] md:max-h-none md:h-full min-h-[200px] rounded-2xl overflow-hidden border border-black/10 bg-black/10 flex items-center justify-center">
-                        {ps.imageUrl ? (
-                          <img
-                            src={ps.imageUrl}
-                            alt=""
-                            className="w-full h-full object-contain"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              e.currentTarget.src = buildFallbackInfographicDataUrl(
-                                ps,
-                                currentSlideIndex + 1
-                              );
-                            }}
-                          />
-                        ) : (
-                          <div className={`${activeTheme.textMutedClass} text-sm p-4 text-center`}>
-                            Rasm yo&apos;q — tahrirlash rejimida AI yoki fayl bilan qo&apos;shing
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {showTitleOnly && (
-                    <div className="flex flex-col items-center justify-center flex-1 text-center px-4">
-                      <h2
-                        className={`font-bold leading-tight ${activeTheme.textClass} text-4xl md:text-6xl lg:text-7xl mb-6`}
-                      >
-                        {ps.title}
-                      </h2>
-                      <p className={`text-xl md:text-3xl ${activeTheme.textMutedClass} leading-relaxed max-w-4xl`}>
-                        {ps.content.join(' ')}
-                      </p>
-                    </div>
-                  )}
-
-                  {showImageFocus && (
-                    <div className="relative flex-1 min-h-0 rounded-2xl overflow-hidden bg-black/20">
-                      {ps.imageUrl ? (
-                        <img
-                          src={ps.imageUrl}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            e.currentTarget.src = buildFallbackInfographicDataUrl(
-                              ps,
-                              currentSlideIndex + 1
-                            );
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className={`absolute inset-0 flex items-center justify-center ${activeTheme.textMutedClass}`}
-                        >
-                          Rasm yo&apos;q
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent flex flex-col justify-end p-6 md:p-10">
-                        <h2 className="text-white font-bold text-3xl md:text-5xl mb-4">{ps.title}</h2>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-white/95 text-sm md:text-lg">
-                          {ps.content.map((point, pi) => (
-                            <span key={pi} className="flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-                              {point}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            <div className="relative z-10 flex-1 flex flex-col min-h-0 overflow-hidden">
+              <RichSlideView
+                slide={slides[currentSlideIndex]}
+                slideIndex={currentSlideIndex}
+                totalSlides={slides.length}
+                topic={topic}
+                theme={activeTheme}
+                variant="presenter"
+                transitionEffect={transitionEffect}
+              />
+            </div>
 
             <div className={`absolute bottom-5 left-8 text-xs md:text-sm opacity-40 ${activeTheme.textClass}`}>
               ← → slaydlar · Esc yopish

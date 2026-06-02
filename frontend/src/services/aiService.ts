@@ -18,14 +18,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 const SYS_MEDICAL =
   'Siz FJSTI tibbiyot professori va klinik ta\'lim metodistisiz. Javoblar ilmiy, aniq, darsga tayyor.';
 
-export interface Slide {
-  title: string;
-  content: string[];
-  imagePrompt?: string;
-  imageUrl?: string;
-  layout?: 'standard' | 'split' | 'title' | 'image-focus';
-  notes?: string;
-}
+export type { Slide } from './presentationTypes';
+export { migrateLegacySlide } from './presentationEngine';
+import type { Slide } from './presentationTypes';
+import {
+  generateMedicalPresentation,
+  generateMedicalPresentationFromFile,
+} from './presentationEngine';
 
 export interface CaseStudyQuestion {
   scenario: string;
@@ -106,45 +105,6 @@ function parseJSONSafe<T>(text: string | undefined): T {
     console.error("JSON Parsing Error. Raw text:", text);
     throw new Error("Failed to parse JSON response");
   }
-}
-
-const MAX_BULLET_LEN = 140;
-const MAX_TITLE_SLIDE_LINES = 2;
-
-function shortenBullet(s: string, maxLen: number): string {
-  const t = s.replace(/\s+/g, ' ').trim();
-  if (t.length <= maxLen) return t;
-  return `${t.slice(0, Math.max(0, maxLen - 1)).trimEnd()}…`;
-}
-
-/**
- * Matnni ixchamlashtiradi: kamroq punkt, qisqa qatorlar — slayd odamlarga “vizual” ko‘rinadi.
- */
-function compressSlideCopy(slides: Slide[]): Slide[] {
-  return slides.map((slide, i) => {
-    const raw = Array.isArray(slide.content) ? slide.content : [];
-    if (i === 0 && (slide.layout === 'title' || raw.length <= 2)) {
-      const lines = raw.slice(0, MAX_TITLE_SLIDE_LINES).map((c) => shortenBullet(c, 160));
-      return { ...slide, content: lines };
-    }
-    const capped = raw.slice(0, 3).map((c) => shortenBullet(c, MAX_BULLET_LEN));
-    return { ...slide, content: capped };
-  });
-}
-
-/**
- * Model ba'zan hamma slaydga `standard` beradi — vizual joylashuvni majburan taqsimlaymiz:
- * title + asosan split/image-focus (diagramma/infografika uchun joy).
- */
-function enrichSlidesWithVisualLayouts(slides: Slide[]): Slide[] {
-  return slides.map((slide, i) => {
-    return {
-      ...slide,
-      layout: i === 0 ? 'title' : 'standard',
-      imagePrompt: undefined,
-      imageUrl: undefined,
-    };
-  });
 }
 
 export interface SyllabusTopic {
@@ -268,61 +228,6 @@ async function fetchImageAsDataUrl(url: string, timeoutMs: number = 14000): Prom
   } catch {
     return null;
   }
-}
-
-function buildPedagogicSlidePlan(topic: string, count: number): string[] {
-  const core = [
-    `Mavzu va dolzarblik: ${topic}`,
-    "O'quv maqsadlari va kutilgan natijalar",
-    "Asosiy tushunchalar va terminlar",
-    "Etiologiya va xavf omillari",
-    "Patogenez (bosqichma-bosqich mexanizm)",
-    "Klinik belgilar va simptomlar",
-    "Diagnostika algoritmi",
-    "Laborator / instrumental topilmalar",
-    "Differensial diagnostika",
-    "Davolash strategiyasi",
-    "Klinik case: vaziyat + qaror nuqtalari",
-    "Asoratlar va profilaktika",
-    "Xulosa va amaliy checklist",
-  ];
-  if (count <= core.length) return core.slice(0, count);
-  const extra = Array.from({ length: count - core.length }, (_, i) => `Qo'shimcha tahlil ${i + 1}`);
-  return [...core, ...extra];
-}
-
-function looksLikeWeakDeck(slides: Slide[], expected: number): boolean {
-  if (!Array.isArray(slides) || slides.length < Math.max(6, Math.floor(expected * 0.7))) return true;
-  const filledTitles = slides.filter((s) => (s.title || '').trim().length >= 5).length;
-  const withBullets = slides.filter((s) => Array.isArray(s.content) && s.content.length >= 2).length;
-  return filledTitles < Math.max(5, expected - 2) || withBullets < Math.max(5, expected - 2);
-}
-
-function normalizePedagogicSlides(raw: Slide[], topic: string, count: number): Slide[] {
-  const plan = buildPedagogicSlidePlan(topic, count);
-  const base = [...raw];
-  const normalized: Slide[] = [];
-  for (let i = 0; i < count; i++) {
-    const src = base[i];
-    const title = src?.title?.trim() || plan[i];
-    const rawContent = Array.isArray(src?.content) ? src.content : [];
-    const content = rawContent
-      .map((x) => x?.replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, i === 0 ? 2 : 3);
-    const fallbackBullets =
-      i === 0
-        ? ["Klinik amaliyot uchun tizimli ko'rib chiqish", "Talabalar bilan qaror qabul qilish ko'nikmasi"]
-        : ["Asosiy g'oya", "Klinik amaliy talqin", "Esda qoladigan xulosa"];
-    normalized.push({
-      title,
-      content: content.length > 0 ? content : fallbackBullets,
-      notes: src?.notes?.trim() || `${title}: ushbu slaydni 60-90 soniyada izohlang; klinik misol va amaliy qaror nuqtasini ayting.`,
-      imagePrompt: undefined,
-      imageUrl: undefined,
-    });
-  }
-  return normalized;
 }
 
 function isWeakCaseSession(data: CaseStudySession | null | undefined): boolean {
@@ -467,79 +372,21 @@ export const aiService = {
 
   async generatePresentation(topic: string, description: string = '', count: number = 12, language: AppLanguage = 'uz'): Promise<Slide[]> {
     try {
-      assertDeepseekApiKey();
-      const outLang = languageName(language);
-      const safeCount = Math.min(30, Math.max(8, count));
-      const plan = buildPedagogicSlidePlan(topic, safeCount);
-      const buildPrompt = (strict: boolean): string => `Mavzu: "${topic}".
-Ma'ruza yoki kontekst matni:
-${description || "(matn berilmagan — mavzu bo'yicha Professional taqdimot tuzing)"}
-
-Talablar:
-- Jami aynan ${safeCount} ta slayd.
-- Quyidagi didaktik ketma-ketlikni yoping:
-${plan.map((x, i) => `${i + 1}) ${x}`).join('\n')}
-- Har slayd: 2-3 ta qisqa, aniq punkt, maksimal mazmun.
-- Har slayd uchun: notes (o'qituvchi uchun 3-5 gaplik tushuntirish).
-- Rasm/diagramma/infografika umuman ishlatmang. Faqat matnli, minimalistik, professional lecture slayd bo'lsin.
-- Uzun paragraf, umumiy gap, "..." va suvli matn taqiqlanadi.
-- Output language must be ${outLang}.
-${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatishga tayyor daraja." : ""}`;
-
-      const requestDeck = async (strict: boolean): Promise<Slide[]> =>
-        deepseekJson({
-          model: DEEPSEEK_CHAT,
-          system: `${SYS_MEDICAL} Tibbiy taqdimot JSON massivi: har slayd {title, content[string 2-3], notes}. Text-only. Til: ${outLang}.`,
-          user: buildPrompt(strict),
-          maxTokens: 8192,
-          temperature: strict ? 0.25 : 0.35,
-          parse: (t) => parseJSONSafe<Slide[]>(t),
-        });
-
-      assertDeepseekApiKey();
-      let raw = await requestDeck(false);
-      if (looksLikeWeakDeck(raw, safeCount)) {
-        raw = await requestDeck(true);
-      }
-      const normalized = normalizePedagogicSlides(raw, topic, safeCount);
-      return compressSlideCopy(enrichSlidesWithVisualLayouts(normalized));
+      return await generateMedicalPresentation(topic, description, count, language);
     } catch (error) {
-      console.error("Presentation generation failed:", error);
+      console.error('Presentation generation failed:', error);
       throw error;
     }
   },
 
   async generatePresentationFromFile(file: File, language: AppLanguage = 'uz'): Promise<Slide[]> {
-    const outLang = languageName(language);
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try {
-          const base64Data = (reader.result as string).split(',')[1];
-          assertDeepseekApiKey();
-          const raw = await deepseekWithPdf({
-            model: DEEPSEEK_CHAT,
-            system: `${SYS_MEDICAL} Fayldan 8-14 slayd JSON: {title, content[2-3], notes}. Text-only. Til: ${outLang}.`,
-            userText:
-              "Fayldan taqdimot slaydlari. Birinchi slayd sarlavha. Qisqa punktlar, o'qituvchi notes 3-5 gap.",
-            pdfBase64: base64Data,
-            maxTokens: 8192,
-          });
-          const parsed = parseJSONSafe<Slide[]>(raw);
-          const targetCount = Math.min(14, Math.max(8, parsed.length || 10));
-          const topicFromFile = file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
-          const normalized = normalizePedagogicSlides(parsed, topicFromFile, targetCount);
-          resolve(
-            compressSlideCopy(enrichSlidesWithVisualLayouts(normalized))
-          );
-        } catch (error) {
-          console.error("Presentation generation from file failed:", error);
-          reject(error);
-        }
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+    const topicFromFile = file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
+    try {
+      return await generateMedicalPresentationFromFile(file, topicFromFile, language);
+    } catch (error) {
+      console.error('Presentation generation from file failed:', error);
+      throw error;
+    }
   },
 
   async generateCaseStudy(topic: string, language: AppLanguage = 'uz'): Promise<CaseStudySession> {

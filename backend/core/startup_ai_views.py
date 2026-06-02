@@ -1,4 +1,4 @@
-"""Authenticated REST endpoints: startup Claude calls run on the server."""
+"""Authenticated REST endpoints: startup DeepSeek calls run on the server."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .anthropic_client import AnthropicClientError, generate_claude_text
+from .deepseek_client import DEEPSEEK_REASONER, DeepseekClientError, generate_deepseek_text
 from .permissions import IsStartuperOrAdmin
 from .startup_ai_prompts import (
     coach_user_prompt,
@@ -58,8 +58,8 @@ def _parse_json_loose(text: str) -> Any:
         raise
 
 
-def _anthropic_key() -> str:
-    return getattr(settings, "ANTHROPIC_API_KEY", "") or ""
+def _deepseek_key() -> str:
+    return getattr(settings, "DEEPSEEK_API_KEY", "") or ""
 
 
 class StartupAiQuestionnaireView(APIView):
@@ -67,10 +67,10 @@ class StartupAiQuestionnaireView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _anthropic_key()
+        key = _deepseek_key()
         if not key:
             return Response(
-                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
+                {"detail": "DEEPSEEK_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -91,7 +91,7 @@ class StartupAiQuestionnaireView(APIView):
             out_lang=out_lang,
         )
         try:
-            raw_text = generate_claude_text(
+            raw_text = generate_deepseek_text(
                 key,
                 user_text=user_text,
                 max_tokens=8192,
@@ -99,7 +99,7 @@ class StartupAiQuestionnaireView(APIView):
                 json_only=True,
             )
             parsed = _parse_json_loose(raw_text)
-        except (AnthropicClientError, ValueError, json.JSONDecodeError) as e:
+        except (DeepseekClientError, ValueError, json.JSONDecodeError) as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         if not isinstance(parsed, dict):
             return Response({"detail": "Model javobi JSON obyekt emas."}, status=502)
@@ -111,10 +111,10 @@ class StartupAiTwentyCriteriaView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _anthropic_key()
+        key = _deepseek_key()
         if not key:
             return Response(
-                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
+                {"detail": "DEEPSEEK_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -137,7 +137,7 @@ class StartupAiTwentyCriteriaView(APIView):
             out_lang=out_lang,
         )
         try:
-            raw_text = generate_claude_text(
+            raw_text = generate_deepseek_text(
                 key,
                 user_text=user_text,
                 max_tokens=8192,
@@ -145,7 +145,7 @@ class StartupAiTwentyCriteriaView(APIView):
                 json_only=True,
             )
             parsed = _parse_json_loose(raw_text)
-        except (AnthropicClientError, ValueError, json.JSONDecodeError) as e:
+        except (DeepseekClientError, ValueError, json.JSONDecodeError) as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         if not isinstance(parsed, dict):
             return Response({"detail": "Model javobi JSON obyekt emas."}, status=502)
@@ -157,10 +157,10 @@ class StartupAiInnovationPackView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _anthropic_key()
+        key = _deepseek_key()
         if not key:
             return Response(
-                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
+                {"detail": "DEEPSEEK_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -188,15 +188,16 @@ class StartupAiInnovationPackView(APIView):
         )
         temp = 0.36 if project_domain == "startup" else 0.42
         try:
-            raw_text = generate_claude_text(
+            raw_text = generate_deepseek_text(
                 key,
                 user_text=user_text,
+                model=DEEPSEEK_REASONER,
                 max_tokens=16384,
                 temperature=temp,
                 json_only=True,
             )
             parsed = _parse_json_loose(raw_text)
-        except (AnthropicClientError, ValueError, json.JSONDecodeError) as e:
+        except (DeepseekClientError, ValueError, json.JSONDecodeError) as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         if not isinstance(parsed, dict):
             return Response({"detail": "Model javobi JSON obyekt emas."}, status=502)
@@ -208,10 +209,10 @@ class StartupAiCoachReplyView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def post(self, request):
-        key = _anthropic_key()
+        key = _deepseek_key()
         if not key:
             return Response(
-                {"detail": "ANTHROPIC_API_KEY serverda sozlanmagan."},
+                {"detail": "DEEPSEEK_API_KEY serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         d = request.data if isinstance(request.data, dict) else {}
@@ -253,14 +254,14 @@ class StartupAiCoachReplyView(APIView):
             out_lang=out_lang,
         )
         try:
-            raw_text = generate_claude_text(
+            raw_text = generate_deepseek_text(
                 key,
                 user_text=user_text,
                 max_tokens=4096,
                 temperature=0.45,
                 json_only=False,
             )
-        except AnthropicClientError as e:
+        except DeepseekClientError as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         reply = (raw_text or "").strip()
         if not reply:

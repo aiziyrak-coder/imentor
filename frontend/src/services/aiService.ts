@@ -1,14 +1,14 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
 import {
-  CLAUDE_HAIKU,
-  CLAUDE_SONNET,
-  assertAnthropicApiKey,
-  claudeJson,
-  claudeText,
-  claudeWithImage,
-  claudeWithPdf,
-} from './claudeClient';
+  DEEPSEEK_CHAT,
+  DEEPSEEK_FAST,
+  assertDeepseekApiKey,
+  deepseekJson,
+  deepseekText,
+  deepseekWithImage,
+  deepseekWithPdf,
+} from './deepseekClient';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -420,14 +420,13 @@ export const aiService = {
       });
 
       try {
-        assertAnthropicApiKey();
-        const raw = await claudeWithPdf({
-          model: CLAUDE_SONNET,
+        assertDeepseekApiKey();
+        const raw = await deepseekWithPdf({
+          model: DEEPSEEK_CHAT,
           system:
             "Syllabus PDF dan faqat mavzular ro'yxatini JSON massiv qilib chiqaring: [{\"id\":\"M1\",\"title\":\"...\",\"type\":\"lecture|practical\"}]. id: M/L/Л+raqam (ma'ruza), A/P/П+raqam (amaliyot).",
           userText: `PDF tahlil. Mavzu sarlavhalari PDF tilida qolsin. Noaniq bo'lsa ${uiLangName}.`,
           pdfBase64: base64Data,
-          mimeType: file.type || 'application/pdf',
           maxTokens: 4096,
         });
         firstPass = normalizeSyllabusTopics(parseJSONSafe<SyllabusTopic[]>(raw));
@@ -443,8 +442,8 @@ export const aiService = {
       const docLang = inferPdfLanguage(pdfText);
       const docLangName = languageName(docLang);
       try {
-        const fallbackRaw = await claudeJson({
-          model: CLAUDE_HAIKU,
+        const fallbackRaw = await deepseekJson({
+          model: DEEPSEEK_FAST,
           system: "Syllabus matndan mavzular: JSON massiv, id M/L/Л yoki A/P/П + raqam.",
           user: `Til: ${docLangName}. Matn:\n${pdfText.slice(0, 80000)}`,
           maxTokens: 4096,
@@ -468,7 +467,7 @@ export const aiService = {
 
   async generatePresentation(topic: string, description: string = '', count: number = 12, language: AppLanguage = 'uz'): Promise<Slide[]> {
     try {
-      assertAnthropicApiKey();
+      assertDeepseekApiKey();
       const outLang = languageName(language);
       const safeCount = Math.min(30, Math.max(8, count));
       const plan = buildPedagogicSlidePlan(topic, safeCount);
@@ -488,8 +487,8 @@ ${plan.map((x, i) => `${i + 1}) ${x}`).join('\n')}
 ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatishga tayyor daraja." : ""}`;
 
       const requestDeck = async (strict: boolean): Promise<Slide[]> =>
-        claudeJson({
-          model: CLAUDE_SONNET,
+        deepseekJson({
+          model: DEEPSEEK_CHAT,
           system: `${SYS_MEDICAL} Tibbiy taqdimot JSON massivi: har slayd {title, content[string 2-3], notes}. Text-only. Til: ${outLang}.`,
           user: buildPrompt(strict),
           maxTokens: 8192,
@@ -497,7 +496,7 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
           parse: (t) => parseJSONSafe<Slide[]>(t),
         });
 
-      assertAnthropicApiKey();
+      assertDeepseekApiKey();
       let raw = await requestDeck(false);
       if (looksLikeWeakDeck(raw, safeCount)) {
         raw = await requestDeck(true);
@@ -517,14 +516,13 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
       reader.onloadend = async () => {
         try {
           const base64Data = (reader.result as string).split(',')[1];
-          assertAnthropicApiKey();
-          const raw = await claudeWithPdf({
-            model: CLAUDE_SONNET,
+          assertDeepseekApiKey();
+          const raw = await deepseekWithPdf({
+            model: DEEPSEEK_CHAT,
             system: `${SYS_MEDICAL} Fayldan 8-14 slayd JSON: {title, content[2-3], notes}. Text-only. Til: ${outLang}.`,
             userText:
               "Fayldan taqdimot slaydlari. Birinchi slayd sarlavha. Qisqa punktlar, o'qituvchi notes 3-5 gap.",
             pdfBase64: base64Data,
-            mimeType: file.type || 'application/pdf',
             maxTokens: 8192,
           });
           const parsed = parseJSONSafe<Slide[]>(raw);
@@ -546,11 +544,11 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
 
   async generateCaseStudy(topic: string, language: AppLanguage = 'uz'): Promise<CaseStudySession> {
     try {
-      assertAnthropicApiKey();
+      assertDeepseekApiKey();
       const outLang = languageName(language);
       const requestCases = async (strict: boolean): Promise<CaseStudySession> =>
-        claudeJson({
-          model: CLAUDE_SONNET,
+        deepseekJson({
+          model: DEEPSEEK_CHAT,
           system: `${SYS_MEDICAL} 3 ta klinik case JSON: {topic, questions:[{scenario, answer}]}. Til: ${outLang}.`,
           user: `Mavzu: "${topic}". Har scenario 3-5 paragraf (anamnez, ko'rik, lab). Har answer: differensial, tashxis, davolash. ${strict ? 'Maksimal sifat.' : ''}`,
           maxTokens: 8192,
@@ -576,11 +574,11 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
   },
 
   async generateTests(topic: string, count: number = 10, language: AppLanguage = 'uz'): Promise<TestSession> {
-    assertAnthropicApiKey();
+    assertDeepseekApiKey();
     const outLang = languageName(language);
     const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
-      const parsed = await claudeJson({
-        model: CLAUDE_SONNET,
+      const parsed = await deepseekJson({
+        model: DEEPSEEK_CHAT,
         system: `${SYS_MEDICAL} ${requestedCount} ta test JSON: {topic, questions:[{question, options[5], correctOptionIndex, explanation}]}. Til: ${outLang}.`,
         user: `Mavzu: "${topic}". Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap. ${strict ? 'Faqat valid JSON.' : ''}`,
         maxTokens: 4096,
@@ -630,10 +628,10 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
 
   async generateLectureNotes(topic: string, description: string = '', language: AppLanguage = 'uz'): Promise<LectureNote> {
     try {
-      assertAnthropicApiKey();
+      assertDeepseekApiKey();
       const outLang = languageName(language);
-      const content = await claudeText({
-        model: CLAUDE_SONNET,
+      const content = await deepseekText({
+        model: DEEPSEEK_CHAT,
         system: `${SYS_MEDICAL} Ma'ruza faqat Markdown. Kirish, 3-4 bo'lim, klinik qo'llash, xulosa. Til: ${outLang}.`,
         user: `Mavzu: "${topic}". Qo'shimcha: ${description || '—'}. Batafsil ma'ruza matni.`,
         maxTokens: 8192,
@@ -652,13 +650,12 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
 
   async generateImagePrompt(title: string, content: string[]): Promise<string> {
     try {
-      const text = await claudeText({
-        model: CLAUDE_HAIKU,
+      const text = await deepseekText({
+        model: DEEPSEEK_FAST,
         system: 'One English image prompt for medical slide. Output prompt only, no quotes.',
         user: `Title: ${title}\nBullets:\n${content.join('\n')}`,
         maxTokens: 200,
         temperature: 0.5,
-        cacheSystem: false,
       });
       return text.trim();
     } catch (error) {
@@ -669,9 +666,9 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
 
   async translatePageVisual(imageBase64: string, targetLang: string = 'Uzbek'): Promise<any[]> {
     try {
-      assertAnthropicApiKey();
-      const raw = await claudeWithImage({
-        model: CLAUDE_SONNET,
+      assertDeepseekApiKey();
+      const raw = await deepseekWithImage({
+        model: DEEPSEEK_CHAT,
         system: 'OCR + translate. JSON array: [{"box":[ymin,xmin,ymax,xmax],"text":"..."}] coords 0-1000.',
         userText: `Translate text blocks to ${targetLang}.`,
         imageBase64,
@@ -693,8 +690,8 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
         dictInstruction = `\n\nPlease use the following custom dictionary for terminology:\n${dictEntries}`;
       }
 
-      return claudeText({
-        model: CLAUDE_HAIKU,
+      return deepseekText({
+        model: DEEPSEEK_FAST,
         system: `Professional medical translator. Target: ${targetLang}.${dictInstruction}`,
         user: text,
         maxTokens: 4096,
@@ -708,8 +705,8 @@ ${strict ? "- Sifat juda yuqori bo'lishi shart: intern/rezident darsida ishlatis
 
   async generateExercises(topic: string): Promise<Exercise> {
     try {
-      return claudeJson({
-        model: CLAUDE_SONNET,
+      return deepseekJson({
+        model: DEEPSEEK_CHAT,
         system: `${SYS_MEDICAL} JSON: {title, description, tasks:[{task, type, options?, answer}]}. Til: O'zbek.`,
         user: `Mavzu: "${topic}". Interaktiv mashqlar.`,
         maxTokens: 2048,

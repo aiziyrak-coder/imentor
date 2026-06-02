@@ -5,12 +5,12 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  const anthropicKey =
-    env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || '';
+  const deepseekKey =
+    env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
   return {
     plugins: [react(), tailwindcss()],
     define: {
-      'process.env.ANTHROPIC_API_KEY': JSON.stringify(anthropicKey),
+      'process.env.DEEPSEEK_API_KEY': JSON.stringify(deepseekKey),
     },
     resolve: {
       alias: {

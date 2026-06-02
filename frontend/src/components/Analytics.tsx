@@ -11,7 +11,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { claudeText } from '../services/claudeClient';
+import { deepseekText } from '../services/deepseekClient';
 
 interface Message {
   role: 'user' | 'ai';
@@ -43,7 +43,7 @@ export default function Analytics() {
     setLoading(true);
 
     try {
-      const reply = await claudeText({
+      const reply = await deepseekText({
         system:
           "Siz Farg'ona jamoat salomatlik instituti uchun ixtisoslashtilgan AI mutaxassisiz. Jamoat salomatligi, epidemiologiya va tibbiy ma'lumotlar tahlili. Javoblar o'zbek tilida, ilmiy va tushunarli.",
         user: userMsg,
@@ -158,7 +158,7 @@ export default function Analytics() {
           </div>
           <div className="mt-3 flex items-center justify-between px-2 max-w-4xl mx-auto">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-black/30 uppercase tracking-widest leading-none">
-              <Sparkles size={12} className="text-sky-500" /> Gemini AI
+              <Sparkles size={12} className="text-sky-500" /> DeepSeek AI
             </div>
             <div className="flex gap-2">
                <button className="text-[11px] px-2 py-1 rounded bg-black/5 text-black/40 font-semibold hover:bg-black/10 transition-colors">Yangi Chat</button>

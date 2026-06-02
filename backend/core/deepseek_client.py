@@ -1,6 +1,5 @@
 """
-Server-side Anthropic Claude API (kalit brauzerda emas).
-Asosiy model: Claude Sonnet 4.5; prompt caching tizim matnida.
+Server-side DeepSeek API (OpenAI-compatible). Kalit faqat server muhitida.
 """
 from __future__ import annotations
 
@@ -11,12 +10,12 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
-CLAUDE_SONNET = "claude-sonnet-4-5-20250929"
+DEEPSEEK_CHAT_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_CHAT = "deepseek-chat"
+DEEPSEEK_REASONER = "deepseek-reasoner"
 
 
-class AnthropicClientError(Exception):
+class DeepseekClientError(Exception):
     """Model javobi yoki HTTP xatosi."""
 
 
@@ -34,12 +33,11 @@ def _is_rate_limited(message: str) -> bool:
 def _http_post(api_key: str, payload: dict[str, Any], *, timeout_sec: int = 180) -> dict[str, Any]:
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
-        ANTHROPIC_MESSAGES_URL,
+        DEEPSEEK_CHAT_URL,
         data=data,
         headers={
             "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": ANTHROPIC_VERSION,
+            "Authorization": f"Bearer {api_key}",
         },
         method="POST",
     )
@@ -54,68 +52,58 @@ def _http_post(api_key: str, payload: dict[str, Any], *, timeout_sec: int = 180)
             msg = str((err_obj.get("error") or {}).get("message") or body)
         except json.JSONDecodeError:
             msg = body or str(e)
-        raise AnthropicClientError(f"HTTP {e.code}: {msg}") from e
+        raise DeepseekClientError(f"HTTP {e.code}: {msg}") from e
 
 
 def _extract_text(resp: dict[str, Any]) -> str:
-    content = resp.get("content")
-    if not isinstance(content, list):
-        raise AnthropicClientError("No content in Claude response")
-    chunks: list[str] = []
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
-            chunks.append(block["text"])
-    if not chunks:
-        raise AnthropicClientError("Empty model text")
-    return "".join(chunks)
+    choices = resp.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise DeepseekClientError("No choices in DeepSeek response")
+    msg = choices[0].get("message") if isinstance(choices[0], dict) else None
+    if not isinstance(msg, dict):
+        raise DeepseekClientError("No message in DeepSeek response")
+    content = msg.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise DeepseekClientError("Empty model text")
+    return content.strip()
 
 
-def _system_blocks(system_instruction: str | None, *, cache: bool) -> list[dict[str, Any]]:
-    t = (system_instruction or "").strip()
-    if not t:
-        return []
-    block: dict[str, Any] = {"type": "text", "text": t}
-    if cache:
-        block["cache_control"] = {"type": "ephemeral"}
-    return [block]
-
-
-def generate_claude_text(
+def generate_deepseek_text(
     api_key: str,
     *,
     user_text: str,
     system_instruction: str | None = None,
-    model: str = CLAUDE_SONNET,
+    model: str = DEEPSEEK_CHAT,
     max_tokens: int = 8192,
     temperature: float = 0.35,
     json_only: bool = False,
     max_429_retries: int = 2,
     timeout_sec: int = 180,
 ) -> str:
-    """
-    Claude Messages API — bitta user matn, ixtiyoriy tizim ko‘rsatmasi.
-    json_only=True bo‘lsa tizimga JSON-only qoidasi qo‘shiladi.
-    """
     sys_text = (system_instruction or "").strip()
     if json_only:
         suffix = "\n\nReturn ONLY valid JSON (no markdown fences, no extra text)."
         sys_text = (sys_text + suffix).strip() if sys_text else suffix.strip()
 
+    messages: list[dict[str, str]] = []
+    if sys_text:
+        messages.append({"role": "system", "content": sys_text})
+    messages.append({"role": "user", "content": user_text})
+
     body: dict[str, Any] = {
         "model": model,
+        "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        "messages": [{"role": "user", "content": [{"type": "text", "text": user_text}]}],
+        "stream": False,
     }
-    if sys_text:
-        body["system"] = _system_blocks(sys_text, cache=True)
 
     last_err: str | None = None
     for attempt in range(max(1, max_429_retries)):
         try:
             resp = _http_post(api_key, body, timeout_sec=timeout_sec)
             return _extract_text(resp)
-        except AnthropicClientError as e:
+        except DeepseekClientError as e:
             msg = str(e)
             last_err = msg
             if _is_rate_limited(msg) and attempt + 1 < max_429_retries:
@@ -123,9 +111,10 @@ def generate_claude_text(
                 continue
             raise
 
-    raise AnthropicClientError(last_err or "Unknown Anthropic error")
+    raise DeepseekClientError(last_err or "Unknown DeepSeek error")
 
 
-# Eski import nomi bilan moslik
-generate_content_with_model_fallback = generate_claude_text
-GeminiClientError = AnthropicClientError
+generate_content_with_model_fallback = generate_deepseek_text
+GeminiClientError = DeepseekClientError
+AnthropicClientError = DeepseekClientError
+generate_claude_text = generate_deepseek_text

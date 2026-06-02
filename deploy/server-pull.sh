@@ -18,7 +18,7 @@
 # Talab: git, docker, docker compose v2, deploy/.env.production
 #
 # Kalitni ham yangilab, pull + rebuild — bitta qator:
-#   cd /opt/imentor && GAK='SIZNING_GEMINI_API_KEY' sh deploy/imentor-one-liner.sh
+#   cd /opt/imentor && GAK='sk-...' sh deploy/imentor-one-liner.sh
 #
 # To‘liq qayta Docker build (keshni e’tiborsiz qoldirish — “eski frontend” bo‘lsa):
 #   cd /opt/imentor && sh deploy/server-pull.sh --no-cache

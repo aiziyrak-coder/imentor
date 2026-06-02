@@ -283,6 +283,49 @@ class StaffLocationAlert(models.Model):
         return f"{self.owner_key}:alert@{self.created_at}"
 
 
+def handout_upload_to(instance: "TopicHandout", filename: str) -> str:
+    import re
+
+    safe = re.sub(r"[^\w.\-]", "_", filename)[:180]
+    return f"handouts/{instance.topic_norm[:80]}/{instance.owner_key}_{safe}"
+
+
+class TopicHandout(models.Model):
+    """
+    Syllabus mavzusiga bog‘langan tarqatma (PDF / rasm).
+    Barcha hodimlar bir mavzu bo‘yicha yuklangan materiallarni ko‘radi.
+    """
+
+    KIND_PDF = "pdf"
+    KIND_IMAGE = "image"
+    KIND_CHOICES = (
+        (KIND_PDF, "PDF"),
+        (KIND_IMAGE, "Image"),
+    )
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    author_name = models.CharField(max_length=255, blank=True)
+    topic = models.CharField(max_length=255)
+    topic_norm = models.CharField(max_length=255, db_index=True)
+    title = models.CharField(max_length=255, blank=True)
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_PDF)
+    file = models.FileField(upload_to=handout_upload_to, max_length=512)
+    file_name = models.CharField(max_length=512)
+    file_size = models.PositiveIntegerField(default=0)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+        indexes = [
+            models.Index(fields=["topic_norm", "sort_order", "created_at"]),
+            models.Index(fields=["owner_key", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.topic_norm}:{self.file_name}"
+
+
 class DevicePairingSession(models.Model):
     """
     Hodim: kompyuter QR ↔ telefon login. GPS faqat telefondan.

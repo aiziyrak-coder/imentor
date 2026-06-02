@@ -12,8 +12,10 @@ services:
     environment:
       DJANGO_BEHIND_PROXY: "True"
       DJANGO_SQLITE_PATH: /data/db.sqlite3
+      DJANGO_MEDIA_ROOT: /app/media
     volumes:
       - imentor_sqlite_data:/data
+      - imentor_media_data:/app/media
 
   frontend:
     build:
@@ -26,3 +28,4 @@ services:
 
 volumes:
   imentor_sqlite_data:
+  imentor_media_data:

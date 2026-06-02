@@ -91,6 +91,14 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+MEDIA_URL = os.getenv("DJANGO_MEDIA_URL", "/media/").strip() or "/media/"
+if not MEDIA_URL.endswith("/"):
+    MEDIA_URL += "/"
+_media_root = os.getenv("DJANGO_MEDIA_ROOT", "").strip()
+MEDIA_ROOT = Path(_media_root) if _media_root else (BASE_DIR / "media")
+
+HANDOUT_MAX_BYTES = int(os.getenv("DJANGO_HANDOUT_MAX_BYTES", str(20 * 1024 * 1024)))
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",

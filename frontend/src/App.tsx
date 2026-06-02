@@ -28,6 +28,7 @@ import {
   FolderOpen,
   MapPin,
   Building2,
+  Files,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -80,6 +81,8 @@ import AdminCampusBuildingsPage from './components/admin/AdminCampusBuildingsPag
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
+import HandoutTopicBanner from './components/staff/HandoutTopicBanner';
+import HandoutMaterials from './components/HandoutMaterials';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 
 type View =
@@ -97,6 +100,7 @@ type View =
   | 'tests'
   | 'translator'
   | 'lectures'
+  | 'handouts'
   | 'startup'
   | 'startup-dossier';
 
@@ -105,6 +109,7 @@ type NavItemDef = { id: View; label: string; icon: LucideIcon };
 /** Hodim: dars kontenti + keys/test yaratish (bazaga yoziladi) */
 const HODIM_NAV: NavItemDef[] = [
   { id: 'syllabus', label: 'Syllabus (Mavzu tanlash)', icon: BookOpen },
+  { id: 'handouts', label: 'Tarqatma materiallar', icon: Files },
   { id: 'lectures', label: "Ma'ruza matni", icon: FileText },
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
   { id: 'cases', label: 'Keys yaratish', icon: BriefcaseMedical },
@@ -147,6 +152,7 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   startup: 'Studiya',
   'startup-dossier': 'Dossye',
   syllabus: 'Mavzu',
+  handouts: 'Tarqatma',
   lectures: "Ma'ruza",
   presentation: 'Slayd',
   cases: 'Klinik',
@@ -191,6 +197,10 @@ function readStoredLectureDraft(): string {
 }
 
 export const GlobalTopicContext = createContext<SyllabusTopic | null>(null);
+
+export const AppNavigationContext = createContext<{ openHandouts: () => void }>({
+  openHandouts: () => {},
+});
 export const GlobalLectureContext = createContext<{content: string, setContent: (c: string) => void}>({content: '', setContent: () => {}});
 export const AppLanguageContext = createContext<{
   language: AppLanguage;
@@ -370,6 +380,10 @@ export default function App() {
     });
   }, [activeView, user?.uid, userRole]);
 
+  const openHandouts = useCallback(() => {
+    setActiveView('handouts');
+  }, []);
+
   const handleSelectTopic = (topic: SyllabusTopic) => {
     setSelectedTopic(topic);
     setActiveView('lectures');
@@ -398,6 +412,8 @@ export default function App() {
         return <StartupDossierSubmit />;
       case 'syllabus':
         return <SyllabusView onSelectTopic={handleSelectTopic} />;
+      case 'handouts':
+        return <HandoutMaterials />;
       case 'lectures':
         return <LectureNotes />;
       case 'profile':
@@ -582,6 +598,7 @@ export default function App() {
         </GlobalTopicContext.Provider>
       ) : (
       <GlobalTopicContext.Provider value={selectedTopic}>
+      <AppNavigationContext.Provider value={{ openHandouts }}>
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
         <>
@@ -741,6 +758,11 @@ export default function App() {
 
           {userRole === 'hodim' && <HodimGpsPromptBar />}
 
+          {userRole === 'hodim' &&
+            selectedTopic &&
+            activeView !== 'handouts' &&
+            activeView !== 'syllabus' && <HandoutTopicBanner />}
+
           {isNotificationsOpen && (
             <div
               ref={notificationsPanelRef}
@@ -865,6 +887,7 @@ export default function App() {
       </>
       )}
       </GlobalLectureContext.Provider>
+      </AppNavigationContext.Provider>
     </GlobalTopicContext.Provider>
       )}
     </AppLanguageContext.Provider>

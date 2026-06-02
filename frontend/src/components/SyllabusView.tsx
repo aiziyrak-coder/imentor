@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, FileText, Loader2, BookOpen, FlaskConical, ArrowRight, Trash2, File, CloudOff } from 'lucide-react';
+import {
+  Upload,
+  FileText,
+  Loader2,
+  BookOpen,
+  FlaskConical,
+  ArrowRight,
+  Trash2,
+  File,
+  CloudOff,
+  Check,
+} from 'lucide-react';
+import SyllabusHandoutPanel from './staff/SyllabusHandoutPanel';
 import { motion } from 'motion/react';
 import { aiService, SyllabusTopic } from '../services/aiService';
 import { AppLanguageContext } from '../App';
@@ -13,7 +25,10 @@ import {
 } from '../utils/syllabusApi';
 
 interface SyllabusViewProps {
+  selectedTopic: SyllabusTopic | null;
   onSelectTopic: (topic: SyllabusTopic) => void;
+  onOpenLectures: (topic: SyllabusTopic) => void;
+  onOpenHandouts: () => void;
 }
 
 const LOCAL_SYLLABUS_KEY = 'salomatlik-local-syllabuses-v1';
@@ -37,7 +52,12 @@ function persistLocalSyllabuses(list: ClientSyllabusDocument[]): void {
   }
 }
 
-export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
+export default function SyllabusView({
+  selectedTopic,
+  onSelectTopic,
+  onOpenLectures,
+  onOpenHandouts,
+}: SyllabusViewProps) {
   const { language } = React.useContext(AppLanguageContext);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -262,6 +282,41 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
         </div>
       )}
 
+      {selectedTopic && (
+        <div className="max-w-6xl mx-auto w-full space-y-4">
+          <div className="rounded-2xl border-2 border-blue-300 bg-gradient-to-br from-blue-50/90 to-indigo-50/80 p-4 sm:p-5 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
+                  {language === 'ru' ? 'Выбранная тема' : language === 'en' ? 'Selected topic' : 'Tanlangan mavzu'}
+                </p>
+                <p className="text-base sm:text-lg font-bold text-gray-900 mt-0.5 break-words">
+                  <span className="text-blue-700">{selectedTopic.id}</span> — {selectedTopic.title}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenLectures(selectedTopic)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-[13px] font-semibold hover:bg-blue-500 shadow-sm"
+                >
+                  <FileText size={16} />
+                  {language === 'ru' ? 'Лекция' : language === 'en' ? 'Lecture' : "Ma'ruza matni"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenHandouts}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-400 bg-white text-amber-900 text-[13px] font-semibold hover:bg-amber-50"
+                >
+                  {language === 'ru' ? 'Раздаточные' : language === 'en' ? 'Handouts' : 'Tarqatmalarni ko‘rish'}
+                </button>
+              </div>
+            </div>
+            <SyllabusHandoutPanel topic={selectedTopic} onOpenHandouts={onOpenHandouts} />
+          </div>
+        </div>
+      )}
+
       {syllabuses.length === 0 ? (
         <div className="max-w-xl mx-auto w-full flex flex-col items-center mt-6 sm:mt-10 px-2">
           <motion.div
@@ -336,24 +391,42 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                     </div>
                     {lectures.length > 0 ? (
                       <div className="grid gap-3">
-                        {lectures.map((topic) => (
+                        {lectures.map((topic) => {
+                          const isSelected =
+                            selectedTopic?.id === topic.id && selectedTopic?.title === topic.title;
+                          return (
                           <button
                             key={topic.id}
                             type="button"
                             onClick={() => onSelectTopic(topic)}
-                            className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 text-left bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-300 hover:bg-blue-50/50 transition-all group"
+                            className={`flex items-start gap-3 sm:gap-4 p-3 sm:p-4 text-left rounded-2xl border shadow-sm transition-all group ${
+                              isSelected
+                                ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                                : 'bg-white border-gray-100 hover:shadow-md hover:border-blue-300 hover:bg-blue-50/50'
+                            }`}
                           >
-                            <div className="w-10 h-11 sm:w-11 sm:h-11 bg-blue-50 text-blue-700 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                            <div className={`w-10 h-11 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm shrink-0 transition-colors ${
+                              isSelected
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white'
+                            }`}>
                               {topic.id}
                             </div>
                             <div className="flex-1 mt-0.5 min-w-0">
-                              <p className="font-medium text-gray-800 text-sm leading-snug group-hover:text-blue-900 break-words">
+                              <p className={`font-medium text-sm leading-snug break-words ${
+                                isSelected ? 'text-blue-900' : 'text-gray-800 group-hover:text-blue-900'
+                              }`}>
                                 {topic.title}
                               </p>
                             </div>
-                            <ArrowRight size={18} className="text-gray-300 group-hover:text-blue-500 transition-colors mt-2 shrink-0" />
+                            {isSelected ? (
+                              <Check size={20} className="text-blue-600 mt-2 shrink-0" />
+                            ) : (
+                              <ArrowRight size={18} className="text-gray-300 group-hover:text-blue-500 transition-colors mt-2 shrink-0" />
+                            )}
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-gray-400 text-sm italic">
@@ -377,24 +450,42 @@ export default function SyllabusView({ onSelectTopic }: SyllabusViewProps) {
                     </div>
                     {practicals.length > 0 ? (
                       <div className="grid gap-3">
-                        {practicals.map((topic) => (
+                        {practicals.map((topic) => {
+                          const isSelected =
+                            selectedTopic?.id === topic.id && selectedTopic?.title === topic.title;
+                          return (
                           <button
                             key={topic.id}
                             type="button"
                             onClick={() => onSelectTopic(topic)}
-                            className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 text-left bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-300 hover:bg-indigo-50/50 transition-all group"
+                            className={`flex items-start gap-3 sm:gap-4 p-3 sm:p-4 text-left rounded-2xl border shadow-sm transition-all group ${
+                              isSelected
+                                ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200'
+                                : 'bg-white border-gray-100 hover:shadow-md hover:border-indigo-300 hover:bg-indigo-50/50'
+                            }`}
                           >
-                            <div className="w-10 h-11 sm:w-11 sm:h-11 bg-indigo-50 text-indigo-700 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                            <div className={`w-10 h-11 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center font-bold text-xs sm:text-sm shrink-0 transition-colors ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white'
+                            }`}>
                               {topic.id}
                             </div>
                             <div className="flex-1 mt-0.5 min-w-0">
-                              <p className="font-medium text-gray-800 text-sm leading-snug group-hover:text-indigo-900 break-words">
+                              <p className={`font-medium text-sm leading-snug break-words ${
+                                isSelected ? 'text-indigo-900' : 'text-gray-800 group-hover:text-indigo-900'
+                              }`}>
                                 {topic.title}
                               </p>
                             </div>
-                            <ArrowRight size={18} className="text-gray-300 group-hover:text-indigo-500 transition-colors mt-2 shrink-0" />
+                            {isSelected ? (
+                              <Check size={20} className="text-indigo-600 mt-2 shrink-0" />
+                            ) : (
+                              <ArrowRight size={18} className="text-gray-300 group-hover:text-indigo-500 transition-colors mt-2 shrink-0" />
+                            )}
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-gray-400 text-sm italic">

@@ -6,7 +6,7 @@ import { fetchHandoutsForTopic, type TopicHandoutItem } from '../../utils/handou
 /** Syllabus mavzusi tanlanganda boshqa modullarda qisqa ko‘rsatkich. */
 export default function HandoutTopicBanner() {
   const topic = useContext(GlobalTopicContext);
-  const { openHandouts } = useContext(AppNavigationContext);
+  const { openHandouts, openSyllabus } = useContext(AppNavigationContext);
   const [items, setItems] = useState<TopicHandoutItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -57,10 +57,10 @@ export default function HandoutTopicBanner() {
       </div>
       <button
         type="button"
-        onClick={openHandouts}
+        onClick={items.length > 0 ? openHandouts : openSyllabus}
         className="shrink-0 px-4 py-2 rounded-xl bg-amber-600 text-white text-[13px] font-semibold hover:bg-amber-500 shadow-sm"
       >
-        {items.length > 0 ? 'Ko‘rish' : 'Yuklash'}
+        {items.length > 0 ? 'Ko‘rish' : 'Syllabusda yuklash'}
       </button>
     </div>
   );

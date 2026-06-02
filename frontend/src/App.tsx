@@ -198,8 +198,12 @@ function readStoredLectureDraft(): string {
 
 export const GlobalTopicContext = createContext<SyllabusTopic | null>(null);
 
-export const AppNavigationContext = createContext<{ openHandouts: () => void }>({
+export const AppNavigationContext = createContext<{
+  openHandouts: () => void;
+  openSyllabus: () => void;
+}>({
   openHandouts: () => {},
+  openSyllabus: () => {},
 });
 export const GlobalLectureContext = createContext<{content: string, setContent: (c: string) => void}>({content: '', setContent: () => {}});
 export const AppLanguageContext = createContext<{
@@ -384,10 +388,18 @@ export default function App() {
     setActiveView('handouts');
   }, []);
 
+  const openSyllabus = useCallback(() => {
+    setActiveView('syllabus');
+  }, []);
+
   const handleSelectTopic = (topic: SyllabusTopic) => {
     setSelectedTopic(topic);
-    setActiveView('lectures');
     addNotification('Mavzu tanlandi', `${topic.id}: ${topic.title}`);
+  };
+
+  const handleOpenLectures = (topic: SyllabusTopic) => {
+    setSelectedTopic(topic);
+    setActiveView('lectures');
   };
 
   const renderContent = (view: View) => {
@@ -411,7 +423,14 @@ export default function App() {
       case 'startup-dossier':
         return <StartupDossierSubmit />;
       case 'syllabus':
-        return <SyllabusView onSelectTopic={handleSelectTopic} />;
+        return (
+          <SyllabusView
+            selectedTopic={selectedTopic}
+            onSelectTopic={handleSelectTopic}
+            onOpenLectures={handleOpenLectures}
+            onOpenHandouts={openHandouts}
+          />
+        );
       case 'handouts':
         return <HandoutMaterials />;
       case 'lectures':
@@ -427,7 +446,14 @@ export default function App() {
       case 'translator':
         return <Translator />;
       default:
-        return <SyllabusView onSelectTopic={handleSelectTopic} />;
+        return (
+          <SyllabusView
+            selectedTopic={selectedTopic}
+            onSelectTopic={handleSelectTopic}
+            onOpenLectures={handleOpenLectures}
+            onOpenHandouts={openHandouts}
+          />
+        );
     }
   };
 
@@ -598,7 +624,7 @@ export default function App() {
         </GlobalTopicContext.Provider>
       ) : (
       <GlobalTopicContext.Provider value={selectedTopic}>
-      <AppNavigationContext.Provider value={{ openHandouts }}>
+      <AppNavigationContext.Provider value={{ openHandouts, openSyllabus }}>
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
       {!user ? (
         <>

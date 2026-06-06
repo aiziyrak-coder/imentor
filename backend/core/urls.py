@@ -13,6 +13,13 @@ from .device_pairing_views import (
 )
 from .education_ai_views import EducationAiCompletionView
 from .handout_views import TopicHandoutDetailView, TopicHandoutListCreateView
+from .syllabus_catalog_views import (
+    AdminCourseSyllabusDetailView,
+    AdminCourseSyllabusListCreateView,
+    CourseSyllabusCatalogView,
+    StaffCourseSelectionDetailView,
+    StaffCourseSelectionListView,
+)
 from .views import (
     AdminCampusBuildingDetailView,
     AdminCampusBuildingListCreateView,
@@ -47,6 +54,11 @@ urlpatterns = [
     path('v1/prepared-content/', PreparedContentV1View.as_view(), name='prepared-content-v1'),
     path('v1/syllabuses/', SyllabusDocumentListCreateView.as_view(), name='syllabuses'),
     path('v1/syllabuses/<int:pk>/', SyllabusDocumentDestroyView.as_view(), name='syllabus-detail'),
+    path('v1/admin/course-syllabuses/', AdminCourseSyllabusListCreateView.as_view(), name='admin-course-syllabuses'),
+    path('v1/admin/course-syllabuses/<int:pk>/', AdminCourseSyllabusDetailView.as_view(), name='admin-course-syllabus-detail'),
+    path('v1/course-syllabuses/catalog/', CourseSyllabusCatalogView.as_view(), name='course-syllabus-catalog'),
+    path('v1/course-syllabuses/my/', StaffCourseSelectionListView.as_view(), name='staff-course-selections'),
+    path('v1/course-syllabuses/my/<int:syllabus_id>/', StaffCourseSelectionDetailView.as_view(), name='staff-course-selection-detail'),
     path('v1/live-tests/', LiveTestUpsertView.as_view(), name='live-tests-upsert'),
     path('v1/live-tests/<str:session_key>/', LiveTestPublicRetrieveView.as_view(), name='live-tests-public'),
     path('v1/live-tests/<str:session_key>/submissions/', LiveTestSubmissionView.as_view(), name='live-tests-submissions'),

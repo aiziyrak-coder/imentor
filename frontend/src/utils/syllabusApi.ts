@@ -2,6 +2,27 @@ import { httpJson, HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
 import type { SyllabusTopic } from '../services/aiService';
 
+/** Markaziy fan syllabus (admin katalog) */
+export type CourseSyllabusRow = {
+  id: number;
+  subject_name: string;
+  subject_code: string;
+  description: string;
+  file_name: string;
+  topics: SyllabusTopic[];
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StaffCourseSelectionRow = {
+  id: number;
+  syllabus: CourseSyllabusRow;
+  selected_at: string;
+};
+
+/** @deprecated Legacy per-user syllabus */
 export type SyllabusApiRow = {
   id: number;
   external_id: string;
@@ -23,48 +44,110 @@ function apiBaseUrl(): string {
   return env?.VITE_API_BASE_URL?.trim() || '/api';
 }
 
-function mapRow(row: SyllabusApiRow): ClientSyllabusDocument {
-  return {
-    id: row.external_id,
-    serverId: row.id,
-    fileName: row.file_name,
-    topics: Array.isArray(row.topics) ? row.topics : [],
-    createdAt: Date.parse(row.created_at),
-  };
+function authHeaders(token: string) {
+  return { Authorization: `Bearer ${token}` };
 }
 
-export async function fetchSyllabusesFromServer(): Promise<ClientSyllabusDocument[]> {
+// ——— Admin: markaziy katalog ———
+
+export async function fetchAdminCourseSyllabuses(): Promise<CourseSyllabusRow[]> {
   const token = await getBackendAccessToken();
-  if (!token) return [];
-  const rows = await httpJson<SyllabusApiRow[]>(`${apiBaseUrl()}/v1/syllabuses/`, {
-    headers: { Authorization: `Bearer ${token}` },
+  if (!token) throw new Error('no-backend-token');
+  const rows = await httpJson<CourseSyllabusRow[]>(`${apiBaseUrl()}/v1/admin/course-syllabuses/`, {
+    headers: authHeaders(token),
     timeoutMs: 30000,
   });
-  return Array.isArray(rows) ? rows.map(mapRow) : [];
+  return Array.isArray(rows) ? rows : [];
 }
 
-export async function upsertSyllabusOnServer(doc: ClientSyllabusDocument): Promise<ClientSyllabusDocument> {
+export async function createAdminCourseSyllabus(payload: {
+  subject_name: string;
+  subject_code?: string;
+  description?: string;
+  file_name: string;
+  topics: SyllabusTopic[];
+  sort_order?: number;
+}): Promise<CourseSyllabusRow> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const row = await httpJson<SyllabusApiRow>(`${apiBaseUrl()}/v1/syllabuses/`, {
+  return httpJson<CourseSyllabusRow>(`${apiBaseUrl()}/v1/admin/course-syllabuses/`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: {
-      external_id: doc.id,
-      file_name: doc.fileName,
-      topics: doc.topics,
-    },
+    headers: authHeaders(token),
+    body: payload,
     timeoutMs: 60000,
   });
-  return mapRow(row);
 }
 
-export async function deleteSyllabusOnServer(serverId: number): Promise<void> {
+export async function updateAdminCourseSyllabus(
+  id: number,
+  payload: Partial<{
+    subject_name: string;
+    description: string;
+    file_name: string;
+    topics: SyllabusTopic[];
+    sort_order: number;
+    is_active: boolean;
+  }>,
+): Promise<CourseSyllabusRow> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  await httpJson<unknown>(`${apiBaseUrl()}/v1/syllabuses/${serverId}/`, {
+  return httpJson<CourseSyllabusRow>(`${apiBaseUrl()}/v1/admin/course-syllabuses/${id}/`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: payload,
+    timeoutMs: 60000,
+  });
+}
+
+export async function deleteAdminCourseSyllabus(id: number): Promise<void> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  await httpJson<unknown>(`${apiBaseUrl()}/v1/admin/course-syllabuses/${id}/`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
+    timeoutMs: 20000,
+  });
+}
+
+// ——— Hodim: katalog va tanlov ———
+
+export async function fetchCourseSyllabusCatalog(): Promise<CourseSyllabusRow[]> {
+  const token = await getBackendAccessToken();
+  if (!token) return [];
+  const rows = await httpJson<CourseSyllabusRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/catalog/`, {
+    headers: authHeaders(token),
+    timeoutMs: 30000,
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function fetchMyCourseSelections(): Promise<StaffCourseSelectionRow[]> {
+  const token = await getBackendAccessToken();
+  if (!token) return [];
+  const rows = await httpJson<StaffCourseSelectionRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/my/`, {
+    headers: authHeaders(token),
+    timeoutMs: 30000,
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function selectCourseSyllabus(syllabusId: number): Promise<StaffCourseSelectionRow> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  return httpJson<StaffCourseSelectionRow>(`${apiBaseUrl()}/v1/course-syllabuses/my/`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: { syllabus_id: syllabusId },
+    timeoutMs: 20000,
+  });
+}
+
+export async function unselectCourseSyllabus(syllabusId: number): Promise<void> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  await httpJson<unknown>(`${apiBaseUrl()}/v1/course-syllabuses/my/${syllabusId}/`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
     timeoutMs: 20000,
   });
 }

@@ -5,7 +5,9 @@ from rest_framework import serializers
 
 from .models import (
     CampusBuilding,
+    CourseSyllabus,
     PreparedContent,
+    StaffCourseSelection,
     StaffLocationAlert,
     StaffLocationPing,
     StaffScheduleSlot,
@@ -106,6 +108,54 @@ class TopicHandoutSerializer(serializers.ModelSerializer):
         if obj.owner_key == request.user.username:
             return True
         return resolve_user_role(request.user, request) == "admin"
+
+
+class CourseSyllabusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseSyllabus
+        fields = [
+            "id",
+            "subject_name",
+            "subject_code",
+            "description",
+            "file_name",
+            "topics",
+            "sort_order",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class CourseSyllabusUpsertSerializer(serializers.Serializer):
+    subject_name = serializers.CharField(max_length=255)
+    subject_code = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    description = serializers.CharField(max_length=512, required=False, allow_blank=True)
+    file_name = serializers.CharField(max_length=512)
+    topics = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+    sort_order = serializers.IntegerField(required=False, default=0, min_value=0, max_value=9999)
+    is_active = serializers.BooleanField(required=False, default=True)
+
+    def validate_subject_name(self, value: str) -> str:
+        v = value.strip()
+        if len(v) < 2:
+            raise serializers.ValidationError("Fan nomi juda qisqa.")
+        return v
+
+    def validate_file_name(self, value: str) -> str:
+        v = value.strip()
+        if len(v) < 2:
+            raise serializers.ValidationError("Fayl nomi kerak.")
+        return v
+
+
+class StaffCourseSelectionSerializer(serializers.ModelSerializer):
+    syllabus = CourseSyllabusSerializer(read_only=True)
+
+    class Meta:
+        model = StaffCourseSelection
+        fields = ["id", "syllabus", "selected_at"]
 
 
 class SyllabusDocumentSerializer(serializers.ModelSerializer):

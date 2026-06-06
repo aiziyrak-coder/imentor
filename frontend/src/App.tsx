@@ -78,6 +78,7 @@ import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
 import AdminStartupInbox from './components/admin/AdminStartupInbox';
 import AdminStaffLocationConsole from './components/admin/AdminStaffLocationConsole';
 import AdminCampusBuildingsPage from './components/admin/AdminCampusBuildingsPage';
+import AdminSyllabusCatalog from './components/admin/AdminSyllabusCatalog';
 import StartupWorkspace from './components/startup/StartupWorkspace';
 import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
@@ -93,6 +94,7 @@ type View =
   | 'admin-cases'
   | 'admin-tests'
   | 'admin-startups'
+  | 'admin-syllabuses'
   | 'syllabus'
   | 'profile'
   | 'presentation'
@@ -124,6 +126,7 @@ const ADMIN_NAV: NavItemDef[] = [
   { id: 'admin-staff-location', label: 'Joylashuv (GPS)', icon: MapPin },
   { id: 'admin-campus-buildings', label: 'Kampus binolari', icon: Building2 },
   { id: 'admin-startups', label: 'Startap arizalar', icon: Rocket },
+  { id: 'admin-syllabuses', label: 'Syllabuslar', icon: BookOpen },
   { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
   { id: 'admin-tests', label: 'Test bazasi', icon: ClipboardList },
   { id: 'profile', label: 'Profil', icon: UserCircle },
@@ -147,6 +150,7 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-staff-location': 'GPS',
   'admin-campus-buildings': 'Binolar',
   'admin-startups': 'Startap',
+  'admin-syllabuses': 'Syllabus',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
   startup: 'Studiya',
@@ -418,6 +422,8 @@ export default function App() {
         return <AdminTestsLibrary />;
       case 'admin-startups':
         return <AdminStartupInbox />;
+      case 'admin-syllabuses':
+        return <AdminSyllabusCatalog />;
       case 'startup':
         return <StartupWorkspace />;
       case 'startup-dossier':

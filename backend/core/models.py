@@ -32,7 +32,7 @@ class PreparedContent(models.Model):
 
 class SyllabusDocument(models.Model):
     """
-    Syllabus PDF metadata + extracted topic list, scoped per staff user (JWT username = phone digits).
+    Legacy: per-user syllabus (deprecated). Yangi katalog — CourseSyllabus.
     """
 
     owner_key = models.CharField(max_length=128, db_index=True)
@@ -55,6 +55,58 @@ class SyllabusDocument(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_key}:{self.file_name}"
+
+
+class CourseSyllabus(models.Model):
+    """
+    Administrator yuklaydigan markaziy fan syllabus (barcha o'qituvchilar uchun katalog).
+    """
+
+    subject_name = models.CharField(max_length=255, db_index=True)
+    subject_code = models.CharField(max_length=64, unique=True, db_index=True)
+    description = models.CharField(max_length=512, blank=True)
+    file_name = models.CharField(max_length=512)
+    topics = models.JSONField(default=list)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'subject_name']
+        indexes = [
+            models.Index(fields=['is_active', 'sort_order', 'subject_name']),
+        ]
+
+    def __str__(self) -> str:
+        return self.subject_name
+
+
+class StaffCourseSelection(models.Model):
+    """O'qituvchi tanlagan fan(lar) — shu fan mavzulari ko'rinadi."""
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    syllabus = models.ForeignKey(
+        CourseSyllabus,
+        on_delete=models.CASCADE,
+        related_name='selections',
+    )
+    selected_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-selected_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner_key', 'syllabus'],
+                name='core_staff_course_selection_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['owner_key', '-selected_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key}:{self.syllabus.subject_code}"
 
 
 class LiveTestSession(models.Model):

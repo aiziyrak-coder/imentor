@@ -67,6 +67,8 @@ class CourseSyllabus(models.Model):
     description = models.CharField(max_length=512, blank=True)
     file_name = models.CharField(max_length=512)
     topics = models.JSONField(default=list)
+    # Bir fan ichida bir nechta yo'nalish PDF (masalan: PI, DI, TPI)
+    variants = models.JSONField(default=list, blank=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

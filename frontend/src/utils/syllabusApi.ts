@@ -1,6 +1,7 @@
 import { httpJson, HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
 import type { SyllabusTopic } from '../services/aiService';
+import type { SyllabusVariant } from './syllabusVariant';
 
 /** Markaziy fan syllabus (admin katalog) */
 export type CourseSyllabusRow = {
@@ -10,6 +11,7 @@ export type CourseSyllabusRow = {
   description: string;
   file_name: string;
   topics: SyllabusTopic[];
+  variants: SyllabusVariant[];
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -64,8 +66,9 @@ export async function createAdminCourseSyllabus(payload: {
   subject_name: string;
   subject_code?: string;
   description?: string;
-  file_name: string;
-  topics: SyllabusTopic[];
+  file_name?: string;
+  topics?: SyllabusTopic[];
+  variants?: SyllabusVariant[];
   sort_order?: number;
 }): Promise<CourseSyllabusRow> {
   const token = await getBackendAccessToken();
@@ -74,7 +77,7 @@ export async function createAdminCourseSyllabus(payload: {
     method: 'POST',
     headers: authHeaders(token),
     body: payload,
-    timeoutMs: 60000,
+    timeoutMs: 120000,
   });
 }
 
@@ -85,6 +88,8 @@ export async function updateAdminCourseSyllabus(
     description: string;
     file_name: string;
     topics: SyllabusTopic[];
+    variants: SyllabusVariant[];
+    append_variants: boolean;
     sort_order: number;
     is_active: boolean;
   }>,
@@ -95,7 +100,7 @@ export async function updateAdminCourseSyllabus(
     method: 'PATCH',
     headers: authHeaders(token),
     body: payload,
-    timeoutMs: 60000,
+    timeoutMs: 120000,
   });
 }
 

@@ -27,6 +27,17 @@ def _slugify_subject(name: str) -> str:
     return (s or "fan")[:64]
 
 
+def _sync_legacy_fields(obj: CourseSyllabus) -> None:
+    """Eski file_name/topics maydonlarini birinchi variantdan yangilash."""
+    variants = obj.variants or []
+    if variants:
+        first = variants[0]
+        obj.file_name = (first.get("file_name") or obj.file_name or "")[:512]
+        obj.topics = first.get("topics") or []
+    elif not obj.topics:
+        obj.topics = []
+
+
 class AdminCourseSyllabusListCreateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsAdminRole]
@@ -41,21 +52,33 @@ class AdminCourseSyllabusListCreateView(APIView):
         ser = CourseSyllabusUpsertSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
+        if not (data.get("subject_name") or "").strip():
+            return Response({"detail": "Fan nomi kerak."}, status=400)
         code = (data.get("subject_code") or "").strip() or _slugify_subject(data["subject_name"])
         base_code = code
         n = 1
         while CourseSyllabus.objects.filter(subject_code=code).exists():
             code = f"{base_code}-{n}"[:64]
             n += 1
+        variants = data.get("variants") or []
+        file_name = (data.get("file_name") or "").strip()
+        topics = data.get("topics") or []
+        if variants and not file_name:
+            file_name = variants[0]["file_name"]
+        if variants and not topics:
+            topics = variants[0]["topics"]
         obj = CourseSyllabus.objects.create(
             subject_name=data["subject_name"].strip(),
             subject_code=code,
             description=(data.get("description") or "").strip()[:512],
-            file_name=data["file_name"].strip(),
-            topics=data["topics"],
+            file_name=file_name,
+            topics=topics,
+            variants=variants,
             sort_order=int(data.get("sort_order") or 0),
             is_active=bool(data.get("is_active", True)),
         )
+        _sync_legacy_fields(obj)
+        obj.save(update_fields=["file_name", "topics"])
         return Response(CourseSyllabusSerializer(obj).data, status=status.HTTP_201_CREATED)
 
 
@@ -78,6 +101,21 @@ class AdminCourseSyllabusDetailView(APIView):
             obj.subject_name = data["subject_name"].strip()
         if "description" in data:
             obj.description = (data.get("description") or "").strip()[:512]
+        if "variants" in data:
+            incoming = data["variants"]
+            if data.get("append_variants"):
+                existing = list(obj.variants or [])
+                existing_labels = {(v.get("label") or "").lower() for v in existing}
+                for v in incoming:
+                    key = (v.get("label") or "").lower()
+                    if key in existing_labels:
+                        existing = [x for x in existing if (x.get("label") or "").lower() != key]
+                        existing_labels.discard(key)
+                    existing.append(v)
+                obj.variants = existing
+            else:
+                obj.variants = incoming
+            _sync_legacy_fields(obj)
         if "file_name" in data:
             obj.file_name = data["file_name"].strip()
         if "topics" in data:

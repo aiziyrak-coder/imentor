@@ -21,6 +21,7 @@ import {
   type CourseSyllabusRow,
   type StaffCourseSelectionRow,
 } from '../utils/syllabusApi';
+import { resolveSyllabusVariants, totalTopicCount } from '../utils/syllabusVariant';
 
 interface SyllabusViewProps {
   selectedTopic: SyllabusTopic | null;
@@ -42,6 +43,7 @@ export default function SyllabusView({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [variantBySubject, setVariantBySubject] = useState<Record<number, string>>({});
 
   const selectedIds = new Set(mySelections.map((s) => s.syllabus.id));
 
@@ -161,7 +163,9 @@ export default function SyllabusView({
                     }`}
                   >
                     <p className="font-semibold text-slate-900 text-sm">{row.subject_name}</p>
-                    <p className="text-[11px] text-slate-500">{row.topics.length} mavzu</p>
+                    <p className="text-[11px] text-slate-500">
+                      {resolveSyllabusVariants(row).length} yo'nalish · {totalTopicCount(resolveSyllabusVariants(row))} mavzu
+                    </p>
                     {picked && <span className="text-[10px] text-emerald-700 font-bold">Tanlangan</span>}
                   </button>
                 );
@@ -217,8 +221,14 @@ export default function SyllabusView({
         <div className="max-w-6xl mx-auto w-full space-y-8 pb-4">
           {mySelections.map((sel) => {
             const syllabus = sel.syllabus;
-            const lectures = syllabus.topics.filter((t) => t.type === 'lecture');
-            const practicals = syllabus.topics.filter((t) => t.type === 'practical');
+            const variants = resolveSyllabusVariants(syllabus);
+            const activeLabel =
+              variantBySubject[syllabus.id] ?? variants[0]?.label ?? 'Asosiy';
+            const activeVariant =
+              variants.find((v) => v.label === activeLabel) ?? variants[0];
+            const topics = activeVariant?.topics ?? [];
+            const lectures = topics.filter((t) => t.type === 'lecture');
+            const practicals = topics.filter((t) => t.type === 'practical');
 
             return (
               <motion.div
@@ -231,7 +241,7 @@ export default function SyllabusView({
                   <div>
                     <h3 className="font-bold text-gray-800 text-lg">{syllabus.subject_name}</h3>
                     <p className="text-xs text-gray-500">
-                      {syllabus.topics.length} mavzu · {syllabus.file_name}
+                      {variants.length} yo'nalish · {totalTopicCount(variants)} mavzu
                     </p>
                   </div>
                   <button
@@ -243,6 +253,37 @@ export default function SyllabusView({
                     <X size={16} /> Olib tashlash
                   </button>
                 </div>
+
+                {variants.length > 1 && (
+                  <div className="px-4 sm:px-6 py-3 flex flex-wrap gap-2 border-b border-gray-100 bg-white">
+                    <span className="text-[11px] font-semibold text-gray-500 self-center mr-1">
+                      Yo'nalish:
+                    </span>
+                    {variants.map((v) => (
+                      <button
+                        key={v.label}
+                        type="button"
+                        onClick={() =>
+                          setVariantBySubject((prev) => ({ ...prev, [syllabus.id]: v.label }))
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition ${
+                          activeLabel === v.label
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                        }`}
+                      >
+                        {v.label}
+                        <span className="opacity-70 ml-1">({v.topics.length})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {activeVariant && (
+                  <p className="px-4 sm:px-6 pt-3 text-[11px] text-gray-400 truncate">
+                    {activeVariant.file_name}
+                  </p>
+                )}
 
                 <div className="p-4 sm:p-6 md:p-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <TopicColumn

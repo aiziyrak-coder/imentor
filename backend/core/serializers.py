@@ -110,7 +110,15 @@ class TopicHandoutSerializer(serializers.ModelSerializer):
         return resolve_user_role(request.user, request) == "admin"
 
 
+class SyllabusVariantSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=128)
+    file_name = serializers.CharField(max_length=512)
+    topics = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+
+
 class CourseSyllabusSerializer(serializers.ModelSerializer):
+    variants = serializers.SerializerMethodField()
+
     class Meta:
         model = CourseSyllabus
         fields = [
@@ -120,6 +128,7 @@ class CourseSyllabusSerializer(serializers.ModelSerializer):
             "description",
             "file_name",
             "topics",
+            "variants",
             "sort_order",
             "is_active",
             "created_at",
@@ -127,15 +136,30 @@ class CourseSyllabusSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def get_variants(self, obj) -> list:
+        if obj.variants:
+            return obj.variants
+        if obj.topics:
+            return [
+                {
+                    "label": "Asosiy",
+                    "file_name": obj.file_name or "syllabus.pdf",
+                    "topics": obj.topics,
+                }
+            ]
+        return []
+
 
 class CourseSyllabusUpsertSerializer(serializers.Serializer):
-    subject_name = serializers.CharField(max_length=255)
+    subject_name = serializers.CharField(max_length=255, required=False)
     subject_code = serializers.CharField(max_length=64, required=False, allow_blank=True)
     description = serializers.CharField(max_length=512, required=False, allow_blank=True)
-    file_name = serializers.CharField(max_length=512)
-    topics = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+    file_name = serializers.CharField(max_length=512, required=False, allow_blank=True)
+    topics = serializers.ListField(child=serializers.DictField(), required=False, allow_empty=True)
+    variants = SyllabusVariantSerializer(many=True, required=False)
     sort_order = serializers.IntegerField(required=False, default=0, min_value=0, max_value=9999)
     is_active = serializers.BooleanField(required=False, default=True)
+    append_variants = serializers.BooleanField(required=False, default=False)
 
     def validate_subject_name(self, value: str) -> str:
         v = value.strip()
@@ -143,11 +167,27 @@ class CourseSyllabusUpsertSerializer(serializers.Serializer):
             raise serializers.ValidationError("Fan nomi juda qisqa.")
         return v
 
-    def validate_file_name(self, value: str) -> str:
-        v = value.strip()
-        if len(v) < 2:
-            raise serializers.ValidationError("Fayl nomi kerak.")
-        return v
+    def validate(self, attrs):
+        variants = attrs.get("variants") or []
+        file_name = (attrs.get("file_name") or "").strip()
+        topics = attrs.get("topics") or []
+        is_partial = self.partial
+
+        if not is_partial and not variants and not (file_name and topics):
+            raise serializers.ValidationError(
+                "Kamida bitta PDF (variants) yoki file_name + topics kerak."
+            )
+        if variants:
+            cleaned = []
+            for v in variants:
+                label = (v.get("label") or "").strip() or "Asosiy"
+                fn = (v.get("file_name") or "").strip()
+                tps = v.get("topics") or []
+                if not fn or not tps:
+                    raise serializers.ValidationError("Har bir variant uchun fayl nomi va mavzular kerak.")
+                cleaned.append({"label": label[:128], "file_name": fn, "topics": tps})
+            attrs["variants"] = cleaned
+        return attrs
 
 
 class StaffCourseSelectionSerializer(serializers.ModelSerializer):

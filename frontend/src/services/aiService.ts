@@ -113,6 +113,11 @@ export interface SyllabusTopic {
   type: 'lecture' | 'practical';
 }
 
+export interface SyllabusExtractResult {
+  subject_name: string;
+  topics: SyllabusTopic[];
+}
+
 function languageName(lang: AppLanguage): string {
   if (lang === 'ru') return 'Russian';
   if (lang === 'en') return 'English';
@@ -176,6 +181,74 @@ async function extractPdfText(file: File): Promise<string> {
     pageTexts.push(line);
   }
   return pageTexts.join('\n');
+}
+
+const SYLLABUS_AI_JSON_HINT =
+  '{"subject_name":"Fan nomi PDF dan","topics":[{"id":"M1","title":"...","type":"lecture|practical"}]}';
+
+function normalizeSyllabusExtract(
+  data: Partial<SyllabusExtractResult> | SyllabusTopic[] | null | undefined,
+  fileName: string,
+  pdfText = '',
+): SyllabusExtractResult {
+  let subject_name = '';
+  let rawTopics: SyllabusTopic[] = [];
+
+  if (Array.isArray(data)) {
+    rawTopics = data;
+  } else if (data && typeof data === 'object') {
+    subject_name = String(data.subject_name || '').trim();
+    rawTopics = Array.isArray(data.topics) ? data.topics : [];
+  }
+
+  const topics = normalizeSyllabusTopics(rawTopics);
+  if (!subject_name) {
+    subject_name = guessSubjectFromPdfText(pdfText);
+  }
+  if (!subject_name) {
+    subject_name = fileName
+      .replace(/\.pdf$/i, '')
+      .replace(/\s*\([^)]*\)\s*$/, '')
+      .trim();
+  }
+
+  return {
+    subject_name: subject_name.slice(0, 255) || 'Fan',
+    topics,
+  };
+}
+
+function guessSubjectFromPdfText(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 50);
+
+  const labelPatterns = [
+    /^(?:fan(?:\s+nomi)?|fani|kurs(?:\s+nomi)?|predmet|subject|course|дисциплина|название\s+предмета|наименование\s+дисциплины)[:\s.\-–]+(.+)$/iu,
+    /^syllabus[:\s.\-–]+(.+)$/iu,
+    /^учебная\s+программа[:\s.\-–]+(.+)$/iu,
+  ];
+
+  for (const line of lines) {
+    for (const pattern of labelPatterns) {
+      const match = line.match(pattern);
+      const candidate = match?.[1]?.trim();
+      if (candidate && candidate.length > 2 && candidate.length < 180) {
+        return candidate;
+      }
+    }
+  }
+
+  for (const line of lines) {
+    if (line.length < 4 || line.length > 120) continue;
+    if (/^([MALPЛП])\s*[-.):]?\s*\d+/iu.test(line)) continue;
+    if (/^(ma'?ruza|lecture|amaliy|practical|лекци|практик)/iu.test(line)) continue;
+    return line;
+  }
+
+  return '';
 }
 
 function extractTopicsByRegex(text: string): SyllabusTopic[] {
@@ -307,8 +380,11 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
 }
 
 export const aiService = {
-  async extractSyllabusTopics(file: File, uiLanguage: AppLanguage = 'uz'): Promise<SyllabusTopic[]> {
-    let firstPass: SyllabusTopic[] = [];
+  async extractSyllabusFromPdf(
+    file: File,
+    uiLanguage: AppLanguage = 'uz',
+  ): Promise<SyllabusExtractResult> {
+    let firstPass: SyllabusExtractResult = { subject_name: '', topics: [] };
     let pdfText = '';
     const uiLangName = languageName(uiLanguage);
 
@@ -329,18 +405,19 @@ export const aiService = {
         const raw = await deepseekWithPdf({
           model: DEEPSEEK_CHAT,
           system:
-            "Syllabus PDF dan faqat mavzular ro'yxatini JSON massiv qilib chiqaring: [{\"id\":\"M1\",\"title\":\"...\",\"type\":\"lecture|practical\"}]. id: M/L/Л+raqam (ma'ruza), A/P/П+raqam (amaliyot).",
-          userText: `PDF tahlil. Mavzu sarlavhalari PDF tilida qolsin. Noaniq bo'lsa ${uiLangName}.`,
+            `Syllabus PDF dan fan nomi va mavzular ro'yxatini JSON qilib chiqaring: ${SYLLABUS_AI_JSON_HINT}. ` +
+            "subject_name: PDF sarlavhasidagi fan/kurs nomi. topics id: M/L/Л+raqam (ma'ruza), A/P/П+raqam (amaliyot).",
+          userText:
+            `PDF tahlil. Fan nomi va mavzu sarlavhalari PDF tilida qolsin. Noaniq bo'lsa ${uiLangName}.`,
           pdfBase64: base64Data,
           maxTokens: 4096,
         });
-        firstPass = normalizeSyllabusTopics(parseJSONSafe<SyllabusTopic[]>(raw));
-        if (!needsSyllabusFallback(firstPass)) {
+        firstPass = normalizeSyllabusExtract(parseJSONSafe<Partial<SyllabusExtractResult>>(raw), file.name);
+        if (!needsSyllabusFallback(firstPass.topics)) {
           return firstPass;
         }
       } catch (firstAiError) {
-        // Continue to robust fallback path (PDF text + regex) when AI/network fails.
-        console.warn("Syllabus first-pass AI failed, trying fallback:", firstAiError);
+        console.warn('Syllabus first-pass AI failed, trying fallback:', firstAiError);
       }
 
       pdfText = await extractPdfText(file);
@@ -349,25 +426,38 @@ export const aiService = {
       try {
         const fallbackRaw = await deepseekJson({
           model: DEEPSEEK_FAST,
-          system: "Syllabus matndan mavzular: JSON massiv, id M/L/Л yoki A/P/П + raqam.",
+          system:
+            `Syllabus matndan fan nomi va mavzular: ${SYLLABUS_AI_JSON_HINT}. ` +
+            'subject_name PDF dagi fan nomi.',
           user: `Til: ${docLangName}. Matn:\n${pdfText.slice(0, 80000)}`,
           maxTokens: 4096,
-          parse: (t) => parseJSONSafe<SyllabusTopic[]>(t),
+          parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
         });
-        const secondPass = normalizeSyllabusTopics(fallbackRaw);
-        if (secondPass.length > firstPass.length) return secondPass;
+        const secondPass = normalizeSyllabusExtract(fallbackRaw, file.name, pdfText);
+        if (secondPass.topics.length > firstPass.topics.length) {
+          return secondPass;
+        }
       } catch (secondAiError) {
-        console.warn("Syllabus second-pass AI failed, trying regex-only fallback:", secondAiError);
+        console.warn('Syllabus second-pass AI failed, trying regex-only fallback:', secondAiError);
       }
 
       const regexPass = extractTopicsByRegex(pdfText);
-      if (regexPass.length > 0) return regexPass;
-      if (firstPass.length > 0) return firstPass;
-      throw new Error("Syllabusdan mavzular ajratib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
+      if (regexPass.length > 0) {
+        return normalizeSyllabusExtract({ topics: regexPass }, file.name, pdfText);
+      }
+      if (firstPass.topics.length > 0) {
+        return normalizeSyllabusExtract(firstPass, file.name, pdfText);
+      }
+      throw new Error("Syllabusdan fan nomi yoki mavzular ajratib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
     } catch (error) {
-      console.error("Syllabus extraction failed:", error);
+      console.error('Syllabus extraction failed:', error);
       throw error;
     }
+  },
+
+  async extractSyllabusTopics(file: File, uiLanguage: AppLanguage = 'uz'): Promise<SyllabusTopic[]> {
+    const result = await aiService.extractSyllabusFromPdf(file, uiLanguage);
+    return result.topics;
   },
 
   async generatePresentation(topic: string, description: string = '', count: number = 12, language: AppLanguage = 'uz'): Promise<Slide[]> {

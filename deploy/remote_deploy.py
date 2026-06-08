@@ -208,10 +208,18 @@ def run(
     timeout: int = 900,
 ) -> tuple[int, str, str]:
     stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-    out = stdout.read().decode("utf-8", errors="replace")
-    err = stderr.read().decode("utf-8", errors="replace")
+    out_chunks: list[str] = []
+    err_chunks: list[str] = []
+    while not stdout.channel.exit_status_ready():
+        if stdout.channel.recv_ready():
+            out_chunks.append(stdout.channel.recv(65536).decode("utf-8", errors="replace"))
+        if stderr.channel.recv_stderr_ready():
+            err_chunks.append(stderr.channel.recv_stderr(65536).decode("utf-8", errors="replace"))
+        time.sleep(0.2)
+    out_chunks.append(stdout.read().decode("utf-8", errors="replace"))
+    err_chunks.append(stderr.read().decode("utf-8", errors="replace"))
     code = stdout.channel.recv_exit_status()
-    return code, out, err
+    return code, "".join(out_chunks), "".join(err_chunks)
 
 
 def build_remote_deploy_script(

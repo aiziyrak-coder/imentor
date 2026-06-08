@@ -61,9 +61,10 @@ class AdminCourseSyllabusListCreateView(APIView):
             code = f"{base_code}-{n}"[:64]
             n += 1
         variants = data.get("variants") or []
-        file_name = (data.get("file_name") or "").strip()
+        fan_name = data["subject_name"].strip()
+        file_name = (data.get("file_name") or "").strip() or f"{fan_name}.pdf"
         topics = data.get("topics") or []
-        if variants and not file_name:
+        if variants and not (data.get("file_name") or "").strip():
             file_name = variants[0]["file_name"]
         if variants and not topics:
             topics = variants[0]["topics"]

@@ -174,9 +174,11 @@ class CourseSyllabusUpsertSerializer(serializers.Serializer):
         is_partial = self.partial
 
         if not is_partial and not variants and not (file_name and topics):
-            raise serializers.ValidationError(
-                "Kamida bitta PDF (variants) yoki file_name + topics kerak."
-            )
+            subject_name = (attrs.get("subject_name") or "").strip()
+            if not subject_name:
+                raise serializers.ValidationError(
+                    "Fan nomi yoki kamida bitta PDF (variants) kerak."
+                )
         if variants:
             cleaned = []
             for v in variants:

@@ -1,3 +1,6 @@
+import os
+import re
+
 from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.db import transaction
@@ -177,6 +180,33 @@ class AuthMeView(APIView):
         )
 
 
+def _demo_admin_phone_allowlist() -> frozenset[str]:
+    raw = os.environ.get("DEMO_ADMIN_PHONES", "998901110001")
+    return frozenset(
+        re.sub(r"\D", "", part)
+        for part in raw.split(",")
+        if part.strip()
+    )
+
+
+def _ensure_admin_group(user: User) -> None:
+    group, _ = Group.objects.get_or_create(name="admin")
+    user.groups.add(group)
+
+
+def _resolve_login_role(user: User, requested_role: str) -> str:
+    requested = (requested_role or "hodim").strip().lower()
+    if user.is_superuser:
+        return "admin"
+    if requested == "admin" and user.username in _demo_admin_phone_allowlist():
+        _ensure_admin_group(user)
+        return "admin"
+    db_role = resolve_user_role(user, request=None)
+    if db_role:
+        return db_role
+    return requested if requested in ("admin", "hodim", "tarjimon", "startuper") else "hodim"
+
+
 class LocalLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -195,13 +225,15 @@ class LocalLoginView(APIView):
             "first_name": (data.get("first_name") or "").strip(),
             "last_name": (data.get("last_name") or "").strip(),
         }
-        allowed_self_register = {"hodim", "startuper", "tarjimon"}
+        allowed_self_register = {"hodim", "startuper", "tarjimon", "admin"}
 
         user, created = User.objects.get_or_create(username=username, defaults=defaults)
         if created:
             user.set_password(password)
             user.save(update_fields=["password"])
             reg_role = (role or "hodim").strip().lower()
+            if reg_role == "admin" and username not in _demo_admin_phone_allowlist():
+                reg_role = "hodim"
             if reg_role not in allowed_self_register:
                 reg_role = "hodim"
             group, _ = Group.objects.get_or_create(name=reg_role)
@@ -213,7 +245,7 @@ class LocalLoginView(APIView):
                     {"detail": "Telefon yoki parol noto‘g‘ri."},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
-            role = resolve_user_role(user, request) or "hodim"
+            role = _resolve_login_role(user, data.get("role") or "hodim")
 
         refresh = RefreshToken.for_user(user)
         refresh["role"] = role

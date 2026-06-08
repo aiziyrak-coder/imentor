@@ -4,14 +4,16 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Plus,
   Trash2,
-  Upload,
   FileText,
   ToggleLeft,
   ToggleRight,
   FolderOpen,
 } from 'lucide-react';
+import { HttpError } from '../../api/httpClient';
 import { aiService } from '../../services/aiService';
+import { clearBackendAuthTokens } from '../../utils/backendAuth';
 import { AppLanguageContext } from '../../App';
 import {
   createAdminCourseSyllabus,
@@ -33,13 +35,27 @@ type UploadProgress = {
   fileName: string;
 };
 
+function listLoadErrorMessage(err: unknown): string {
+  if (err instanceof HttpError) {
+    if (err.status === 403) {
+      return 'Administrator huquqi kerak. Chiqib, admin hisob bilan qayta kiring (+998901110001).';
+    }
+    if (err.status === 401) {
+      return 'Tizimga qayta kiring.';
+    }
+  }
+  return 'Fanlar ro‘yxatini yuklab bo‘lmadi.';
+}
+
 export default function AdminSyllabusCatalog() {
   const { language } = React.useContext(AppLanguageContext);
   const [list, setList] = useState<CourseSyllabusRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [subjectName, setSubjectName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | 'new'>('new');
@@ -47,11 +63,12 @@ export default function AdminSyllabusCatalog() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setListError(null);
     try {
       setList(await fetchAdminCourseSyllabuses());
-    } catch {
-      setError('Fanlar ro‘yxatini yuklab bo‘lmadi.');
+    } catch (err) {
+      setList([]);
+      setListError(listLoadErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -72,6 +89,36 @@ export default function AdminSyllabusCatalog() {
       setDescription(existingSubject.description || '');
     }
   }, [existingSubject?.id]);
+
+  const createSubjectOnly = async () => {
+    const fanName = subjectName.trim();
+    if (fanName.length < 2) {
+      setError('Fan nomini kiriting (kamida 2 harf).');
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      await createAdminCourseSyllabus({
+        subject_name: fanName,
+        description: description.trim(),
+        variants: [],
+        sort_order: list.length,
+      });
+      setSubjectName('');
+      setDescription('');
+      setSelectedSubjectId('new');
+      await load();
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 403) {
+        setError('Administrator huquqi kerak. Admin bilan qayta kiring.');
+      } else {
+        setError('Fanni saqlab bo‘lmadi.');
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const processFiles = async (files: FileList | File[]) => {
     const pdfFiles = Array.from(files).filter((f) => /\.pdf$/i.test(f.name));
@@ -131,12 +178,16 @@ export default function AdminSyllabusCatalog() {
       }
 
       await load();
-    } catch {
-      setError(
-        lastFileName
-          ? `"${lastFileName}" tahlil qilinmadi yoki saqlanmadi.`
-          : 'PDF tahlil qilinmadi yoki saqlanmadi.',
-      );
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 403) {
+        setError('Administrator huquqi kerak. Chiqib, admin hisob bilan qayta kiring.');
+      } else {
+        setError(
+          lastFileName
+            ? `"${lastFileName}" tahlil qilinmadi yoki saqlanmadi.`
+            : 'PDF tahlil qilinmadi yoki saqlanmadi.',
+        );
+      }
     } finally {
       setUploading(false);
       setProgress(null);
@@ -185,6 +236,8 @@ export default function AdminSyllabusCatalog() {
     }
   };
 
+  const busy = uploading || creating;
+
   return (
     <div className="p-4 sm:p-6 md:p-8 h-full overflow-y-auto max-w-5xl mx-auto space-y-6">
       <div className="ios-glass rounded-3xl border border-white/70 p-6 shadow-sm space-y-4">
@@ -193,16 +246,31 @@ export default function AdminSyllabusCatalog() {
             <BookOpen size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Syllabuslar (fan katalogi)</h2>
+            <h2 className="text-xl font-bold text-slate-900">Syllabuslar — fan qo‘shish</h2>
             <p className="text-[13px] text-slate-500">
-              PDF yuklang — AI fan nomi va mavzularni o‘zi ajratadi. Bir nechta PDF: yo'nalish fayl nomidan
-              olinadi (masalan: Falsafa (PI).pdf).
+              Fan nomini yozing yoki PDF yuklang — AI fan nomi va mavzularni o‘zi ajratadi.
             </p>
           </div>
         </div>
 
+        {listError && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900 space-y-2">
+            <p>{listError}</p>
+            <button
+              type="button"
+              onClick={() => {
+                clearBackendAuthTokens();
+                window.location.reload();
+              }}
+              className="text-[12px] font-semibold text-indigo-700 hover:underline"
+            >
+              Qayta kirish (token yangilash)
+            </button>
+          </div>
+        )}
+
         <label className="space-y-1 block">
-          <span className="text-[12px] font-semibold text-slate-600">Fan (mavjud yoki yangi)</span>
+          <span className="text-[12px] font-semibold text-slate-600">Mavjud fan (ixtiyoriy)</span>
           <select
             value={selectedSubjectId === 'new' ? 'new' : String(selectedSubjectId)}
             onChange={(e) => {
@@ -216,7 +284,7 @@ export default function AdminSyllabusCatalog() {
               }
             }}
             className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white"
-            disabled={uploading}
+            disabled={busy}
           >
             <option value="new">+ Yangi fan</option>
             {list.map((row) => (
@@ -229,12 +297,12 @@ export default function AdminSyllabusCatalog() {
 
         <div className="grid sm:grid-cols-2 gap-3">
           <label className="space-y-1">
-            <span className="text-[12px] font-semibold text-slate-600">Fan nomi (PDF dan avtomatik)</span>
+            <span className="text-[12px] font-semibold text-slate-600">Fan nomi</span>
             <input
               value={subjectName}
               onChange={(e) => setSubjectName(e.target.value)}
-              placeholder="Yuklangach AI to‘ldiradi — kerak bo‘lsa tahrirlang"
-              disabled={uploading || (selectedSubjectId !== 'new' && Boolean(existingSubject))}
+              placeholder="Masalan: Normal anatomiya yoki PDF dan avtomatik"
+              disabled={busy || (selectedSubjectId !== 'new' && Boolean(existingSubject))}
               className="w-full h-11 px-3 rounded-xl border border-slate-200 disabled:bg-slate-50"
             />
           </label>
@@ -244,10 +312,22 @@ export default function AdminSyllabusCatalog() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Ixtiyoriy"
-              disabled={uploading}
+              disabled={busy}
               className="w-full h-11 px-3 rounded-xl border border-slate-200"
             />
           </label>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy || Boolean(existingSubject)}
+            onClick={() => void createSubjectOnly()}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 text-white text-[13px] font-semibold disabled:opacity-50"
+          >
+            {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+            Fan qo‘shish (nom bilan)
+          </button>
         </div>
 
         <label
@@ -267,8 +347,8 @@ export default function AdminSyllabusCatalog() {
           ) : (
             <>
               <FolderOpen size={28} className="text-indigo-600" />
-              <span className="font-semibold text-indigo-800">Bir yoki bir nechta PDF yuklash</span>
-              <span className="text-[11px] text-indigo-600/80">
+              <span className="font-semibold text-indigo-800">PDF yuklash (bir yoki bir nechta)</span>
+              <span className="text-[11px] text-indigo-600/80 text-center px-4">
                 Fan nomi PDF ichidan, yo'nalish fayl nomidan: Falsafa (PI).pdf → PI
               </span>
             </>
@@ -278,7 +358,7 @@ export default function AdminSyllabusCatalog() {
             accept=".pdf"
             multiple
             className="hidden"
-            disabled={uploading}
+            disabled={busy}
             onChange={(e) => void handlePdfUpload(e)}
           />
         </label>
@@ -291,7 +371,12 @@ export default function AdminSyllabusCatalog() {
           <Loader2 className="animate-spin text-indigo-600" size={40} />
         </div>
       ) : list.length === 0 ? (
-        <p className="text-center text-slate-500 py-12">Hali fan qo‘shilmagan.</p>
+        <div className="text-center py-12 space-y-3">
+          <p className="text-slate-500">Hali fan qo‘shilmagan.</p>
+          <p className="text-[13px] text-slate-400">
+            Yuqorida fan nomini yozib «Fan qo‘shish» bosing yoki PDF yuklang.
+          </p>
+        </div>
       ) : (
         <ul className="space-y-3">
           {list.map((row) => {
@@ -338,31 +423,35 @@ export default function AdminSyllabusCatalog() {
 
                 {open && (
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
-                    {variants.map((v) => (
-                      <div
-                        key={`${row.id}-${v.label}-${v.file_name}`}
-                        className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 px-3 py-2"
-                      >
-                        <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md shrink-0">
-                          {v.label}
-                        </span>
-                        <span className="text-[12px] text-slate-700 truncate flex-1">{v.file_name}</span>
-                        <span className="text-[11px] text-slate-400 shrink-0">{v.topics.length} mavzu</span>
-                        <button
-                          type="button"
-                          onClick={() => void removeVariant(row, v.label)}
-                          className="p-1 text-rose-400 hover:text-rose-600"
+                    {variants.length === 0 ? (
+                      <p className="text-[12px] text-slate-500 py-2">PDF hali yuklanmagan.</p>
+                    ) : (
+                      variants.map((v) => (
+                        <div
+                          key={`${row.id}-${v.label}-${v.file_name}`}
+                          className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 px-3 py-2"
                         >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
+                          <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md shrink-0">
+                            {v.label}
+                          </span>
+                          <span className="text-[12px] text-slate-700 truncate flex-1">{v.file_name}</span>
+                          <span className="text-[11px] text-slate-400 shrink-0">{v.topics.length} mavzu</span>
+                          <button
+                            type="button"
+                            onClick={() => void removeVariant(row, v.label)}
+                            className="p-1 text-rose-400 hover:text-rose-600"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))
+                    )}
                     <button
                       type="button"
                       onClick={() => setSelectedSubjectId(row.id)}
                       className="text-[12px] font-semibold text-indigo-600 hover:underline"
                     >
-                      + Bu fanga yana PDF qo‘shish
+                      + Bu fanga PDF qo‘shish
                     </button>
                   </div>
                 )}

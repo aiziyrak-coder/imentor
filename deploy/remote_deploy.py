@@ -14,7 +14,7 @@ Setup (this machine):
 
 Credentials — choose ONE:
   A) Environment variables (PowerShell):
-     $env:SSH_HOST="209.38.239.183"
+     $env:SSH_HOST="164.90.186.193"
      $env:SSH_USER="root"
      $env:SSH_PASSWORD="your-password"
   B) Key file:
@@ -310,6 +310,11 @@ def main() -> None:
         action="store_true",
         help="Run git push origin REF locally, then SSH: sh deploy/server-pull.sh on the server (no nginx upload)",
     )
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="First-time server setup: install docker/nginx, clone repo, .env.production, SSL",
+    )
     args = parser.parse_args()
 
     cfg = merge_env()
@@ -321,6 +326,60 @@ def main() -> None:
     remote_path = (cfg.get("REMOTE_REPO_PATH") or "/opt/imentor").strip()
     git_url = (cfg.get("GIT_REPO_URL") or "https://github.com/aiziyrak-coder/imentor.git").strip()
     git_ref = (args.ref or cfg.get("GIT_REF") or cfg.get("REMOTE_GIT_REF") or "main").strip()
+
+    deepseek_key = (cfg.get("DEEPSEEK_API_KEY") or "").strip()
+
+    if args.bootstrap:
+        bootstrap_script = f"""set -eu
+export DEBIAN_FRONTEND=noninteractive
+export DEEPSEEK_API_KEY={sh_single_quote(deepseek_key)}
+export REMOTE_REPO_PATH={sh_single_quote(remote_path)}
+export GIT_REPO_URL={sh_single_quote(git_url)}
+export GIT_REF={sh_single_quote(git_ref)}
+if [ -f deploy/server-bootstrap.sh ]; then
+  cd {sh_single_quote(remote_path)} 2>/dev/null || true
+  if [ -f deploy/server-bootstrap.sh ]; then
+    exec sh deploy/server-bootstrap.sh
+  fi
+fi
+# Bootstrap before repo exists — inline minimal setup then clone
+apt-get update -qq
+apt-get install -y -qq git curl nginx certbot python3-certbot-nginx 2>/dev/null || true
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+fi
+systemctl enable --now docker nginx 2>/dev/null || true
+if [ ! -d {sh_single_quote(remote_path)}/.git ]; then
+  mkdir -p "$(dirname {sh_single_quote(remote_path)})"
+  git clone {sh_single_quote(git_url)} {sh_single_quote(remote_path)}
+fi
+cd {sh_single_quote(remote_path)}
+git fetch origin && git checkout {sh_single_quote(git_ref)} 2>/dev/null || git checkout -b {sh_single_quote(git_ref)}
+git pull --ff-only origin {sh_single_quote(git_ref)} 2>/dev/null || true
+export DEEPSEEK_API_KEY={sh_single_quote(deepseek_key)}
+exec sh deploy/server-bootstrap.sh
+"""
+        if args.dry_run:
+            print("--- bootstrap ---")
+            print(bootstrap_script)
+            return
+        host = (cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST") or "").strip()
+        user = (cfg.get("SSH_USER") or cfg.get("IMENTOR_SSH_USER") or "root").strip()
+        port = (cfg.get("SSH_PORT") or "22").strip()
+        if args.verbose:
+            print(f"SSH bootstrap {user}@{host}:{port}", file=sys.stderr)
+        client = ssh_connect_with_retry(cfg, attempts=3, verbose=args.verbose)
+        try:
+            code, out, err = run(client, bootstrap_script, timeout=3600)
+            print(out)
+            if err:
+                print(err, file=sys.stderr)
+            if code != 0:
+                raise SystemExit(f"Bootstrap failed with exit {code}")
+        finally:
+            client.close()
+        print("Bootstrap done.")
+        return
 
     if args.push_then_server:
         pull_remote = build_remote_server_pull_script(remote_path, git_ref)

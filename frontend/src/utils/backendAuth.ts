@@ -92,7 +92,10 @@ export async function getBackendAccessToken(): Promise<string | null> {
   const now = Date.now();
   const leewayMs = 30_000;
   const cached = readCached();
-  if (cached?.access && cached.accessExpMs - leewayMs > now) {
+  const localUser = getCurrentLocalUser();
+  if (localUser && cached && normalizeUserRole(localUser) !== cached.role) {
+    clearBackendAuthTokens();
+  } else if (cached?.access && cached.accessExpMs - leewayMs > now) {
     return cached.access;
   }
   const renewed = await localLoginAndGetTokens();

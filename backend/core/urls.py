@@ -20,6 +20,7 @@ from .syllabus_catalog_views import (
     StaffCourseSelectionDetailView,
     StaffCourseSelectionListView,
 )
+from .migrate_views import MigrateFullExportView
 from .views import (
     AdminCampusBuildingDetailView,
     AdminCampusBuildingListCreateView,
@@ -49,6 +50,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('v1/migrate/full-export/', MigrateFullExportView.as_view(), name='migrate-full-export'),
     path('health/', HealthView.as_view(), name='health'),
     path('prepared-content/', PreparedContentView.as_view(), name='prepared-content'),
     path('v1/prepared-content/', PreparedContentV1View.as_view(), name='prepared-content-v1'),

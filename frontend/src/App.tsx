@@ -489,7 +489,7 @@ export default function App() {
   const mobileAuthShell = (
     <div className="min-h-[100dvh] w-full bg-[#f8fafc] overflow-hidden">
       {authScreen === 'login' ? (
-        <MobileMinimalLogin />
+        <MobileMinimalLogin onSwitchToRegister={() => setAuthScreen('register')} />
       ) : (
         <div className="min-h-[100dvh] flex items-center justify-center px-4">
           <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />

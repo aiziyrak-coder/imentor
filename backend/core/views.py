@@ -36,7 +36,9 @@ from .models import (
 from .location_service import record_ping_and_evaluate
 from .week_schedule import current_week_phase_code, iso_week_number, week_phase_label_uz
 from .serializers import (
+    AdminDeprovisionStaffSerializer,
     CampusBuildingSerializer,
+    ChangePasswordSerializer,
     LocalLoginSerializer,
     LiveTestSubmissionCreateSerializer,
     LiveTestUpsertSerializer,
@@ -68,6 +70,8 @@ class LocalLoginResponseSerializer(serializers.Serializer):
     refresh = serializers.CharField()
     role = serializers.CharField()
     username = serializers.CharField()
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
 
 
 class PreparedContentEmptyResponseSerializer(serializers.Serializer):
@@ -237,6 +241,21 @@ def _resolve_login_role(user: User, requested_role: str) -> str:
     return db_role or "hodim"
 
 
+def _login_response_payload(user: User, role: str) -> dict:
+    refresh = RefreshToken.for_user(user)
+    refresh["role"] = role
+    access = refresh.access_token
+    access["role"] = role
+    return {
+        "access": str(access),
+        "refresh": str(refresh),
+        "role": role,
+        "username": user.username,
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
+    }
+
+
 class LocalLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -249,23 +268,30 @@ class LocalLoginView(APIView):
 
         username = data["phone_digits"]
         password = data["password"]
-        role = data.get("role") or "hodim"
+        is_register = bool(data.get("register"))
+        requested_role = (data.get("role") or "").strip().lower()
 
         defaults = {
             "first_name": (data.get("first_name") or "").strip(),
             "last_name": (data.get("last_name") or "").strip(),
         }
-        allowed_self_register = {"hodim", "startuper", "tarjimon", "admin"}
 
-        user, created = User.objects.get_or_create(username=username, defaults=defaults)
-        if created:
-            user.set_password(password)
-            user.save(update_fields=["password"])
-            reg_role = (role or "hodim").strip().lower()
-            if reg_role == "admin" and username not in _demo_admin_phone_allowlist():
+        user = User.objects.filter(username=username).first()
+        if user is None:
+            if not is_register:
+                return Response(
+                    {"detail": "Telefon yoki parol noto‘g‘ri."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+            reg_role = requested_role or "hodim"
+            if reg_role not in ("hodim", "startuper"):
                 reg_role = "hodim"
-            if reg_role not in allowed_self_register:
-                reg_role = "hodim"
+            user = User.objects.create_user(
+                username=username,
+                password=password,
+                first_name=defaults["first_name"],
+                last_name=defaults["last_name"],
+            )
             group, _ = Group.objects.get_or_create(name=reg_role)
             user.groups.add(group)
             role = reg_role
@@ -275,21 +301,107 @@ class LocalLoginView(APIView):
                     {"detail": "Telefon yoki parol noto‘g‘ri."},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
-            role = _resolve_login_role(user, data.get("role") or "hodim")
+            if is_register:
+                return Response(
+                    {"detail": "Bu telefon raqam allaqachon ro‘yxatdan o‘tgan."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            role = resolve_user_role(user, request=None) or "hodim"
 
-        refresh = RefreshToken.for_user(user)
-        refresh["role"] = role
-        access = refresh.access_token
-        access["role"] = role
+        return Response(_login_response_payload(user, role))
+
+
+class AdminProvisionStaffView(APIView):
+    """Administrator yangi xodimni server bazasiga qo‘shadi yoki parolini yangilaydi."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @extend_schema(request=LocalLoginSerializer)
+    def post(self, request):
+        serializer = LocalLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        username = data["phone_digits"]
+        password = data["password"]
+        role = (data.get("role") or "hodim").strip().lower()
+        if role not in ALLOWED_ROLES:
+            role = "hodim"
+
+        defaults = {
+            "first_name": (data.get("first_name") or "").strip(),
+            "last_name": (data.get("last_name") or "").strip(),
+        }
+        user, created = User.objects.get_or_create(username=username, defaults=defaults)
+        user.set_password(password)
+        if not created:
+            user.first_name = defaults["first_name"] or user.first_name
+            user.last_name = defaults["last_name"] or user.last_name
+        user.save(update_fields=["password", "first_name", "last_name"])
+
+        if role == "admin" and username not in _demo_admin_phone_allowlist():
+            role = "hodim"
+        _set_user_role_group(user, role)
 
         return Response(
             {
-                "access": str(access),
-                "refresh": str(refresh),
-                "role": role,
                 "username": username,
-            }
+                "role": role,
+                "created": created,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+
+class ChangePasswordView(APIView):
+    """Foydalanuvchi o‘z parolini yangilaydi."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    @extend_schema(request=ChangePasswordSerializer)
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = request.user
+        if not user.check_password(data["current_password"]):
+            return Response(
+                {"detail": "Joriy parol noto‘g‘ri."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user.set_password(data["new_password"])
+        user.save(update_fields=["password"])
+        return Response({"ok": True})
+
+
+class AdminDeprovisionStaffView(APIView):
+    """Administrator serverdagi xodim hisobini o‘chiradi."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @extend_schema(request=AdminDeprovisionStaffSerializer)
+    def post(self, request):
+        serializer = AdminDeprovisionStaffSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        username = serializer.validated_data["phone_digits"]
+        if request.user.username == username:
+            return Response(
+                {"detail": "O‘zingizni o‘chira olmaysiz."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = User.objects.filter(username=username).first()
+        if not user:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if user.is_superuser:
+            return Response(
+                {"detail": "Superuser o‘chirib bo‘lmaydi."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class SyllabusDocumentListCreateView(APIView):

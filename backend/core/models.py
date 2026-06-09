@@ -446,6 +446,7 @@ class DevicePairingSession(models.Model):
     ]
 
     pairing_token = models.CharField(max_length=64, unique=True, db_index=True)
+    desktop_secret = models.CharField(max_length=64, blank=True, db_index=True)
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     owner_key = models.CharField(max_length=128, blank=True, db_index=True)
     role = models.CharField(max_length=16, default="hodim")

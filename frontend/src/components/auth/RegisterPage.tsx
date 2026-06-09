@@ -3,12 +3,25 @@ import { Loader2, AlertCircle, Phone, Lock, Building2, Users, BookOpen, Briefcas
 import { motion } from 'motion/react';
 import {
   isValidPhoneDigits,
-  registerLocalStaff,
   normalizePhoneDigits,
+  isDemoAuthEnabled,
   TEST_STAFF_PHONE,
   TEST_STAFF_PASSWORD,
   type UserRole,
 } from '../../utils/localStaffAuth';
+import { registerStaffWithBackend } from '../../utils/backendAuth';
+import { HttpError } from '../../api/httpClient';
+
+const emptyRegisterDefaults = {
+  phone: '+998',
+  password: '',
+  confirmPassword: '',
+  firstName: '',
+  lastName: '',
+  faculty: '',
+  department: '',
+  direction: '',
+};
 
 interface RegisterPageProps {
   onSwitchToLogin: () => void;
@@ -16,14 +29,26 @@ interface RegisterPageProps {
 }
 
 export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPageProps) {
-  const [phone, setPhone] = useState(TEST_STAFF_PHONE);
-  const [password, setPassword] = useState(TEST_STAFF_PASSWORD);
-  const [confirmPassword, setConfirmPassword] = useState(TEST_STAFF_PASSWORD);
-  const [firstName, setFirstName] = useState('Test');
-  const [lastName, setLastName] = useState('Hodim');
-  const [faculty, setFaculty] = useState('Tibbiyot fakulteti');
-  const [department, setDepartment] = useState('Ichki kasalliklar kafedrasi');
-  const [direction, setDirection] = useState("Terapiya yo'nalishi");
+  const demoDefaults = isDemoAuthEnabled()
+    ? {
+        phone: TEST_STAFF_PHONE,
+        password: TEST_STAFF_PASSWORD,
+        confirmPassword: TEST_STAFF_PASSWORD,
+        firstName: 'Test',
+        lastName: 'Hodim',
+        faculty: 'Tibbiyot fakulteti',
+        department: 'Ichki kasalliklar kafedrasi',
+        direction: "Terapiya yo'nalishi",
+      }
+    : emptyRegisterDefaults;
+  const [phone, setPhone] = useState(demoDefaults.phone);
+  const [password, setPassword] = useState(demoDefaults.password);
+  const [confirmPassword, setConfirmPassword] = useState(demoDefaults.confirmPassword);
+  const [firstName, setFirstName] = useState(demoDefaults.firstName);
+  const [lastName, setLastName] = useState(demoDefaults.lastName);
+  const [faculty, setFaculty] = useState(demoDefaults.faculty);
+  const [department, setDepartment] = useState(demoDefaults.department);
+  const [direction, setDirection] = useState(demoDefaults.direction);
   const [regRole, setRegRole] = useState<Extract<UserRole, 'hodim' | 'startuper'>>('hodim');
   const [participantKind, setParticipantKind] = useState<'student' | 'employee'>('student');
   const [studyGroup, setStudyGroup] = useState('');
@@ -69,7 +94,7 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
     }
     setLoading(true);
     try {
-      registerLocalStaff({
+      await registerStaffWithBackend({
         phoneDisplay: phone.trim(),
         password,
         firstName: firstName.trim(),
@@ -84,7 +109,9 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
       });
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
-      if (code === 'already-exists') {
+      if (err instanceof HttpError && err.status === 409) {
+        setError('Bu telefon raqam bilan allaqachon ro‘yxatdan o‘tilgan. «Kirish» sahifasiga o‘ting.');
+      } else if (code === 'already-exists') {
         setError('Bu telefon raqam bilan allaqachon ro‘yxatdan o‘tilgan. «Kirish» sahifasiga o‘ting.');
       } else if (code === 'weak-password') {
         setError('Parol juda zaif.');

@@ -58,6 +58,7 @@ class DevicePairCreateSerializer(serializers.Serializer):
 
 class DevicePairCreateResponseSerializer(serializers.Serializer):
     pairing_token = serializers.CharField()
+    desktop_secret = serializers.CharField()
     expires_at = serializers.DateTimeField()
     qr_payload = serializers.CharField()
 
@@ -87,9 +88,11 @@ class DevicePairCreateView(APIView):
     def post(self, request):
         _expire_stale()
         token = secrets.token_urlsafe(24)
+        desktop_secret = secrets.token_urlsafe(32)
         expires = timezone.now() + timedelta(minutes=PAIRING_TTL_MINUTES)
         DevicePairingSession.objects.create(
             pairing_token=token,
+            desktop_secret=desktop_secret,
             status=DevicePairingSession.STATUS_PENDING,
             expires_at=expires,
         )
@@ -97,6 +100,7 @@ class DevicePairCreateView(APIView):
         return Response(
             {
                 "pairing_token": token,
+                "desktop_secret": desktop_secret,
                 "expires_at": expires,
                 "qr_payload": qr_payload,
             },
@@ -116,9 +120,14 @@ class DevicePairStatusView(APIView):
         token = (pairing_token or "").strip()
         if not token:
             return Response({"detail": "Token kerak."}, status=400)
+        secret = (request.query_params.get("secret") or request.headers.get("X-Desktop-Secret") or "").strip()
+        if not secret:
+            return Response({"detail": "Desktop secret kerak."}, status=403)
         obj = DevicePairingSession.objects.filter(pairing_token=token).first()
         if not obj:
             return Response({"detail": "Topilmadi."}, status=404)
+        if not obj.desktop_secret or not secrets.compare_digest(obj.desktop_secret, secret):
+            return Response({"detail": "Ruxsat yo‘q."}, status=403)
         now = timezone.now()
         if obj.status == DevicePairingSession.STATUS_PENDING and obj.expires_at < now:
             obj.status = DevicePairingSession.STATUS_EXPIRED
@@ -138,6 +147,7 @@ class DevicePairStatusView(APIView):
             obj.access_token = ""
             obj.refresh_token = ""
             obj.profile_snapshot = {}
+            obj.desktop_secret = ""
             obj.save(
                 update_fields=[
                     "status",
@@ -145,6 +155,7 @@ class DevicePairStatusView(APIView):
                     "access_token",
                     "refresh_token",
                     "profile_snapshot",
+                    "desktop_secret",
                 ]
             )
             return Response(payload)

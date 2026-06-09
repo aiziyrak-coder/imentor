@@ -4,14 +4,13 @@ import { motion } from 'motion/react';
 import {
   isValidPhoneDigits,
   ensureDefaultRoleDemosExist,
-  loginLocalStaff,
   logoutLocalStaff,
   normalizePhoneDigits,
   normalizeUserRole,
   DEMO_ROLE_LOGINS,
   isDemoAuthEnabled,
 } from '../../utils/localStaffAuth';
-import { getBackendAccessToken } from '../../utils/backendAuth';
+import { getBackendAccessToken, loginStaffWithBackendFallback } from '../../utils/backendAuth';
 import { isDesktopBrowser } from '../../utils/deviceDetection';
 
 interface LoginPageProps {
@@ -29,7 +28,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     ensureDefaultRoleDemosExist();
   }, []);
 
-  const loginWithCredentials = (phoneVal: string, passwordVal: string) => {
+  const loginWithCredentials = async (phoneVal: string, passwordVal: string) => {
     setError(null);
     setPhone(phoneVal);
     setPassword(passwordVal);
@@ -49,13 +48,13 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     }
     setLoading(true);
     try {
-      const u = loginLocalStaff(phoneVal, passwordVal);
+      const u = await loginStaffWithBackendFallback(phoneVal, passwordVal);
       if (normalizeUserRole(u) === 'hodim' && isDesktopBrowser()) {
         setError("Hodim kompyuterda faqat QR orqali kiradi.");
         logoutLocalStaff();
         return;
       }
-      void getBackendAccessToken();
+      await getBackendAccessToken();
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {
@@ -96,13 +95,13 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     }
     setLoading(true);
     try {
-      const u = loginLocalStaff(phone, password);
+      const u = await loginStaffWithBackendFallback(phone, password);
       if (normalizeUserRole(u) === 'hodim' && isDesktopBrowser()) {
         setError("Hodim kompyuterda faqat QR orqali kiradi.");
         logoutLocalStaff();
         return;
       }
-      void getBackendAccessToken();
+      await getBackendAccessToken();
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {

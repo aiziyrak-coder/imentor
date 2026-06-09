@@ -30,6 +30,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
   const [waitingPhone, setWaitingPhone] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const aliveRef = useRef(true);
+  const desktopSecretRef = useRef('');
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) {
@@ -45,6 +46,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
     setWaitingPhone(false);
     try {
       const created = await createDevicePairingSession();
+      desktopSecretRef.current = created.desktop_secret;
       const url = await QRCode.toDataURL(created.qr_payload, {
         width: 280,
         margin: 2,
@@ -58,7 +60,10 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
       pollRef.current = setInterval(async () => {
         if (!aliveRef.current) return;
         try {
-          const st = await pollDevicePairingStatus(created.pairing_token);
+          const st = await pollDevicePairingStatus(
+            created.pairing_token,
+            desktopSecretRef.current,
+          );
           if (!aliveRef.current) return;
           if (st.status === 'expired') {
             stopPoll();
@@ -93,7 +98,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
             direction: profile.direction || '',
             email: profile.email || '',
             password: '',
-            role: 'hodim',
+            role: (st.role as LocalStaffUser['role']) || profile.role || 'hodim',
             photoURL: profile.photoURL ?? null,
             createdAt: profile.createdAt ?? Date.now(),
             updatedAt: Date.now(),

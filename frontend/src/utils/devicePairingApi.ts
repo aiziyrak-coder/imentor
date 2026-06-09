@@ -9,6 +9,7 @@ function apiBaseUrl(): string {
 
 export type DevicePairCreateResponse = {
   pairing_token: string;
+  desktop_secret: string;
   expires_at: string;
   qr_payload: string;
 };
@@ -31,10 +32,17 @@ export async function createDevicePairingSession(): Promise<DevicePairCreateResp
   });
 }
 
-export async function pollDevicePairingStatus(token: string): Promise<DevicePairStatusResponse> {
-  return httpJson(`${apiBaseUrl()}/v1/device-pair/status/${encodeURIComponent(token)}/`, {
-    timeoutMs: 12000,
-  });
+export async function pollDevicePairingStatus(
+  token: string,
+  desktopSecret: string,
+): Promise<DevicePairStatusResponse> {
+  const qs = new URLSearchParams({ secret: desktopSecret });
+  return httpJson(
+    `${apiBaseUrl()}/v1/device-pair/status/${encodeURIComponent(token)}/?${qs.toString()}`,
+    {
+      timeoutMs: 12000,
+    },
+  );
 }
 
 export async function confirmDevicePairing(

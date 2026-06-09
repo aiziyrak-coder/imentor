@@ -2,18 +2,22 @@ import React, { useState } from 'react';
 import { Loader2, Lock, Phone } from 'lucide-react';
 import {
   isValidPhoneDigits,
-  loginLocalStaff,
   normalizePhoneDigits,
 } from '../../utils/localStaffAuth';
-import { getBackendAccessToken } from '../../utils/backendAuth';
+import { getBackendAccessToken, loginStaffWithBackendFallback } from '../../utils/backendAuth';
+import { HttpError } from '../../api/httpClient';
 
-export default function MobileMinimalLogin() {
+type Props = {
+  onSwitchToRegister?: () => void;
+};
+
+export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     const digits = normalizePhoneDigits(phone);
@@ -27,10 +31,14 @@ export default function MobileMinimalLogin() {
     }
     setLoading(true);
     try {
-      const u = loginLocalStaff(phone, password);
-      void getBackendAccessToken();
-    } catch {
-      setError("Telefon yoki parol noto'g'ri");
+      await loginStaffWithBackendFallback(phone, password);
+      await getBackendAccessToken();
+    } catch (err) {
+      if (err instanceof HttpError && (err.status === 0 || err.message.includes('abort'))) {
+        setError('Internet aloqasini tekshiring');
+      } else {
+        setError("Telefon yoki parol noto'g'ri");
+      }
     } finally {
       setLoading(false);
     }
@@ -87,6 +95,19 @@ export default function MobileMinimalLogin() {
           >
             {loading ? <Loader2 className="animate-spin" size={24} /> : 'Kirish'}
           </button>
+
+          {onSwitchToRegister && (
+            <p className="text-center text-[14px] text-slate-500 pt-2">
+              Hisobingiz yo‘qmi?{' '}
+              <button
+                type="button"
+                onClick={onSwitchToRegister}
+                className="font-semibold text-sky-700 underline underline-offset-2"
+              >
+                Ro‘yxatdan o‘tish
+              </button>
+            </p>
+          )}
         </form>
       </div>
     </div>

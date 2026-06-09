@@ -221,6 +221,25 @@ function writeUsers(users: LocalStaffUser[]): void {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
+/** Sessiyada parol saqlanmaydi — faqat users ro‘yxatida. */
+function sessionSnapshot(user: LocalStaffUser): LocalStaffUser {
+  return { ...withRoleDefault(user), password: '' };
+}
+
+function hydrateSessionUser(session: LocalStaffUser): LocalStaffUser {
+  const users = readUsers();
+  const stored =
+    users.find((u) => u.uid === session.uid) ??
+    users.find((u) => u.phoneDigits === session.phoneDigits);
+  if (!stored) return withRoleDefault(session);
+  return withRoleDefault({
+    ...stored,
+    ...session,
+    password: stored.password,
+    role: stored.role ?? session.role,
+  });
+}
+
 function emitAuthChanged(): void {
   window.dispatchEvent(new CustomEvent(AUTH_EVENT));
 }
@@ -236,7 +255,7 @@ export function getCurrentLocalUser(): LocalStaffUser | null {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const u = JSON.parse(raw) as LocalStaffUser;
-    return withRoleDefault(u);
+    return hydrateSessionUser(u);
   } catch {
     return null;
   }
@@ -333,7 +352,7 @@ export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
   };
   users.unshift(user);
   writeUsers(users);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(user)));
   emitAuthChanged();
   logStaffActivity({
     kind: 'register',
@@ -367,7 +386,7 @@ export function touchCurrentUserActivityIfNeeded(): void {
   };
   users[idx] = updated;
   writeUsers(users);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(updated)));
   emitAuthChanged();
 }
 
@@ -376,9 +395,12 @@ export function establishLocalSessionFromProfile(profile: LocalStaffUser): Local
   const users = readUsers();
   const idx = users.findIndex((u) => u.phoneDigits === profile.phoneDigits);
   const now = Date.now();
+  const existing = idx >= 0 ? users[idx] : null;
   const sessionUser = withRoleDefault({
-    ...(idx >= 0 ? users[idx] : profile),
+    ...(existing ?? profile),
     ...profile,
+    uid: existing?.uid ?? profile.uid,
+    password: profile.password || existing?.password || '',
     lastActiveAt: now,
     updatedAt: now,
   });
@@ -388,7 +410,7 @@ export function establishLocalSessionFromProfile(profile: LocalStaffUser): Local
     users.unshift(sessionUser);
   }
   writeUsers(users);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(sessionUser)));
   emitAuthChanged();
   return sessionUser;
 }
@@ -407,7 +429,7 @@ export function loginLocalStaff(phoneInput: string, password: string): LocalStaf
   });
   users[idx] = sessionUser;
   writeUsers(users);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(sessionUser)));
   emitAuthChanged();
   logStaffActivity({
     kind: 'login',
@@ -429,7 +451,7 @@ export function syncCurrentUserRoleFromServer(role: UserRole): void {
   const updated = withRoleDefault({ ...users[idx], role, updatedAt: Date.now() });
   users[idx] = updated;
   writeUsers(users);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(updated)));
   emitAuthChanged();
 }
 
@@ -472,7 +494,7 @@ export function updateCurrentLocalUser(
   }
   users[idx] = updated;
   writeUsers(users);
-  localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+  localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(updated)));
   emitAuthChanged();
   return updated;
 }
@@ -617,7 +639,7 @@ export function adminUpdateStaffUser(
 
   const session = getCurrentLocalUser();
   if (session?.uid === uid) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(merged));
+    localStorage.setItem(SESSION_KEY, JSON.stringify(sessionSnapshot(merged)));
   }
   emitAuthChanged();
   return merged;

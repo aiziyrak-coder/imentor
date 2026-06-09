@@ -20,6 +20,10 @@ import {
   normalizeUserRole,
   type LocalStaffUser,
 } from '../utils/localStaffAuth';
+import {
+  clearBackendAuthTokens,
+  syncCurrentUserPasswordToBackend,
+} from '../utils/backendAuth';
 
 export default function UserProfile() {
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
@@ -93,6 +97,7 @@ export default function UserProfile() {
       if (currentPassword !== user.password) {
         setPasswordMessage({ text: "Joriy parol noto'g'ri kiritildi.", type: 'error' });
       } else {
+        await syncCurrentUserPasswordToBackend(currentPassword, newPassword);
         const updated = updateCurrentLocalUser({ password: newPassword });
         setUser(updated);
         setPasswordMessage({ text: "Parol muvaffaqiyatli o'zgartirildi!", type: 'success' });
@@ -109,6 +114,7 @@ export default function UserProfile() {
   };
 
   const handleLogout = async () => {
+    clearBackendAuthTokens();
     logoutLocalStaff();
   };
 

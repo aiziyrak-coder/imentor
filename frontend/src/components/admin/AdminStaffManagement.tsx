@@ -10,7 +10,12 @@ import {
   subscribeLocalAuth,
   type LocalStaffUser,
   type UserRole,
+  normalizePhoneDigits,
 } from '../../utils/localStaffAuth';
+import {
+  deprovisionBackendStaffAccount,
+  provisionBackendStaffAccount,
+} from '../../utils/backendAuth';
 
 function formatLastActive(ts: number | undefined): string {
   if (ts == null || Number.isNaN(ts)) return '—';
@@ -119,6 +124,14 @@ export default function AdminStaffManagement() {
           return;
         }
       }
+      const phoneDigits = normalizePhoneDigits(form.phoneDisplay.trim());
+      await provisionBackendStaffAccount({
+        phone_digits: phoneDigits,
+        password: form.password,
+        role: form.role,
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+      });
       adminCreateStaffUser({
         phoneDisplay: form.phoneDisplay.trim(),
         password: form.password,
@@ -139,7 +152,8 @@ export default function AdminStaffManagement() {
       const c = err instanceof Error ? err.message : '';
       if (c === 'already-exists') setError('Bu telefon allaqachon band.');
       else if (c === 'forbidden') setError('Ruxsat yo‘q.');
-      else setError('Yaratishda xato.');
+      else if (c === 'no-admin-token') setError('Serverga ulanish yo‘q. Qayta kiring.');
+      else setError('Yaratishda xato. Internet va admin huquqini tekshiring.');
     } finally {
       setSaving(false);
     }
@@ -179,6 +193,16 @@ export default function AdminStaffManagement() {
       if (form.password.trim().length >= 6) {
         patch.password = form.password;
       }
+      const syncPassword = form.password.trim().length >= 6 ? form.password : editing.password;
+      if (syncPassword) {
+        await provisionBackendStaffAccount({
+          phone_digits: normalizePhoneDigits(form.phoneDisplay.trim()),
+          password: syncPassword,
+          role: form.role,
+          first_name: form.firstName.trim(),
+          last_name: form.lastName.trim(),
+        });
+      }
       adminUpdateStaffUser(editing.uid, patch);
       setEditing(null);
       setForm(emptyForm);
@@ -193,17 +217,22 @@ export default function AdminStaffManagement() {
     }
   };
 
-  const handleDelete = (u: LocalStaffUser) => {
+  const handleDelete = async (u: LocalStaffUser) => {
     if (!window.confirm(`${u.displayName} o‘chirilsinmi?`)) return;
     setError(null);
+    setSaving(true);
     try {
+      await deprovisionBackendStaffAccount(u.phoneDigits);
       adminDeleteStaffUser(u.uid);
       load();
     } catch (err: unknown) {
       const c = err instanceof Error ? err.message : '';
       if (c === 'cannot-delete-self') setError('O‘zingizni o‘chira olmaysiz.');
       else if (c === 'last-admin') setError('Yagona administratorni o‘chirib bo‘lmaydi.');
+      else if (c === 'no-admin-token') setError('Serverga ulanish yo‘q. Qayta kiring.');
       else setError('O‘chirishda xato.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -285,7 +314,7 @@ export default function AdminStaffManagement() {
           onClick={() => {
             setShowAdd(true);
             setEditing(null);
-            setForm({ ...emptyForm, password: 'Temp1234' });
+            setForm({ ...emptyForm });
             setError(null);
           }}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold shadow-md"

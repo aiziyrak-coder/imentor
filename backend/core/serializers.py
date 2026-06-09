@@ -27,6 +27,22 @@ class LocalLoginSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     display_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    register = serializers.BooleanField(required=False, default=False)
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(min_length=6, max_length=128)
+    new_password = serializers.CharField(min_length=6, max_length=128)
+
+
+class AdminDeprovisionStaffSerializer(serializers.Serializer):
+    phone_digits = serializers.CharField(max_length=20)
+
+    def validate_phone_digits(self, value: str) -> str:
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if len(digits) != 12 or not digits.startswith("998"):
+            raise serializers.ValidationError("phone_digits must be Uzbekistan 12-digit number.")
+        return digits
 
     def validate_phone_digits(self, value: str) -> str:
         digits = "".join(ch for ch in value if ch.isdigit())

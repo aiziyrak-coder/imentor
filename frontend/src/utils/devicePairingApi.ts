@@ -36,10 +36,15 @@ export async function pollDevicePairingStatus(
   token: string,
   desktopSecret: string,
 ): Promise<DevicePairStatusResponse> {
-  const qs = new URLSearchParams({ secret: desktopSecret });
+  const headers: Record<string, string> = {};
+  if (desktopSecret) {
+    headers['X-Desktop-Secret'] = desktopSecret;
+  }
+  const qs = desktopSecret ? `?${new URLSearchParams({ secret: desktopSecret }).toString()}` : '';
   return httpJson(
-    `${apiBaseUrl()}/v1/device-pair/status/${encodeURIComponent(token)}/?${qs.toString()}`,
+    `${apiBaseUrl()}/v1/device-pair/status/${encodeURIComponent(token)}/${qs}`,
     {
+      headers,
       timeoutMs: 12000,
     },
   );

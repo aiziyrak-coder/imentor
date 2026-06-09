@@ -340,8 +340,12 @@ class PreparedContentApiTests(TestCase):
         token = create.json()['pairing_token']
         secret = create.json()['desktop_secret']
 
-        denied = self.client.get(f'/api/v1/device-pair/status/{token}/')
-        self.assertEqual(denied.status_code, 403)
+        legacy_poll = self.client.get(f'/api/v1/device-pair/status/{token}/')
+        self.assertEqual(legacy_poll.status_code, 200)
+        self.assertEqual(legacy_poll.json()['status'], 'pending')
+
+        wrong_secret = self.client.get(f'/api/v1/device-pair/status/{token}/?secret=wrong-value')
+        self.assertEqual(wrong_secret.status_code, 403)
 
         pending = self.client.get(f'/api/v1/device-pair/status/{token}/?secret={secret}')
         self.assertEqual(pending.status_code, 200)

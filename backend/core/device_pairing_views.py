@@ -120,14 +120,14 @@ class DevicePairStatusView(APIView):
         token = (pairing_token or "").strip()
         if not token:
             return Response({"detail": "Token kerak."}, status=400)
-        secret = (request.query_params.get("secret") or request.headers.get("X-Desktop-Secret") or "").strip()
-        if not secret:
-            return Response({"detail": "Desktop secret kerak."}, status=403)
         obj = DevicePairingSession.objects.filter(pairing_token=token).first()
         if not obj:
             return Response({"detail": "Topilmadi."}, status=404)
-        if not obj.desktop_secret or not secrets.compare_digest(obj.desktop_secret, secret):
-            return Response({"detail": "Ruxsat yo‘q."}, status=403)
+        secret = (request.query_params.get("secret") or request.headers.get("X-Desktop-Secret") or "").strip()
+        stored_secret = (obj.desktop_secret or "").strip()
+        # Secret yuborilsa — mos kelishi shart; yuborilmasa — eski frontend/kesh bilan moslik.
+        if stored_secret and secret and not secrets.compare_digest(stored_secret, secret):
+            return Response({"detail": "Desktop secret noto‘g‘ri."}, status=403)
         now = timezone.now()
         if obj.status == DevicePairingSession.STATUS_PENDING and obj.expires_at < now:
             obj.status = DevicePairingSession.STATUS_EXPIRED

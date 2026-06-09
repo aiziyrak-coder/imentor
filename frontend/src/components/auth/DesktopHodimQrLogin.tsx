@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Monitor, RefreshCw, Smartphone } from 'lucide-react';
 import QRCode from 'qrcode';
+import { HttpError } from '../../api/httpClient';
 import {
   createDevicePairingSession,
   pollDevicePairingStatus,
@@ -46,7 +47,11 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
     setWaitingPhone(false);
     try {
       const created = await createDevicePairingSession();
-      desktopSecretRef.current = created.desktop_secret;
+      desktopSecretRef.current = created.desktop_secret || '';
+      if (!desktopSecretRef.current) {
+        setError('QR sessiyasi yaratildi, lekin xavfsizlik kaliti yo‘q. Sahifani yangilang (Ctrl+F5).');
+        return;
+      }
       const url = await QRCode.toDataURL(created.qr_payload, {
         width: 280,
         margin: 2,
@@ -104,8 +109,14 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
             updatedAt: Date.now(),
           });
           markDesktopPairedSession(sessionUser.uid);
-        } catch {
-          /* polling */
+        } catch (err) {
+          if (err instanceof HttpError && err.status === 403) {
+            stopPoll();
+            setWaitingPhone(false);
+            setError(
+              'QR tekshiruvi rad etildi. Sahifani to‘liq yangilang (Ctrl+F5) va «Yangi QR kod» bosing.',
+            );
+          }
         }
       }, 2000);
     } catch {

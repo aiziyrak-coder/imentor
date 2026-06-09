@@ -200,3 +200,42 @@ class PreparedContentApiTests(TestCase):
         self.assertEqual(lst.status_code, 200)
         self.assertEqual(len(lst.json()), 1)
         self.assertEqual(lst.json()[0]['last_name'], 'Valiyev')
+
+    def test_local_login_syncs_role_for_existing_user(self):
+        Group.objects.get_or_create(name='hodim')
+        Group.objects.get_or_create(name='startuper')
+        phone = '998901119999'
+        login_hodim = self.client.post(
+            '/api/v1/auth/local-login/',
+            {
+                'phone_digits': phone,
+                'password': 'StrongPass123',
+                'role': 'hodim',
+                'first_name': 'Ali',
+                'last_name': 'Valiyev',
+            },
+            format='json',
+        )
+        self.assertEqual(login_hodim.status_code, 200)
+        self.assertEqual(login_hodim.json()['role'], 'hodim')
+
+        login_startuper = self.client.post(
+            '/api/v1/auth/local-login/',
+            {
+                'phone_digits': phone,
+                'password': 'StrongPass123',
+                'role': 'startuper',
+                'first_name': 'Ali',
+                'last_name': 'Valiyev',
+            },
+            format='json',
+        )
+        self.assertEqual(login_startuper.status_code, 200)
+        self.assertEqual(login_startuper.json()['role'], 'startuper')
+
+        access = login_startuper.json()['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        apps_resp = self.client.get('/api/v1/startup-applications/')
+        self.assertEqual(apps_resp.status_code, 200)
+        my_syllabus_resp = self.client.get('/api/v1/course-syllabuses/my/')
+        self.assertEqual(my_syllabus_resp.status_code, 403)

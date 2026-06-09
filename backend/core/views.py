@@ -15,6 +15,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 
 from .permissions import (
+    ALLOWED_ROLES,
     HasEducationRole,
     IsAdminRole,
     IsHodimRole,
@@ -194,6 +195,19 @@ def _ensure_admin_group(user: User) -> None:
     user.groups.add(group)
 
 
+def _set_user_role_group(user: User, role: str) -> None:
+    """Login paytida bitta ta'lim roli — JWT va Group sinxron."""
+    role = (role or "").strip().lower()
+    if role not in ALLOWED_ROLES:
+        return
+    for name in ALLOWED_ROLES:
+        group = Group.objects.filter(name=name).first()
+        if group is not None:
+            user.groups.remove(group)
+    group, _ = Group.objects.get_or_create(name=role)
+    user.groups.add(group)
+
+
 def _resolve_login_role(user: User, requested_role: str) -> str:
     requested = (requested_role or "hodim").strip().lower()
     if user.is_superuser:
@@ -201,10 +215,14 @@ def _resolve_login_role(user: User, requested_role: str) -> str:
     if requested == "admin" and user.username in _demo_admin_phone_allowlist():
         _ensure_admin_group(user)
         return "admin"
+    if requested == "admin":
+        db_role = resolve_user_role(user, request=None)
+        return db_role or "hodim"
+    if requested in ("hodim", "tarjimon", "startuper"):
+        _set_user_role_group(user, requested)
+        return requested
     db_role = resolve_user_role(user, request=None)
-    if db_role:
-        return db_role
-    return requested if requested in ("admin", "hodim", "tarjimon", "startuper") else "hodim"
+    return db_role or "hodim"
 
 
 class LocalLoginView(APIView):

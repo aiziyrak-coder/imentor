@@ -419,6 +419,20 @@ export function loginLocalStaff(phoneInput: string, password: string): LocalStaf
   return sessionUser;
 }
 
+/** Server JWT roli bilan mahalliy sessiyani moslashtirish (403 oldini olish). */
+export function syncCurrentUserRoleFromServer(role: UserRole): void {
+  const current = getCurrentLocalUser();
+  if (!current || normalizeUserRole(current) === role) return;
+  const users = readUsers();
+  const idx = users.findIndex((u) => u.uid === current.uid);
+  if (idx < 0) return;
+  const updated = withRoleDefault({ ...users[idx], role, updatedAt: Date.now() });
+  users[idx] = updated;
+  writeUsers(users);
+  localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+  emitAuthChanged();
+}
+
 export function updateCurrentLocalUser(
   patch: Partial<
     Pick<
@@ -431,6 +445,7 @@ export function updateCurrentLocalUser(
       | 'department'
       | 'direction'
       | 'password'
+      | 'role'
       | 'participantKind'
       | 'studyGroup'
       | 'jobTitle'

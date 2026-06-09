@@ -234,6 +234,10 @@ export default function StartupWorkspace() {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'no-backend-token' || msg.includes('HTTP 401')) {
         setError('Serverga kirish muddati tugagan. Chiqing va qayta kiring.');
+      } else if (msg.includes('HTTP 403')) {
+        setError(
+          'Startap moduli faqat «Startuper» roli uchun. Chiqing va startuper sifatida qayta kiring.',
+        );
       } else {
         setError("Ma'lumotlarni yuklashda xato. Internet yoki serverni tekshiring.");
       }

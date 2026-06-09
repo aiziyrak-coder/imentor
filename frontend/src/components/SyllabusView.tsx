@@ -16,6 +16,7 @@ import { AppLanguageContext } from '../App';
 import {
   fetchCourseSyllabusCatalog,
   fetchMyCourseSelections,
+  isSyncUnavailable,
   selectCourseSyllabus,
   unselectCourseSyllabus,
   type CourseSyllabusRow,
@@ -57,8 +58,12 @@ export default function SyllabusView({
       ]);
       setCatalog(cat);
       setMySelections(mine);
-    } catch {
-      setError('Ma’lumotlarni yuklab bo‘lmadi. Tizimga kiring va internetni tekshiring.');
+    } catch (err) {
+      if (isSyncUnavailable(err)) {
+        setError('Fan tanlovi faqat «Hodim» roli uchun. Chiqing va hodim sifatida qayta kiring.');
+      } else {
+        setError('Ma’lumotlarni yuklab bo‘lmadi. Tizimga kiring va internetni tekshiring.');
+      }
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,8 @@
-import { getCurrentLocalUser, normalizeUserRole } from './localStaffAuth';
+import {
+  getCurrentLocalUser,
+  normalizeUserRole,
+  syncCurrentUserRoleFromServer,
+} from './localStaffAuth';
 import { httpJson } from '../api/httpClient';
 
 type BackendTokenBundle = {
@@ -42,6 +46,7 @@ function readCached(): CachedBundle | null {
 }
 
 function writeCached(bundle: BackendTokenBundle): CachedBundle {
+  syncCurrentUserRoleFromServer(bundle.role);
   const next: CachedBundle = {
     ...bundle,
     accessExpMs: decodeJwtExpMs(bundle.access),

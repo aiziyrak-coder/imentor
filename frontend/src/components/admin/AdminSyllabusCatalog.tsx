@@ -38,7 +38,7 @@ type UploadProgress = {
 function listLoadErrorMessage(err: unknown): string {
   if (err instanceof HttpError) {
     if (err.status === 403) {
-      return 'Administrator huquqi kerak. Chiqib, admin hisob bilan qayta kiring (+998901110001).';
+      return 'Administrator huquqi kerak. Chiqib, admin hisob bilan qayta kiring.';
     }
     if (err.status === 401) {
       return 'Tizimga qayta kiring.';
@@ -246,9 +246,13 @@ export default function AdminSyllabusCatalog() {
             <BookOpen size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Syllabuslar — fan qo‘shish</h2>
-            <p className="text-[13px] text-slate-500">
-              Fan nomini yozing yoki PDF yuklang — AI fan nomi va mavzularni o‘zi ajratadi.
+            <h2 className="text-xl font-bold text-slate-900">Fan katalogi</h2>
+            <p className="text-[13px] text-slate-500 leading-relaxed">
+              <strong>1-qadam:</strong> fan nomi yoki PDF yuklang → AI mavzularni ajratadi.
+              <br />
+              <strong>2-qadam:</strong> hodimlar «Mening fanlarim» bo‘limidan fan tanlaydi.
+              <br />
+              <strong>3-qadam:</strong> mavzu tanlang → ma’ruza, tarqatma, test ochiladi.
             </p>
           </div>
         </div>
@@ -326,7 +330,7 @@ export default function AdminSyllabusCatalog() {
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 text-white text-[13px] font-semibold disabled:opacity-50"
           >
             {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            Fan qo‘shish (nom bilan)
+            Fan yaratish (PDFsiz — keyin PDF qo‘shing)
           </button>
         </div>
 

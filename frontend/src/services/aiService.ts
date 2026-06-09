@@ -88,6 +88,10 @@ export interface SyllabusTopic {
   id: string; // M1/L1/Л1 or A1/P1/П1
   title: string;
   type: 'lecture' | 'practical';
+  /** Fan katalogi identifikatori (mavzu konteksti) */
+  syllabusId?: number;
+  subjectName?: string;
+  variantLabel?: string;
 }
 
 export interface SyllabusExtractResult {

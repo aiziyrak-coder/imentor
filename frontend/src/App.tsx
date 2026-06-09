@@ -85,6 +85,15 @@ import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
 import HandoutTopicBanner from './components/staff/HandoutTopicBanner';
 import HandoutMaterials from './components/HandoutMaterials';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
+import type { SyllabusTopic } from './services/aiService';
+import {
+  loadPersistedSelectedTopic,
+  persistSelectedTopic,
+  resolveTopicNorm,
+  type SyllabusTopicContext,
+} from './utils/syllabusTopicContext';
+
+export type { SyllabusTopic };
 
 type View =
   | 'admin-dashboard'
@@ -110,7 +119,7 @@ type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
 /** Hodim: dars kontenti + keys/test yaratish (bazaga yoziladi) */
 const HODIM_NAV: NavItemDef[] = [
-  { id: 'syllabus', label: 'Syllabus (Mavzu tanlash)', icon: BookOpen },
+  { id: 'syllabus', label: 'Mening fanlarim', icon: BookOpen },
   { id: 'lectures', label: "Ma'ruza matni", icon: FileText },
   { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
   { id: 'handouts', label: 'Tarqatma materiallar', icon: Files },
@@ -126,7 +135,7 @@ const ADMIN_NAV: NavItemDef[] = [
   { id: 'admin-staff-location', label: 'Joylashuv (GPS)', icon: MapPin },
   { id: 'admin-campus-buildings', label: 'Kampus binolari', icon: Building2 },
   { id: 'admin-startups', label: 'Startap arizalar', icon: Rocket },
-  { id: 'admin-syllabuses', label: 'Syllabuslar', icon: BookOpen },
+  { id: 'admin-syllabuses', label: 'Fan katalogi', icon: BookOpen },
   { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
   { id: 'admin-tests', label: 'Test bazasi', icon: ClipboardList },
   { id: 'profile', label: 'Profil', icon: UserCircle },
@@ -150,12 +159,12 @@ const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
   'admin-staff-location': 'GPS',
   'admin-campus-buildings': 'Binolar',
   'admin-startups': 'Startap',
-  'admin-syllabuses': 'Syllabus',
+  'admin-syllabuses': 'Fanlar',
   'admin-cases': 'Case',
   'admin-tests': 'Test',
   startup: 'Studiya',
   'startup-dossier': 'Dossye',
-  syllabus: 'Mavzu',
+  syllabus: 'Fanlar',
   handouts: 'Tarqatma',
   lectures: "Ma'ruza",
   presentation: 'Slayd',
@@ -184,13 +193,7 @@ function navItemsForRole(role: UserRole): NavItemDef[] {
   }
 }
 
-export interface SyllabusTopic {
-  id: string; // M1, A1, etc.
-  title: string;
-  type: 'lecture' | 'practical';
-}
-
-const LECTURE_BY_TOPIC_KEY = 'imentor-lecture-by-topic-v1';
+const LECTURE_BY_TOPIC_KEY = 'imentor-lecture-by-topic-v2';
 
 function readLectureForTopic(topicNorm: string): string {
   if (!topicNorm) return '';
@@ -215,7 +218,7 @@ function writeLectureForTopic(topicNorm: string, content: string): void {
   }
 }
 
-export const GlobalTopicContext = createContext<SyllabusTopic | null>(null);
+export const GlobalTopicContext = createContext<SyllabusTopicContext | null>(null);
 
 export const AppNavigationContext = createContext<{
   openHandouts: () => void;
@@ -265,7 +268,9 @@ export default function App() {
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   /** Kompyuterda admin/tarjimon/startuper uchun klassik login */
   const [desktopStaffLogin, setDesktopStaffLogin] = useState(false);
-  const [selectedTopic, setSelectedTopic] = useState<SyllabusTopic | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<SyllabusTopicContext | null>(() =>
+    loadPersistedSelectedTopic(),
+  );
   const [latestLectureContent, setLatestLectureContent] = useState('');
   const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
   const [notifications, setNotifications] = useState<AppNotification[]>(readStoredNotifications);
@@ -275,12 +280,12 @@ export default function App() {
 
   const setLectureContent = useCallback((c: string) => {
     setLatestLectureContent(c);
-    const topicNorm = selectedTopic?.title?.trim().toLowerCase() ?? '';
+    const topicNorm = resolveTopicNorm(selectedTopic);
     if (topicNorm) writeLectureForTopic(topicNorm, c);
   }, [selectedTopic]);
 
   useEffect(() => {
-    const topicNorm = selectedTopic?.title?.trim().toLowerCase() ?? '';
+    const topicNorm = resolveTopicNorm(selectedTopic);
     setLatestLectureContent(topicNorm ? readLectureForTopic(topicNorm) : '');
   }, [selectedTopic]);
 
@@ -419,13 +424,15 @@ export default function App() {
     setActiveView('syllabus');
   }, []);
 
-  const handleSelectTopic = (topic: SyllabusTopic) => {
+  const handleSelectTopic = (topic: SyllabusTopicContext) => {
     setSelectedTopic(topic);
-    addNotification('Mavzu tanlandi', `${topic.id}: ${topic.title}`);
+    persistSelectedTopic(topic);
+    addNotification('Mavzu tanlandi', `${topic.subjectName} · ${topic.id}: ${topic.title}`);
   };
 
-  const handleOpenLectures = (topic: SyllabusTopic) => {
+  const handleOpenLectures = (topic: SyllabusTopicContext) => {
     setSelectedTopic(topic);
+    persistSelectedTopic(topic);
     setActiveView('lectures');
   };
 

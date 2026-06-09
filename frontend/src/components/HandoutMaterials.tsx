@@ -210,17 +210,15 @@ export default function HandoutMaterials() {
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  const topicTitle = globalTopic?.title?.trim() ?? '';
-
   const loadHandouts = useCallback(async () => {
-    if (!topicTitle) {
+    if (!globalTopic?.title) {
       setItems([]);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const list = await fetchHandoutsForTopic(topicTitle);
+      const list = await fetchHandoutsForTopic(globalTopic);
       setItems(list);
     } catch (e) {
       setItems([]);
@@ -232,7 +230,7 @@ export default function HandoutMaterials() {
     } finally {
       setLoading(false);
     }
-  }, [topicTitle]);
+  }, [globalTopic]);
 
   useEffect(() => {
     void loadHandouts();
@@ -249,22 +247,22 @@ export default function HandoutMaterials() {
     }
   };
 
-  if (!globalTopic || !topicTitle) {
+  if (!globalTopic?.title) {
     return (
       <div className="max-w-lg mx-auto p-8 text-center space-y-4">
         <div className="ios-glass rounded-2xl border border-white/70 p-8">
           <BookOpen size={40} className="mx-auto text-amber-600 mb-4" />
           <h2 className="text-lg font-bold text-[#083047]">Mavzu tanlanmagan</h2>
           <p className="text-[14px] text-black/55 mt-2 leading-relaxed">
-            Tarqatmalarni ko‘rish uchun avval <strong>Syllabus</strong> bo‘limida mavzuni tanlang va
-            kerak bo‘lsa u yerda yuklang.
+            Tarqatmalarni ko‘rish uchun avval <strong>Mening fanlarim</strong> bo‘limida fan va mavzuni
+            tanlang.
           </p>
           <button
             type="button"
             onClick={openSyllabus}
             className="mt-5 px-5 py-2.5 rounded-xl bg-amber-600 text-white text-[14px] font-semibold hover:bg-amber-500"
           >
-            Syllabusga o‘tish
+            Fanlar bo‘limiga o‘tish
           </button>
         </div>
       </div>

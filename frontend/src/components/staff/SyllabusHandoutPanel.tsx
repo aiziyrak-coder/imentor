@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Files, Loader2, Upload } from 'lucide-react';
-import type { SyllabusTopic } from '../../services/aiService';
+import type { SyllabusTopicContext } from '../../utils/syllabusTopicContext';
 import {
   fetchHandoutsForTopic,
   isAllowedHandoutFile,
@@ -8,7 +8,7 @@ import {
 } from '../../utils/handoutApi';
 
 type Props = {
-  topic: SyllabusTopic;
+  topic: SyllabusTopicContext;
   onOpenHandouts: () => void;
 };
 
@@ -22,7 +22,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
   const refreshCount = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await fetchHandoutsForTopic(topic.title);
+      const list = await fetchHandoutsForTopic(topic);
       setCount(list.length);
       setError(null);
     } catch (e) {
@@ -33,7 +33,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [topic.title]);
+  }, [topic]);
 
   useEffect(() => {
     void refreshCount();
@@ -49,7 +49,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
           setError(`${file.name}: faqat PDF yoki JPG/PNG.`);
           continue;
         }
-        await uploadHandout({ topic: topic.title, file });
+        await uploadHandout({ topic, file });
       }
       await refreshCount();
     } catch {

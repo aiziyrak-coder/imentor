@@ -149,7 +149,16 @@ class CourseSyllabusCatalogView(APIView):
     @extend_schema(responses=CourseSyllabusSerializer(many=True))
     def get(self, request):
         qs = CourseSyllabus.objects.filter(is_active=True).order_by("sort_order", "subject_name")
-        return Response(CourseSyllabusSerializer(qs, many=True).data)
+        rows = []
+        for obj in qs:
+            data = CourseSyllabusSerializer(obj).data
+            variants = data.get("variants") or []
+            topic_count = sum(len(v.get("topics") or []) for v in variants)
+            if not topic_count and data.get("topics"):
+                topic_count = len(data.get("topics") or [])
+            if topic_count > 0:
+                rows.append(data)
+        return Response(rows)
 
 
 class StaffCourseSelectionListView(APIView):
@@ -159,7 +168,10 @@ class StaffCourseSelectionListView(APIView):
     @extend_schema(responses=StaffCourseSelectionSerializer(many=True))
     def get(self, request):
         qs = (
-            StaffCourseSelection.objects.filter(owner_key=request.user.username)
+            StaffCourseSelection.objects.filter(
+                owner_key=request.user.username,
+                syllabus__is_active=True,
+            )
             .select_related("syllabus")
             .order_by("-selected_at")
         )

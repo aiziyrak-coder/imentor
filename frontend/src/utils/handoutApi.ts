@@ -1,6 +1,8 @@
 import { HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
 import { normTopicKey } from './preparedContentStore';
+import { resolveTopicNorm, type SyllabusTopicContext } from './syllabusTopicContext';
+import type { SyllabusTopic } from '../services/aiService';
 
 export type HandoutKind = 'pdf' | 'image';
 
@@ -65,11 +67,14 @@ export function resolveHandoutFileUrl(fileUrl: string): string {
   }
 }
 
-export function normHandoutTopic(topic: string): string {
-  return normTopicKey(topic);
+export function normHandoutTopic(topic: string | SyllabusTopic | SyllabusTopicContext): string {
+  if (typeof topic === 'string') return normTopicKey(topic);
+  return resolveTopicNorm(topic) || normTopicKey(topic.title);
 }
 
-export async function fetchHandoutsForTopic(topic: string): Promise<TopicHandoutItem[]> {
+export async function fetchHandoutsForTopic(
+  topic: string | SyllabusTopic | SyllabusTopicContext,
+): Promise<TopicHandoutItem[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
   const topicNorm = normHandoutTopic(topic);
@@ -95,14 +100,16 @@ export async function fetchHandoutsForTopic(topic: string): Promise<TopicHandout
 }
 
 export async function uploadHandout(params: {
-  topic: string;
+  topic: string | SyllabusTopic | SyllabusTopicContext;
   file: File;
   title?: string;
 }): Promise<TopicHandoutItem> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
+  const displayTopic =
+    typeof params.topic === 'string' ? params.topic.trim() : params.topic.title.trim();
   const form = new FormData();
-  form.append('topic', params.topic.trim());
+  form.append('topic', displayTopic);
   form.append('topic_norm', normHandoutTopic(params.topic));
   form.append('file', params.file);
   if (params.title?.trim()) form.append('title', params.title.trim());

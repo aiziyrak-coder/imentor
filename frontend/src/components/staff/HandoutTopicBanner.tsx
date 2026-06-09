@@ -19,7 +19,7 @@ export default function HandoutTopicBanner() {
     setLoading(true);
     (async () => {
       try {
-        const list = await fetchHandoutsForTopic(topic.title);
+        const list = await fetchHandoutsForTopic(topic);
         if (!cancelled) setItems(list);
       } catch {
         if (!cancelled) setItems([]);
@@ -30,7 +30,7 @@ export default function HandoutTopicBanner() {
     return () => {
       cancelled = true;
     };
-  }, [topic?.title]);
+  }, [topic]);
 
   if (!topic) return null;
 
@@ -40,7 +40,7 @@ export default function HandoutTopicBanner() {
         <Files size={20} className="text-amber-700 shrink-0" />
         <div className="min-w-0">
           <p className="text-[13px] font-semibold text-amber-950 truncate">
-            Tarqatma: {topic.id} — {topic.title}
+            {topic.subjectName ? `${topic.subjectName} · ` : ''}{topic.id} — {topic.title}
           </p>
           <p className="text-[11px] text-amber-900/70">
             {loading ? (

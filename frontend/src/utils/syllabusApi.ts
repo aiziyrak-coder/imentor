@@ -128,7 +128,7 @@ export async function fetchCourseSyllabusCatalog(): Promise<CourseSyllabusRow[]>
 
 export async function fetchMyCourseSelections(): Promise<StaffCourseSelectionRow[]> {
   const token = await getBackendAccessToken();
-  if (!token) return [];
+  if (!token) throw new Error('no-backend-token');
   const rows = await httpJson<StaffCourseSelectionRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/my/`, {
     headers: authHeaders(token),
     timeoutMs: 30000,

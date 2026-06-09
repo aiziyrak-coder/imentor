@@ -334,6 +334,7 @@ def main() -> None:
     preflight(cfg)
 
     repo_root = Path(__file__).resolve().parents[1]
+    nginx_ssl = repo_root / "deploy" / "nginx" / "imentor-ssl.conf.example"
     nginx_local = repo_root / "deploy" / "nginx" / "imentor.conf.example"
 
     remote_path = (cfg.get("REMOTE_REPO_PATH") or "/opt/imentor").strip()
@@ -445,6 +446,7 @@ exec sh deploy/server-bootstrap.sh
 
     if not args.skip_nginx and not nginx_local.is_file():
         raise SystemExit(f"Missing {nginx_local} (use --skip-nginx to omit nginx step)")
+    nginx_upload = nginx_ssl if nginx_ssl.is_file() else nginx_local
 
     host = (cfg.get("SSH_HOST") or cfg.get("IMENTOR_SSH_HOST") or "").strip()
     user = (cfg.get("SSH_USER") or cfg.get("IMENTOR_SSH_USER") or "root").strip()
@@ -457,7 +459,7 @@ exec sh deploy/server-bootstrap.sh
         if not args.skip_nginx:
             sftp = client.open_sftp()
             try:
-                sftp.put(str(nginx_local), "/tmp/imentor.nginx.conf")
+                sftp.put(str(nginx_upload), "/tmp/imentor.nginx.conf")
             finally:
                 sftp.close()
 

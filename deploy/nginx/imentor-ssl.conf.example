@@ -14,6 +14,13 @@ upstream imentor_api {
     keepalive 8;
 }
 
+# api.imentor.uz dan kelgan cross-origin so'rovlar uchun (502 da ham CORS header)
+map $http_origin $imentor_cors_origin {
+    default "";
+    "https://imentor.uz" $http_origin;
+    "https://www.imentor.uz" $http_origin;
+}
+
 server {
     listen 80;
     listen [::]:80;
@@ -37,6 +44,29 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/imentor.uz/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # API va media — imentor.uz bilan bir domen (CORS muammosiz)
+    location /api/ {
+        proxy_pass http://imentor_api/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host api.imentor.uz;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 60s;
+        client_max_body_size 25m;
+    }
+
+    location /media/ {
+        proxy_pass http://imentor_api/media/;
+        proxy_http_version 1.1;
+        proxy_set_header Host api.imentor.uz;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+        client_max_body_size 25m;
+    }
 
     location / {
         proxy_pass http://imentor_frontend;
@@ -65,6 +95,23 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 60s;
+        client_max_body_size 25m;
+
+        add_header Access-Control-Allow-Origin $imentor_cors_origin always;
+        add_header Access-Control-Allow-Credentials true always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept, X-Requested-With" always;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $imentor_cors_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept, X-Requested-With" always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
     }
 }

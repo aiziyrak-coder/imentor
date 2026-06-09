@@ -129,6 +129,29 @@ class TopicHandoutListCreateView(APIView):
         )
 
 
+class TopicHandoutFileView(APIView):
+    """Autentifikatsiyali fayl oqimi — img/iframe uchun zaxira yo‘l."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def get(self, request, pk: int):
+        obj = TopicHandout.objects.filter(pk=pk).first()
+        if not obj or not obj.file:
+            return Response({"detail": "Topilmadi."}, status=404)
+        try:
+            f = obj.file.open("rb")
+        except OSError:
+            return Response({"detail": "Fayl diskda topilmadi."}, status=404)
+        from django.http import FileResponse
+
+        name = obj.file_name or obj.file.name
+        ctype = "application/pdf" if obj.kind == TopicHandout.KIND_PDF else "image/jpeg"
+        if name.lower().endswith(".png"):
+            ctype = "image/png"
+        return FileResponse(f, as_attachment=False, filename=name, content_type=ctype)
+
+
 class TopicHandoutDetailView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, HasEducationRole]

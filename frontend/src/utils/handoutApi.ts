@@ -26,6 +26,31 @@ function apiBaseUrl(): string {
 }
 
 /** Brauzerda ko‘rish: /media/ har doim frontend domeni orqali (nginx proxy). */
+const handoutBlobCache = new Map<number, string>();
+
+export async function getHandoutFileBlobUrl(id: number): Promise<string> {
+  const cached = handoutBlobCache.get(id);
+  if (cached) return cached;
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  const res = await fetch(`${apiBaseUrl()}/v1/handouts/${id}/file/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, null);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  handoutBlobCache.set(id, url);
+  return url;
+}
+
+export function revokeHandoutBlobUrl(id: number): void {
+  const url = handoutBlobCache.get(id);
+  if (url) {
+    URL.revokeObjectURL(url);
+    handoutBlobCache.delete(id);
+  }
+}
+
 export function resolveHandoutFileUrl(fileUrl: string): string {
   if (!fileUrl) return '';
   try {

@@ -337,11 +337,18 @@ class StaffLocationAlert(models.Model):
         return f"{self.owner_key}:alert@{self.created_at}"
 
 
+def _handout_topic_dir(topic_norm: str) -> str:
+    import re
+
+    slug = re.sub(r"[^\w.\-]+", "_", (topic_norm or "").strip().lower())[:80]
+    return slug.strip("_") or "topic"
+
+
 def handout_upload_to(instance: "TopicHandout", filename: str) -> str:
     import re
 
     safe = re.sub(r"[^\w.\-]", "_", filename)[:180]
-    return f"handouts/{instance.topic_norm[:80]}/{instance.owner_key}_{safe}"
+    return f"handouts/{_handout_topic_dir(instance.topic_norm)}/{instance.owner_key}_{safe}"
 
 
 class TopicHandout(models.Model):

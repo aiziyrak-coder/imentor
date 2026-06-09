@@ -14,9 +14,73 @@ import { GlobalTopicContext, AppNavigationContext } from '../App';
 import {
   deleteHandout,
   fetchHandoutsForTopic,
+  getHandoutFileBlobUrl,
   resolveHandoutFileUrl,
   type TopicHandoutItem,
 } from '../utils/handoutApi';
+
+function HandoutFilePreview({
+  item,
+  className,
+  mode,
+}: {
+  item: TopicHandoutItem;
+  className?: string;
+  mode: 'thumb' | 'full';
+}) {
+  const [src, setSrc] = useState('');
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let blobUrl = '';
+    let cancelled = false;
+    setFailed(false);
+    setSrc('');
+
+    (async () => {
+      try {
+        blobUrl = await getHandoutFileBlobUrl(item.id);
+        if (!cancelled) setSrc(blobUrl);
+      } catch {
+        const fallback = resolveHandoutFileUrl(item.file_url);
+        if (!cancelled) {
+          if (fallback) setSrc(fallback);
+          else setFailed(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, item.file_url]);
+
+  if (item.kind === 'pdf') {
+    return (
+      <div className={`absolute inset-0 flex flex-col items-center justify-center gap-2 text-rose-700/80 bg-rose-50/80 ${className ?? ''}`}>
+        <FileText size={mode === 'full' ? 56 : 40} />
+        <span className="text-[11px] font-bold uppercase tracking-wide">PDF</span>
+      </div>
+    );
+  }
+
+  if (failed || !src) {
+    return (
+      <div className={`flex items-center justify-center bg-black/5 text-black/30 text-[11px] ${className ?? ''}`}>
+        {failed ? 'Rasm yuklanmadi' : '…'}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={item.title || item.file_name}
+      className={className}
+      loading="lazy"
+    />
+  );
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -33,10 +97,27 @@ type LightboxProps = {
 
 function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps) {
   const item = items[index];
+  const [fileSrc, setFileSrc] = useState('');
   if (!item) return null;
-  const url = resolveHandoutFileUrl(item.file_url);
   const hasPrev = index > 0;
   const hasNext = index < items.length - 1;
+
+  useEffect(() => {
+    let cancelled = false;
+    setFileSrc('');
+    (async () => {
+      try {
+        const blob = await getHandoutFileBlobUrl(item.id);
+        if (!cancelled) setFileSrc(blob);
+      } catch {
+        const fallback = resolveHandoutFileUrl(item.file_url);
+        if (!cancelled) setFileSrc(fallback);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, item.file_url]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -86,17 +167,23 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
 
         <div className="w-full h-full max-w-6xl flex items-center justify-center">
           {item.kind === 'pdf' ? (
-            <iframe
-              title={item.file_name}
-              src={url}
-              className="w-full h-full min-h-[50vh] rounded-lg bg-white"
-            />
-          ) : (
+            fileSrc ? (
+              <iframe
+                title={item.file_name}
+                src={fileSrc}
+                className="w-full h-full min-h-[50vh] rounded-lg bg-white"
+              />
+            ) : (
+              <Loader2 className="animate-spin text-white" size={40} />
+            )
+          ) : fileSrc ? (
             <img
-              src={url}
+              src={fileSrc}
               alt={item.title || item.file_name}
               className="max-w-full max-h-[calc(100dvh-8rem)] object-contain rounded-lg shadow-2xl"
             />
+          ) : (
+            <Loader2 className="animate-spin text-white" size={40} />
           )}
         </div>
 
@@ -220,7 +307,6 @@ export default function HandoutMaterials() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {items.map((item, idx) => {
-            const url = resolveHandoutFileUrl(item.file_url);
             return (
               <motion.div
                 key={item.id}
@@ -232,14 +318,11 @@ export default function HandoutMaterials() {
                   onClick={() => setLightboxIndex(idx)}
                   className="block w-full aspect-[4/3] bg-black/5 relative"
                 >
-                  {item.kind === 'pdf' ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-rose-700/80 bg-rose-50/80">
-                      <FileText size={40} />
-                      <span className="text-[11px] font-bold uppercase tracking-wide">PDF</span>
-                    </div>
-                  ) : (
-                    <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                  )}
+                  <HandoutFilePreview
+                    item={item}
+                    mode="thumb"
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
                   <span className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
                     <ZoomIn size={16} />
                   </span>

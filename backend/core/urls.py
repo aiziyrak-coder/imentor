@@ -13,7 +13,7 @@ from .device_pairing_views import (
 )
 from .education_ai_views import EducationAiCompletionView
 from .presentation_ai_views import PresentationAiFromTextView, PresentationAiGenerateView
-from .handout_views import TopicHandoutDetailView, TopicHandoutListCreateView
+from .handout_views import TopicHandoutDetailView, TopicHandoutFileView, TopicHandoutListCreateView
 from .syllabus_catalog_views import (
     AdminCourseSyllabusDetailView,
     AdminCourseSyllabusListCreateView,
@@ -74,6 +74,7 @@ urlpatterns = [
     path('v1/presentation-ai/generate/', PresentationAiGenerateView.as_view(), name='presentation-ai-generate'),
     path('v1/presentation-ai/from-text/', PresentationAiFromTextView.as_view(), name='presentation-ai-from-text'),
     path('v1/handouts/', TopicHandoutListCreateView.as_view(), name='handouts-list-create'),
+    path('v1/handouts/<int:pk>/file/', TopicHandoutFileView.as_view(), name='handout-file'),
     path('v1/handouts/<int:pk>/', TopicHandoutDetailView.as_view(), name='handout-detail'),
     path('v1/startup-ai/questionnaire/', StartupAiQuestionnaireView.as_view(), name='startup-ai-questionnaire'),
     path('v1/startup-ai/twenty-criteria/', StartupAiTwentyCriteriaView.as_view(), name='startup-ai-twenty-criteria'),

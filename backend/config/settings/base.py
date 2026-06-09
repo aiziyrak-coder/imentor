@@ -99,6 +99,9 @@ MEDIA_ROOT = Path(_media_root) if _media_root else (BASE_DIR / "media")
 
 HANDOUT_MAX_BYTES = int(os.getenv("DJANGO_HANDOUT_MAX_BYTES", str(20 * 1024 * 1024)))
 
+# Yuklangan fayllar (tarqatma, syllabus PDF) — productionda ham /media/ orqali.
+DJANGO_SERVE_MEDIA = env_bool("DJANGO_SERVE_MEDIA", default=DEBUG)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",

@@ -4,6 +4,9 @@ from .base import *  # noqa: F403,F401
 
 DEBUG = False
 
+# Docker volume + nginx proxy: backend /media/ fayllarni beradi.
+DJANGO_SERVE_MEDIA = env_bool("DJANGO_SERVE_MEDIA", default=True)  # noqa: F405
+
 def _secret_key_is_insecure(key: str) -> bool:
     k = (key or "").strip()
     if len(k) < 40:

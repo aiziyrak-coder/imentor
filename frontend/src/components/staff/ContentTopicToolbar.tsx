@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Plus, Sparkles } from 'lucide-react';
+import { Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import type { PreparedContentSummary } from '../../utils/preparedContentStore';
 
 type Props = {
@@ -14,6 +14,7 @@ type Props = {
   versions: PreparedContentSummary[];
   activeVersionId: string | null;
   onSelectVersion: (id: string) => void;
+  onDeleteVersion?: (id: string) => void;
   versionsTitle?: string;
 };
 
@@ -38,6 +39,7 @@ export default function ContentTopicToolbar({
   versions,
   activeVersionId,
   onSelectVersion,
+  onDeleteVersion,
   versionsTitle = 'Saqlanganlar',
 }: Props) {
   const btn =
@@ -79,20 +81,31 @@ export default function ContentTopicToolbar({
             {versions.map((v) => {
               const active = activeVersionId === v.id;
               return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => onSelectVersion(v.id)}
-                  className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors ${
-                    active
-                      ? accent === 'emerald'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white/70 text-black/70 border-black/10 hover:border-black/20'
-                  }`}
-                >
-                  {formatWhen(v.createdAt)}
-                </button>
+                <div key={v.id} className="inline-flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => onSelectVersion(v.id)}
+                    className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-colors ${
+                      active
+                        ? accent === 'emerald'
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white/70 text-black/70 border-black/10 hover:border-black/20'
+                    }`}
+                  >
+                    {formatWhen(v.createdAt)}
+                  </button>
+                  {onDeleteVersion && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteVersion(v.id)}
+                      className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200"
+                      aria-label="Versiyani o‘chirish"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>

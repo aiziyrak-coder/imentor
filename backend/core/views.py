@@ -129,6 +129,18 @@ class PreparedContentView(APIView):
         return Response(PreparedContentSerializer(item).data, status=status.HTTP_201_CREATED)
 
 
+class PreparedContentV1DetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def delete(self, request, pk: int):
+        item = PreparedContent.objects.filter(pk=pk, owner_key=request.user.username).first()
+        if not item:
+            return Response({"detail": "Topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+        item.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class PreparedContentV1View(PreparedContentView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, HasEducationRole]

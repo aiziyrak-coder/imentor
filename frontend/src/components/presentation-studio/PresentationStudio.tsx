@@ -23,6 +23,7 @@ import {
   type PresentationPhase,
 } from '../../services/presentationEngine';
 import {
+  deletePreparedContent,
   loadLatestPreparedContent,
   savePreparedContent,
   listPreparedForTopic,
@@ -87,16 +88,28 @@ export default function PresentationStudio() {
   }, [refreshVersions]);
 
   useEffect(() => {
-    if (!topic.trim()) return;
+    if (!topic.trim()) {
+      setSlides([]);
+      setCurrentIndex(0);
+      setActiveVersionId(null);
+      return;
+    }
+    setSlides([]);
+    setCurrentIndex(0);
+    setActiveVersionId(null);
+    setError(null);
     let mounted = true;
     (async () => {
       const prepared = await loadLatestPreparedContent<{ topic: string; slides: Slide[] }>(
         'presentation',
         topic,
       );
-      if (!mounted || !prepared?.slides?.length) return;
-      setSlides(normalizeDeck(prepared.slides, prepared.topic || topic));
-      setCurrentIndex(0);
+      if (!mounted) return;
+      if (prepared?.slides?.length) {
+        setSlides(normalizeDeck(prepared.slides, prepared.topic || topic));
+        const list = listPreparedForTopic('presentation', topic);
+        setActiveVersionId(list[0]?.id ?? null);
+      }
       refreshVersions();
     })();
     return () => {
@@ -128,14 +141,9 @@ export default function PresentationStudio() {
     setGenPhase('structure');
     setError(null);
     try {
-      let ctx = lectureText;
-      if (!ctx.trim()) {
-        const lec = await loadLatestPreparedContent<{ content: string }>('lecture', topic);
-        if (lec?.content) {
-          ctx = lec.content;
-          setLectureText(lec.content);
-        }
-      }
+      const lec = await loadLatestPreparedContent<{ content: string }>('lecture', topic);
+      const ctx = lec?.content?.trim() || '';
+      if (ctx) setLectureText(ctx);
       const deck = await aiService.generatePresentation(topic, ctx, slideCount, language, setGenPhase);
       const normalized = normalizeDeck(deck, topic);
       setSlides(normalized);
@@ -226,6 +234,41 @@ export default function PresentationStudio() {
     setCurrentIndex(0);
     setActiveVersionId(id);
     setShowArchive(false);
+  };
+
+  const handleDeletePresentation = async () => {
+    if (!slides.length) return;
+    if (!window.confirm('Ushbu taqdimotni o‘chirasizmi? (barcha slaydlar va saqlangan versiya)')) return;
+    try {
+      const list = listPreparedForTopic('presentation', topic);
+      const targetId = activeVersionId || list[0]?.id;
+      if (targetId) await deletePreparedContent('presentation', targetId);
+      setSlides([]);
+      setCurrentIndex(0);
+      setActiveVersionId(null);
+      refreshVersions();
+    } catch {
+      setError('Taqdimotni o‘chirib bo‘lmadi.');
+    }
+  };
+
+  const handleDeleteVersion = async (id: string) => {
+    if (!window.confirm('Ushbu saqlangan versiyani o‘chirasizmi?')) return;
+    try {
+      await deletePreparedContent('presentation', id);
+      if (activeVersionId === id) {
+        setSlides([]);
+        setCurrentIndex(0);
+        setActiveVersionId(null);
+      }
+      refreshVersions();
+      const remaining = listPreparedForTopic('presentation', topic);
+      if (remaining[0] && activeVersionId === id) {
+        handleSelectVersion(remaining[0].id);
+      }
+    } catch {
+      setError('Versiyani o‘chirib bo‘lmadi.');
+    }
   };
 
   if (showArchive) {
@@ -344,6 +387,14 @@ export default function PresentationStudio() {
         >
           <Archive size={16} />
         </button>
+        <button
+          type="button"
+          disabled={!slides.length}
+          onClick={() => void handleDeletePresentation()}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-[13px] font-semibold disabled:opacity-40"
+        >
+          <Trash2 size={16} /> O‘chirish
+        </button>
       </header>
 
       <div className="shrink-0 px-3 sm:px-4 py-3">
@@ -359,6 +410,7 @@ export default function PresentationStudio() {
           versions={versions}
           activeVersionId={activeVersionId}
           onSelectVersion={handleSelectVersion}
+          onDeleteVersion={(id) => void handleDeleteVersion(id)}
         />
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-[12px] text-slate-600">

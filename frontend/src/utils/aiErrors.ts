@@ -12,5 +12,8 @@ export function messageFromAiError(err: unknown, fallback: string): string {
   if (msg.includes('HTTP 403')) {
     return 'Bu modul uchun ruxsat yetarli emas. Hodim yoki tegishli rol bilan kiring.';
   }
+  if (msg.includes('HTTP 503') || msg.includes('OpenAI') || msg.includes('sozlanmagan')) {
+    return 'Taqdimot AI (OpenAI) serverda sozlanmagan. Administratorga murojaat qiling.';
+  }
   return fallback;
 }

@@ -58,11 +58,20 @@ export default function LectureNotes() {
   }, [globalTopic]);
 
   useEffect(() => {
-    if (!topic.trim()) return;
+    if (!topic.trim()) {
+      setLectureSession(null);
+      setEditedContent('');
+      globalLecture.setContent('');
+      return;
+    }
+    setLectureSession(null);
+    setEditedContent('');
+    globalLecture.setContent('');
     let mounted = true;
     (async () => {
       const prepared = await loadLatestPreparedContent<LectureNote>('lecture', topic);
-      if (!mounted || !prepared) return;
+      if (!mounted) return;
+      if (!prepared) return;
       setLectureSession(prepared);
       setEditedContent(prepared.content || '');
       globalLecture.setContent(prepared.content || '');

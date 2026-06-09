@@ -190,13 +190,28 @@ export interface SyllabusTopic {
   type: 'lecture' | 'practical';
 }
 
-const LECTURE_DRAFT_STORAGE_KEY = 'imentor-lecture-draft-v1';
+const LECTURE_BY_TOPIC_KEY = 'imentor-lecture-by-topic-v1';
 
-function readStoredLectureDraft(): string {
+function readLectureForTopic(topicNorm: string): string {
+  if (!topicNorm) return '';
   try {
-    return localStorage.getItem(LECTURE_DRAFT_STORAGE_KEY) ?? '';
+    const raw = localStorage.getItem(LECTURE_BY_TOPIC_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    return map[topicNorm] ?? '';
   } catch {
     return '';
+  }
+}
+
+function writeLectureForTopic(topicNorm: string, content: string): void {
+  if (!topicNorm) return;
+  try {
+    const raw = localStorage.getItem(LECTURE_BY_TOPIC_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[topicNorm] = content;
+    localStorage.setItem(LECTURE_BY_TOPIC_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore quota */
   }
 }
 
@@ -251,7 +266,7 @@ export default function App() {
   /** Kompyuterda admin/tarjimon/startuper uchun klassik login */
   const [desktopStaffLogin, setDesktopStaffLogin] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopic | null>(null);
-  const [latestLectureContent, setLatestLectureContent] = useState(readStoredLectureDraft);
+  const [latestLectureContent, setLatestLectureContent] = useState('');
   const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
   const [notifications, setNotifications] = useState<AppNotification[]>(readStoredNotifications);
   const [isNotificationsOpen, setNotificationsOpen] = useState(false);
@@ -260,12 +275,14 @@ export default function App() {
 
   const setLectureContent = useCallback((c: string) => {
     setLatestLectureContent(c);
-    try {
-      localStorage.setItem(LECTURE_DRAFT_STORAGE_KEY, c);
-    } catch {
-      /* ignore quota */
-    }
-  }, []);
+    const topicNorm = selectedTopic?.title?.trim().toLowerCase() ?? '';
+    if (topicNorm) writeLectureForTopic(topicNorm, c);
+  }, [selectedTopic]);
+
+  useEffect(() => {
+    const topicNorm = selectedTopic?.title?.trim().toLowerCase() ?? '';
+    setLatestLectureContent(topicNorm ? readLectureForTopic(topicNorm) : '');
+  }, [selectedTopic]);
 
   const addNotification = useCallback((title: string, body: string, level: AppNotification['level'] = 'info') => {
     const next: AppNotification = {

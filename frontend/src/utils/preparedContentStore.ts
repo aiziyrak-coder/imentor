@@ -141,6 +141,27 @@ export function loadPreparedById<T>(kind: PreparedContentKind, id: string): T | 
   return row ? (row.payload as T) : null;
 }
 
+export async function deletePreparedContent(kind: PreparedContentKind, id: string): Promise<void> {
+  const owner = ownerKey();
+  if (!owner) return;
+  const rows = readLocal(owner, kind).filter((r) => r.id !== id);
+  writeLocal(owner, kind, rows);
+
+  const cloudId = /^\d+$/.test(id) ? id : null;
+  if (cloudId) {
+    try {
+      const token = await getBackendAccessToken();
+      if (!token) return;
+      await httpJson(`${apiBaseUrl()}/v1/prepared-content/${cloudId}/`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      /* local already removed */
+    }
+  }
+}
+
 export async function loadLatestPreparedContent<T>(
   kind: PreparedContentKind,
   topic: string

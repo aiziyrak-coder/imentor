@@ -19,8 +19,6 @@ services:
       DJANGO_SECURE_HSTS_PRELOAD: "True"
       DJANGO_ALLOW_LEGACY_PREPARED_CONTENT_API: "False"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      OPENAI_PRESENTATION_MODEL: "${OPENAI_PRESENTATION_MODEL:-gpt-4.1}"
     command: /app/entrypoint.sh
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health/"]

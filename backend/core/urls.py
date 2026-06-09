@@ -12,7 +12,11 @@ from .device_pairing_views import (
     DevicePairStatusView,
 )
 from .education_ai_views import EducationAiCompletionView
-from .presentation_ai_views import PresentationAiFromTextView, PresentationAiGenerateView
+from .presentation_views import (
+    TopicPresentationDetailView,
+    TopicPresentationFileView,
+    TopicPresentationListCreateView,
+)
 from .handout_views import TopicHandoutDetailView, TopicHandoutFileView, TopicHandoutListCreateView
 from .syllabus_catalog_views import (
     AdminCourseSyllabusDetailView,
@@ -73,8 +77,9 @@ urlpatterns = [
     path('v1/device-pair/confirm/', DevicePairConfirmView.as_view(), name='device-pair-confirm'),
     path('v1/device-pair/status/<str:pairing_token>/', DevicePairStatusView.as_view(), name='device-pair-status'),
     path('v1/education-ai/completion/', EducationAiCompletionView.as_view(), name='education-ai-completion'),
-    path('v1/presentation-ai/generate/', PresentationAiGenerateView.as_view(), name='presentation-ai-generate'),
-    path('v1/presentation-ai/from-text/', PresentationAiFromTextView.as_view(), name='presentation-ai-from-text'),
+    path('v1/presentations/', TopicPresentationListCreateView.as_view(), name='presentations-list-create'),
+    path('v1/presentations/<int:pk>/file/', TopicPresentationFileView.as_view(), name='presentation-file'),
+    path('v1/presentations/<int:pk>/', TopicPresentationDetailView.as_view(), name='presentation-detail'),
     path('v1/handouts/', TopicHandoutListCreateView.as_view(), name='handouts-list-create'),
     path('v1/handouts/<int:pk>/file/', TopicHandoutFileView.as_view(), name='handout-file'),
     path('v1/handouts/<int:pk>/', TopicHandoutDetailView.as_view(), name='handout-detail'),

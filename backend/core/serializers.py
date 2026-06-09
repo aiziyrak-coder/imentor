@@ -14,6 +14,7 @@ from .models import (
     StartupProjectApplication,
     SyllabusDocument,
     TopicHandout,
+    TopicPresentation,
 )
 from .permissions import resolve_user_role
 from .week_schedule import current_week_phase_code
@@ -102,6 +103,46 @@ class TopicHandoutSerializer(serializers.ModelSerializer):
         return obj.file.url
 
     def get_can_delete(self, obj: TopicHandout) -> bool:
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        if obj.owner_key == request.user.username:
+            return True
+        return resolve_user_role(request.user, request) == "admin"
+
+
+class TopicPresentationSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TopicPresentation
+        fields = [
+            "id",
+            "owner_key",
+            "author_name",
+            "topic",
+            "topic_norm",
+            "title",
+            "kind",
+            "file_name",
+            "file_size",
+            "file_url",
+            "can_delete",
+            "sort_order",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_file_url(self, obj: TopicPresentation) -> str:
+        request = self.context.get("request")
+        if not obj.file:
+            return ""
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
+
+    def get_can_delete(self, obj: TopicPresentation) -> bool:
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return False

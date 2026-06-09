@@ -98,6 +98,7 @@ _media_root = os.getenv("DJANGO_MEDIA_ROOT", "").strip()
 MEDIA_ROOT = Path(_media_root) if _media_root else (BASE_DIR / "media")
 
 HANDOUT_MAX_BYTES = int(os.getenv("DJANGO_HANDOUT_MAX_BYTES", str(20 * 1024 * 1024)))
+PRESENTATION_MAX_BYTES = int(os.getenv("DJANGO_PRESENTATION_MAX_BYTES", str(50 * 1024 * 1024)))
 
 # Yuklangan fayllar (tarqatma, syllabus PDF) — productionda ham /media/ orqali.
 DJANGO_SERVE_MEDIA = env_bool("DJANGO_SERVE_MEDIA", default=DEBUG)
@@ -150,9 +151,5 @@ DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
 # Eski muhit fayllari (bir martalik moslik)
 if not DEEPSEEK_API_KEY:
     DEEPSEEK_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
-
-# OpenAI — faqat taqdimot generatsiyasi (GPT-4.1 yoki OPENAI_PRESENTATION_MODEL).
-OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
-OPENAI_PRESENTATION_MODEL = (os.getenv("OPENAI_PRESENTATION_MODEL") or "gpt-4.1").strip()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

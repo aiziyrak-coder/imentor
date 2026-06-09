@@ -387,6 +387,48 @@ class TopicHandout(models.Model):
         return f"{self.topic_norm}:{self.file_name}"
 
 
+def presentation_upload_to(instance: "TopicPresentation", filename: str) -> str:
+    import re
+
+    safe = re.sub(r"[^\w.\-]", "_", filename)[:180]
+    return f"presentations/{_handout_topic_dir(instance.topic_norm)}/{instance.owner_key}_{safe}"
+
+
+class TopicPresentation(models.Model):
+    """Syllabus mavzusiga bog‘langan taqdimot (PDF / PPT / PPTX)."""
+
+    KIND_PDF = "pdf"
+    KIND_PPT = "ppt"
+    KIND_PPTX = "pptx"
+    KIND_CHOICES = (
+        (KIND_PDF, "PDF"),
+        (KIND_PPT, "PPT"),
+        (KIND_PPTX, "PPTX"),
+    )
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    author_name = models.CharField(max_length=255, blank=True)
+    topic = models.CharField(max_length=255)
+    topic_norm = models.CharField(max_length=255, db_index=True)
+    title = models.CharField(max_length=255, blank=True)
+    kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_PDF)
+    file = models.FileField(upload_to=presentation_upload_to, max_length=512)
+    file_name = models.CharField(max_length=512)
+    file_size = models.PositiveIntegerField(default=0)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+        indexes = [
+            models.Index(fields=["topic_norm", "sort_order", "created_at"]),
+            models.Index(fields=["owner_key", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.topic_norm}:{self.file_name}"
+
+
 class DevicePairingSession(models.Model):
     """
     Hodim: kompyuter QR ↔ telefon login. GPS faqat telefondan.

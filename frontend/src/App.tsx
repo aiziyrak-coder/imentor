@@ -543,7 +543,7 @@ export default function App() {
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
                 {[
                   { icon: BookOpen, text: 'Syllabus asosida mavzu tanlash' },
-                  { icon: Presentation, text: 'Ma’ruza va slaydlarni AI bilan yaratish' },
+                  { icon: Presentation, text: 'Mavzu bo‘yicha taqdimot yuklash va ko‘rish' },
                   { icon: ClipboardList, text: 'Klinik case va test generator' },
                   { icon: Languages, text: 'O‘zbek / Русский / English qo‘llab-quvvatlash' },
                 ].map((item) => (

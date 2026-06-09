@@ -19,13 +19,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 const SYS_MEDICAL =
   'Siz FJSTI tibbiyot professori va klinik ta\'lim metodistisiz. Javoblar ilmiy, aniq, darsga tayyor.';
 
-export type { Slide } from './presentationTypes';
-export { migrateLegacySlide } from './presentationEngine';
-import type { Slide } from './presentationTypes';
-import {
-  generateMedicalPresentation,
-  generateMedicalPresentationFromFile,
-} from './presentationEngine';
 import {
   LECTURE_REFERENCES_AI_RULES,
   MEDICAL_REFERENCES_AI_RULES,
@@ -452,35 +445,6 @@ export const aiService = {
   async extractSyllabusTopics(file: File, uiLanguage: AppLanguage = 'uz'): Promise<SyllabusTopic[]> {
     const result = await aiService.extractSyllabusFromPdf(file, uiLanguage);
     return result.topics;
-  },
-
-  async generatePresentation(
-    topic: string,
-    description: string = '',
-    count: number = 12,
-    language: AppLanguage = 'uz',
-    onPhase?: (phase: 'structure' | 'content' | 'images' | 'done') => void,
-  ): Promise<Slide[]> {
-    try {
-      return await generateMedicalPresentation(topic, description, count, language, onPhase);
-    } catch (error) {
-      console.error('Presentation generation failed:', error);
-      throw error;
-    }
-  },
-
-  async generatePresentationFromFile(
-    file: File,
-    language: AppLanguage = 'uz',
-    onPhase?: (phase: 'structure' | 'content' | 'images' | 'done') => void,
-  ): Promise<Slide[]> {
-    const topicFromFile = file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
-    try {
-      return await generateMedicalPresentationFromFile(file, topicFromFile, language, onPhase);
-    } catch (error) {
-      console.error('Presentation generation from file failed:', error);
-      throw error;
-    }
   },
 
   async generateCaseStudy(topic: string, language: AppLanguage = 'uz'): Promise<CaseStudySession> {

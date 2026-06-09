@@ -1,49 +1,59 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import { 
-  FileText, 
-  Sparkles, 
-  Loader2, 
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import {
+  FileText,
+  Sparkles,
+  Loader2,
   History,
   Download,
   ArrowLeft,
   Copy,
   CheckCircle2,
-  BookOpen
+  BookOpen,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { aiService, LectureNote } from '../services/aiService';
 import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../App';
 import Markdown from 'react-markdown';
-
-import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, where } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { loadLatestPreparedContent, savePreparedContent } from '../utils/preparedContentStore';
+import {
+  listAllPreparedForKind,
+  loadLatestPreparedContent,
+  loadPreparedById,
+  savePreparedContent,
+  type PreparedContentSummary,
+} from '../utils/preparedContentStore';
 
 export default function LectureNotes() {
   const globalTopic = useContext(GlobalTopicContext);
   const globalLecture = useContext(GlobalLectureContext);
   const { language } = useContext(AppLanguageContext);
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
-  const [description, setDescription] = useState(globalTopic ? `${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}` : '');
-  
+  const [description, setDescription] = useState(
+    globalTopic
+      ? `${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}`
+      : '',
+  );
+
   const [loading, setLoading] = useState(false);
   const [lectureSession, setLectureSession] = useState<LectureNote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState('');
-  
-  const [savedLectures, setSavedLectures] = useState<LectureNote[]>([]);
+
+  const [savedLectures, setSavedLectures] = useState<PreparedContentSummary[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [copied, setCopied] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
-  
-  const [userId, setUserId] = useState<string | null>(null);
+
+  const refreshHistory = useCallback(() => {
+    setSavedLectures(listAllPreparedForKind('lecture'));
+  }, []);
 
   useEffect(() => {
     if (globalTopic) {
       setTopic(globalTopic.title);
-      setDescription(`${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}`);
+      setDescription(
+        `${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}`,
+      );
     }
   }, [globalTopic]);
 
@@ -60,29 +70,11 @@ export default function LectureNotes() {
     return () => {
       mounted = false;
     };
-  }, [topic]);
+  }, [topic, globalLecture]);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      setUserId(user ? user.uid : null);
-      if (user) {
-        fetchSavedLectures(user.uid);
-      }
-    });
-    return () => unsub();
-  }, []);
-
-  const fetchSavedLectures = async (uid: string) => {
-    try {
-      const q = query(collection(db, 'lectures'), where('authorUid', '==', uid), orderBy('createdAt', 'desc'));
-      const snapshot = await getDocs(q);
-      const lectures = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LectureNote));
-      setSavedLectures(lectures);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.LIST, 'lectures');
-      console.error(err);
-    }
-  };
+    refreshHistory();
+  }, [refreshHistory]);
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,32 +84,23 @@ export default function LectureNotes() {
     setError(null);
     try {
       const data = await aiService.generateLectureNotes(topic, description, language);
-      
+
       setLectureSession(data);
       setEditedContent(data.content);
       globalLecture.setContent(data.content);
       await savePreparedContent('lecture', topic, data);
-      
-      if (userId) {
-        const docRef = await addDoc(collection(db, 'lectures'), {
-          ...data,
-          createdAt: serverTimestamp(),
-          authorUid: userId
-        });
-        const savedData = { ...data, id: docRef.id, createdAt: Date.now(), authorUid: userId };
-        setSavedLectures(prev => [savedData, ...prev]);
-        setLectureSession(savedData);
-      }
-
+      refreshHistory();
     } catch (err) {
-      console.error("Lecture generation error:", err);
+      console.error('Lecture generation error:', err);
       setError("Ma'ruza matnini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
     } finally {
       setLoading(false);
     }
   };
 
-  const loadPastSession = (session: LectureNote) => {
+  const loadPastSession = (summary: PreparedContentSummary) => {
+    const session = loadPreparedById<LectureNote>('lecture', summary.id);
+    if (!session) return;
     setLectureSession(session);
     setTopic(session.topic);
     setEditedContent(session.content);
@@ -144,7 +127,7 @@ export default function LectureNotes() {
     return (
       <div className="h-full flex flex-col items-center bg-[#f2f2f7] p-4 sm:p-8 overflow-y-auto">
         <div className="w-full max-w-4xl flex items-center justify-between mb-8">
-          <button 
+          <button
             onClick={() => setShowHistory(false)}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 transition-colors"
           >
@@ -166,8 +149,8 @@ export default function LectureNotes() {
           </div>
         ) : (
           <div className="grid gap-4 w-full max-w-4xl">
-            {savedLectures.map(lecture => (
-              <button 
+            {savedLectures.map((lecture) => (
+              <button
                 key={lecture.id}
                 onClick={() => loadPastSession(lecture)}
                 className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-300 hover:shadow-md transition-all text-left"
@@ -175,9 +158,15 @@ export default function LectureNotes() {
                 <div>
                   <h3 className="font-bold text-gray-800 text-lg mb-1">{lecture.topic}</h3>
                   <div className="flex items-center gap-4 text-sm font-medium text-gray-500">
-                    <span className="flex items-center gap-1.5"><BookOpen size={14}/> Ma'ruza matni</span>
+                    <span className="flex items-center gap-1.5">
+                      <BookOpen size={14} /> Ma'ruza matni
+                    </span>
                     <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                    <span>{lecture.createdAt ? new Date(lecture.createdAt).toLocaleDateString('uz-UZ') : 'Yaqinda'}</span>
+                    <span>
+                      {lecture.createdAt
+                        ? new Date(lecture.createdAt).toLocaleDateString('uz-UZ')
+                        : 'Yaqinda'}
+                    </span>
                   </div>
                 </div>
                 <ArrowLeft className="text-gray-400 rotate-180" />
@@ -198,36 +187,37 @@ export default function LectureNotes() {
             Akademik Ma'ruza Matnini Generatsiya Qilish
           </div>
           <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
-            O'qituvchi uchun <br className="hidden sm:block"/>
+            O'qituvchi uchun <br className="hidden sm:block" />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">
               Ma'ruza Matni
             </span>
           </h1>
           <p className="text-gray-500 text-lg max-w-2xl mx-auto font-medium">
-            Tanlangan dars mavzusi bo'yicha eng dolzarb klinik faktlar va akademik tuzilmaga ega bo'lgan mukammal o'quv materialini yarating.
+            Tanlangan dars mavzusi bo'yicha eng dolzarb klinik faktlar va akademik tuzilmaga ega bo'lgan
+            mukammal o'quv materialini yarating.
           </p>
         </div>
 
-        <motion.div 
+        <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           className="bg-white p-4 flex flex-col shadow-xl rounded-2xl border border-gray-100 gap-4 max-w-3xl mx-auto"
         >
           <div className="space-y-3">
-             <input
-                type="text"
-                className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
-                placeholder="Mavzu nomi..."
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-             />
-             <input
-                type="text"
-                className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
-                placeholder="Qo'shimcha ma'lumotlar yoki guruh (Masalan: 3-kurs UMB)..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-             />
+            <input
+              type="text"
+              className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
+              placeholder="Mavzu nomi..."
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+            <input
+              type="text"
+              className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
+              placeholder="Qo'shimcha ma'lumotlar yoki guruh (Masalan: 3-kurs UMB)..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </div>
           <div className="flex flex-col sm:flex-row gap-3 mt-2">
             <button
@@ -239,7 +229,10 @@ export default function LectureNotes() {
               Matnni Yaratish
             </button>
             <button
-              onClick={() => setShowHistory(true)}
+              onClick={() => {
+                refreshHistory();
+                setShowHistory(true);
+              }}
               className="bg-emerald-50 text-emerald-600 px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all border border-emerald-100"
             >
               <History size={20} />
@@ -261,28 +254,30 @@ export default function LectureNotes() {
               <div className="absolute inset-0 border-4 border-emerald-600 rounded-full border-t-transparent animate-spin"></div>
               <FileText size={28} className="absolute inset-0 m-auto text-emerald-600 animate-pulse" />
             </div>
-            <p className="text-gray-500 font-medium animate-pulse text-lg">AI akademik ma'ruza matnini shakllantirmoqda...</p>
-            <p className="text-gray-400 text-sm mt-2 max-w-md text-center">Tibbiy ilmiy manbalar asosida batafsil matn tayyorlanmoqda, bu bir oz vaqt olishi mumkin.</p>
+            <p className="text-gray-500 font-medium animate-pulse text-lg">
+              AI akademik ma'ruza matnini shakllantirmoqda...
+            </p>
+            <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
+              Tibbiy ilmiy manbalar asosida batafsil matn tayyorlanmoqda, bu bir oz vaqt olishi mumkin.
+            </p>
           </div>
         )}
 
         {lectureSession && !loading && (
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
               <h2 className="text-2xl font-bold text-gray-800 flex-1">{lectureSession.topic}</h2>
               <div className="flex gap-2 w-full sm:w-auto">
                 <button
                   onClick={() => setIsEditing(!isEditing)}
                   className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-colors ${
-                    isEditing ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    isEditing
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   <FileText size={18} />
-                  <span>{isEditing ? "Ko'rish" : "Tahrirlash"}</span>
+                  <span>{isEditing ? "Ko'rish" : 'Tahrirlash'}</span>
                 </button>
                 <button
                   onClick={handleCopy}
@@ -290,7 +285,7 @@ export default function LectureNotes() {
                   title="Nusxa ko'chirish"
                 >
                   {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
-                  <span>{copied ? "Ko'chirildi" : "Nusxa olish"}</span>
+                  <span>{copied ? "Ko'chirildi" : 'Nusxa olish'}</span>
                 </button>
                 <button
                   onClick={handlePrint}
@@ -303,10 +298,7 @@ export default function LectureNotes() {
               </div>
             </div>
 
-            <div 
-              ref={printRef}
-              className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border border-gray-100"
-            >
+            <div ref={printRef} className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border border-gray-100">
               {isEditing ? (
                 <div className="flex flex-col gap-4">
                   <textarea
@@ -327,6 +319,7 @@ export default function LectureNotes() {
                           ...lectureSession,
                           content: editedContent,
                         });
+                        refreshHistory();
                         setIsEditing(false);
                       }}
                       className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
@@ -341,7 +334,7 @@ export default function LectureNotes() {
                 </div>
               )}
             </div>
-            
+
             <style>{`
               @media print {
                 body * {
@@ -372,7 +365,6 @@ export default function LectureNotes() {
                 Yangi yaratish
               </button>
             </div>
-
           </motion.div>
         )}
       </div>

@@ -59,7 +59,10 @@ export default function SyllabusView({
       setCatalog(cat);
       setMySelections(mine);
     } catch (err) {
-      if (isSyncUnavailable(err)) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === 'no-backend-token') {
+        setError('Fanlar ro‘yxati uchun tizimga kiring (hodim roli). Chiqing va qayta kiring.');
+      } else if (isSyncUnavailable(err)) {
         setError('Fan tanlovi faqat «Hodim» roli uchun. Chiqing va hodim sifatida qayta kiring.');
       } else {
         setError('Ma’lumotlarni yuklab bo‘lmadi. Tizimga kiring va internetni tekshiring.');

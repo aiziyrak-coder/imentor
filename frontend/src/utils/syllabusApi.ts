@@ -118,7 +118,7 @@ export async function deleteAdminCourseSyllabus(id: number): Promise<void> {
 
 export async function fetchCourseSyllabusCatalog(): Promise<CourseSyllabusRow[]> {
   const token = await getBackendAccessToken();
-  if (!token) return [];
+  if (!token) throw new Error('no-backend-token');
   const rows = await httpJson<CourseSyllabusRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/catalog/`, {
     headers: authHeaders(token),
     timeoutMs: 30000,

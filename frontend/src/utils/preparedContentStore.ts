@@ -120,6 +120,20 @@ export function listPreparedForTopic(kind: PreparedContentKind, topic: string): 
     }));
 }
 
+/** Barcha mavzular bo‘yicha saqlangan versiyalar (ma'ruza tarixi va h.k.) */
+export function listAllPreparedForKind(kind: PreparedContentKind): PreparedContentSummary[] {
+  const owner = ownerKey();
+  if (!owner) return [];
+  return readLocal(owner, kind)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((r) => ({
+      id: r.id,
+      topic: r.topic,
+      createdAt: r.createdAt,
+      source: r.source,
+    }));
+}
+
 export function loadPreparedById<T>(kind: PreparedContentKind, id: string): T | null {
   const owner = ownerKey();
   if (!owner) return null;

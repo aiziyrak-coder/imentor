@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
 import {
   ClipboardList,
   Sparkles,
@@ -27,7 +27,7 @@ import {
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
 import { messageFromAiError } from '../utils/aiErrors';
 import {
-  upsertLiveTestSessionOnServer,
+  syncLiveTestSessionToServer,
   fetchLiveTestSessionFromServer,
   submitLiveTestOnServer,
   fetchLiveTestSubmissionsFromServer,
@@ -157,12 +157,10 @@ export default function TestQuestions() {
     );
     setSubmissions([]);
     setShowAnalysis(false);
-    void upsertLiveTestSessionOnServer(sid, {
+    void syncLiveTestSessionToServer(sid, {
       topic: doc.topic,
       questions: doc.questions,
       createdAt: doc.createdAt,
-    }).catch(() => {
-      /* o‘qituvchi API yo‘q bo‘lsa ham mahalliy QR ishlaydi (faqat shu brauzer) */
     });
     writeStoredTeacherSid(data.topic, sid);
     return sid;
@@ -182,6 +180,7 @@ export default function TestQuestions() {
   const [studentTest, setStudentTest] = useState<LiveTestSessionDoc | null>(null);
 
   const [sessionLoading, setSessionLoading] = useState(isStudentMode && !!studentSessionId);
+  const serverSessionSyncedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isStudentMode || !studentSessionId) {
@@ -271,8 +270,21 @@ export default function TestQuestions() {
     };
 
     let cancelled = false;
+    const ensureServerSession = async (): Promise<void> => {
+      if (serverSessionSyncedRef.current === teacherSessionId) return;
+      const localDoc = loadLocalSession(teacherSessionId);
+      if (!localDoc) return;
+      const ok = await syncLiveTestSessionToServer(teacherSessionId, {
+        topic: localDoc.topic,
+        questions: localDoc.questions,
+        createdAt: localDoc.createdAt,
+      });
+      if (ok) serverSessionSyncedRef.current = teacherSessionId;
+    };
+
     const tick = async () => {
       try {
+        await ensureServerSession();
         const remote = await fetchLiveTestSubmissionsFromServer(teacherSessionId);
         if (cancelled) return;
         const mapped: TestSubmissionDoc[] = remote.map((r) => ({
@@ -304,6 +316,10 @@ export default function TestQuestions() {
       window.removeEventListener('storage', onStorage);
     };
   }, [isStudentMode, teacherSessionId]);
+
+  useEffect(() => {
+    serverSessionSyncedRef.current = null;
+  }, [teacherSessionId]);
 
   const handleSelectVersion = (id: string) => {
     const data = loadPreparedById<TestSession>('test', id);

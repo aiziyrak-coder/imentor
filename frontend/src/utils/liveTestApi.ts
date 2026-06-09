@@ -48,6 +48,19 @@ export async function upsertLiveTestSessionOnServer(
   });
 }
 
+/** Serverda sessiya yo‘q bo‘lsa (yangi server / DB ko‘chirish) — qayta yozadi. */
+export async function syncLiveTestSessionToServer(
+  sessionKey: string,
+  payload: LiveTestSessionPayload
+): Promise<boolean> {
+  try {
+    await upsertLiveTestSessionOnServer(sessionKey, payload);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Talaba: login talab qilinmaydi. */
 export async function fetchLiveTestSessionFromServer(sessionKey: string): Promise<LiveTestSessionPayload | null> {
   try {
@@ -86,26 +99,31 @@ export async function submitLiveTestOnServer(
   });
 }
 
-/** O‘qituvchi: realtime ro‘yxat (JWT). */
+/** O‘qituvchi: realtime ro‘yxat (JWT). Sessiya serverda yo‘q bo‘lsa [] (404 konsol shovqinini oldini oladi). */
 export async function fetchLiveTestSubmissionsFromServer(sessionKey: string): Promise<LiveTestSubmissionRow[]> {
   const token = await getBackendAccessToken();
   if (!token) return [];
-  const rows = await httpJson<
-    Array<{
-      first_name: string;
-      last_name: string;
-      answers: number[];
-      submitted_at: string;
-    }>
-  >(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/submissions/`, {
-    headers: { Authorization: `Bearer ${token}` },
-    timeoutMs: 20000,
-  });
-  if (!Array.isArray(rows)) return [];
-  return rows.map((r) => ({
-    firstName: r.first_name,
-    lastName: r.last_name,
-    answers: Array.isArray(r.answers) ? r.answers : [],
-    submittedAt: Date.parse(r.submitted_at),
-  }));
+  try {
+    const rows = await httpJson<
+      Array<{
+        first_name: string;
+        last_name: string;
+        answers: number[];
+        submitted_at: string;
+      }>
+    >(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/submissions/`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 20000,
+    });
+    if (!Array.isArray(rows)) return [];
+    return rows.map((r) => ({
+      firstName: r.first_name,
+      lastName: r.last_name,
+      answers: Array.isArray(r.answers) ? r.answers : [],
+      submittedAt: Date.parse(r.submitted_at),
+    }));
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 404) return [];
+    throw e;
+  }
 }

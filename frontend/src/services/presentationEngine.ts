@@ -9,6 +9,7 @@ import {
   deepseekJson,
   deepseekWithPdf,
 } from './deepseekClient';
+import { parseAiJson } from '../utils/parseAiJson';
 import type { Slide, SlideKind, SlideLayout, VisualBlock, VisualBlockType } from './presentationTypes';
 
 const SYS =
@@ -34,26 +35,10 @@ function languageName(lang: AppLanguage): string {
   return 'Uzbek';
 }
 
-function parseJSONSafe<T>(text: string | undefined): T {
-  if (!text) throw new Error('Empty response from AI');
-  let jsonString = text.trim();
-  const match = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (match) jsonString = match[1];
-  try {
-    return JSON.parse(jsonString) as T;
-  } catch {
-    const objStart = jsonString.indexOf('{');
-    const arrStart = jsonString.indexOf('[');
-    const start =
-      objStart === -1 ? arrStart : arrStart === -1 ? objStart : Math.min(objStart, arrStart);
-    const objEnd = jsonString.lastIndexOf('}');
-    const arrEnd = jsonString.lastIndexOf(']');
-    const end = Math.max(objEnd, arrEnd);
-    if (start >= 0 && end > start) {
-      return JSON.parse(jsonString.slice(start, end + 1)) as T;
-    }
-    throw new Error('Failed to parse JSON response');
-  }
+function parseSlideArray(text: string): Slide[] {
+  const parsed = parseAiJson<Slide[]>(text);
+  if (!Array.isArray(parsed)) throw new Error('AI javobi massiv emas');
+  return parsed;
 }
 
 function buildPedagogicSlidePlan(topic: string, count: number): string[] {
@@ -320,6 +305,34 @@ ${JSON_SCHEMA_HINT}
 Faqat JSON massiv qaytaring.`;
 }
 
+const JSON_STRICT_SUFFIX = `
+
+MUHIM JSON qoidalari:
+- Faqat double-quote (") ishlating; satr ichidagi " belgisini \\" qilib yozing.
+- Satr ichida yangi qator bo'lmasin — bitta qator yoki \\n.
+- Trailing comma yo'q.
+- Faqat JSON massiv, boshqa matn yo'q.`;
+
+async function requestPresentationDeck(
+  topic: string,
+  description: string,
+  safeCount: number,
+  outLang: string,
+  strict: boolean,
+  jsonStrict: boolean,
+): Promise<Slide[]> {
+  return deepseekJson({
+    model: DEEPSEEK_REASONER,
+    system: `${SYS} JSON massiv — har slaydda visual blok bilan.`,
+    user:
+      buildGenerationPrompt(topic, description, safeCount, outLang, strict) +
+      (jsonStrict ? JSON_STRICT_SUFFIX : ''),
+    maxTokens: 16384,
+    temperature: jsonStrict ? 0.22 : strict ? 0.28 : 0.38,
+    parse: parseSlideArray,
+  });
+}
+
 export async function generateMedicalPresentation(
   topic: string,
   description: string = '',
@@ -330,19 +343,18 @@ export async function generateMedicalPresentation(
   const outLang = languageName(language);
   const safeCount = Math.min(24, Math.max(8, count));
 
-  const requestDeck = async (strict: boolean): Promise<Slide[]> =>
-    deepseekJson({
-      model: DEEPSEEK_REASONER,
-      system: `${SYS} JSON massiv — har slaydda visual blok bilan.`,
-      user: buildGenerationPrompt(topic, description, safeCount, outLang, strict),
-      maxTokens: 16384,
-      temperature: strict ? 0.28 : 0.38,
-      parse: (t) => parseJSONSafe<Slide[]>(t),
-    });
-
-  let raw = await requestDeck(false);
+  let raw: Slide[];
+  try {
+    raw = await requestPresentationDeck(topic, description, safeCount, outLang, false, false);
+  } catch {
+    raw = await requestPresentationDeck(topic, description, safeCount, outLang, true, true);
+  }
   if (looksLikeWeakDeck(raw, safeCount)) {
-    raw = await requestDeck(true);
+    try {
+      raw = await requestPresentationDeck(topic, description, safeCount, outLang, true, false);
+    } catch {
+      raw = await requestPresentationDeck(topic, description, safeCount, outLang, true, true);
+    }
   }
   if (!Array.isArray(raw) || raw.length < 4) {
     throw new Error('AI taqdimot strukturasini qaytarmadi');
@@ -384,7 +396,7 @@ export async function generateMedicalPresentationFromFile(
     maxTokens: 16384,
   });
 
-  const parsed = parseJSONSafe<Slide[]>(raw);
+  const parsed = parseSlideArray(raw);
   const topic = topicHint || file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
   const targetCount = Math.min(16, Math.max(8, parsed.length || 12));
   const slice = parsed.slice(0, targetCount);

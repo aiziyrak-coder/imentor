@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
+import { parseAiJson } from '../utils/parseAiJson';
 import {
   DEEPSEEK_CHAT,
   DEEPSEEK_FAST,
@@ -74,37 +75,7 @@ export interface Exercise {
 }
 
 function parseJSONSafe<T>(text: string | undefined): T {
-  if (!text) throw new Error("Empty response from AI");
-  
-  // Try to extract JSON from markdown code blocks
-  let jsonString = text.trim();
-  const match = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-  if (match) {
-    jsonString = match[1];
-  }
-
-  try {
-    return JSON.parse(jsonString) as T;
-  } catch (err) {
-    // Fallback: attempt to parse the first JSON object/array slice from noisy text.
-    const objStart = jsonString.indexOf('{');
-    const arrStart = jsonString.indexOf('[');
-    const start =
-      objStart === -1 ? arrStart : arrStart === -1 ? objStart : Math.min(objStart, arrStart);
-    const objEnd = jsonString.lastIndexOf('}');
-    const arrEnd = jsonString.lastIndexOf(']');
-    const end = Math.max(objEnd, arrEnd);
-    if (start >= 0 && end > start) {
-      try {
-        const sliced = jsonString.slice(start, end + 1);
-        return JSON.parse(sliced) as T;
-      } catch {
-        // continue to throw canonical error below
-      }
-    }
-    console.error("JSON Parsing Error. Raw text:", text);
-    throw new Error("Failed to parse JSON response");
-  }
+  return parseAiJson<T>(text);
 }
 
 export interface SyllabusTopic {

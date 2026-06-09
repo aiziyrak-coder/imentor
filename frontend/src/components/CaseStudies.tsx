@@ -21,6 +21,7 @@ import {
   type PreparedContentSummary,
 } from '../utils/preparedContentStore';
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
+import { messageFromAiError } from '../utils/aiErrors';
 
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -116,8 +117,8 @@ export default function CaseStudies() {
         /* bazaga yozish ixtiyoriy */
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch {
-      setError("Klinik keys yaratishda xatolik yuz berdi. Iltimos qaytadan urinib ko'ring.");
+    } catch (err) {
+      setError(messageFromAiError(err, "Klinik keys yaratishda xatolik yuz berdi. Iltimos qaytadan urinib ko'ring."));
     } finally {
       setLoading(false);
     }

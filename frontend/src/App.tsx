@@ -41,7 +41,7 @@ import {
   type LocalStaffUser,
   type UserRole,
 } from './utils/localStaffAuth';
-import { clearBackendAuthTokens } from './utils/backendAuth';
+import { clearBackendAuthTokens, getBackendAccessToken } from './utils/backendAuth';
 import {
   type AppLanguage,
   getAppLanguage,
@@ -342,6 +342,12 @@ export default function App() {
     if (!user) return;
     addNotification('Xush kelibsiz', `${user.displayName || 'Foydalanuvchi'}, tizimga muvaffaqiyatli kirdingiz.`, 'success');
   }, [user?.uid, user?.displayName, addNotification]);
+
+  /** Kirishdan keyin JWT ni yangilash (AI, fanlar, QR juftlash — parolsiz refresh) */
+  useEffect(() => {
+    if (!user) return;
+    void getBackendAccessToken();
+  }, [user?.uid]);
 
   /** Sessiya bilan kirganda va oynaga qaytishda oxirgi faollik vaqtini yangilash */
   useEffect(() => {

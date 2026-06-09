@@ -159,21 +159,40 @@ function buildVisualFromContent(slide: Slide, type: VisualBlockType): VisualBloc
   }
 }
 
+function visualHasRenderableData(v: VisualBlock): boolean {
+  switch (v.type) {
+    case 'flow':
+      return (v.steps?.length ?? 0) >= 1;
+    case 'stats':
+      return (v.stats?.length ?? 0) >= 1;
+    case 'compare':
+      return Boolean(v.left?.items?.length || v.right?.items?.length);
+    case 'pyramid':
+      return (v.levels?.length ?? 0) >= 1;
+    case 'timeline':
+      return (v.events?.length ?? 0) >= 1;
+    case 'cycle':
+      return (v.nodes?.length ?? 0) >= 1;
+    case 'table':
+      return (v.rows?.length ?? 0) >= 1;
+    case 'icon-grid':
+      return (v.icons?.length ?? 0) >= 1;
+    case 'clinical':
+      return Boolean(v.vignette?.patient || v.vignette?.findings?.length);
+    default:
+      return false;
+  }
+}
+
 function normalizeVisual(raw: unknown, slide: Slide, index: number): VisualBlock {
+  const kind = slide.slideKind;
+  const inferred = inferVisualType(slide.title, kind, index);
   if (raw && typeof raw === 'object' && 'type' in raw) {
     const v = raw as VisualBlock;
-    if (VISUAL_TYPES.includes(v.type)) {
-      if (v.type === 'flow' && (!v.steps || v.steps.length < 2)) {
-        return buildVisualFromContent(slide, 'flow');
-      }
-      if (v.type === 'stats' && (!v.stats || v.stats.length < 2)) {
-        return buildVisualFromContent(slide, 'stats');
-      }
+    if (VISUAL_TYPES.includes(v.type) && visualHasRenderableData(v)) {
       return v;
     }
   }
-  const kind = slide.slideKind;
-  const inferred = inferVisualType(slide.title, kind, index);
   return buildVisualFromContent(slide, inferred);
 }
 
@@ -223,12 +242,8 @@ function normalizeSlide(raw: Partial<Slide>, planTitle: string, index: number, t
   return slide;
 }
 
-export function migrateLegacySlide(slide: Slide, index: number): Slide {
-  if (slide.visual?.type) {
-    return { ...slide, layout: slide.layout || assignLayout(slide, index) };
-  }
-  const s = normalizeSlide(slide, slide.title, index, index + 1);
-  return s;
+export function migrateLegacySlide(slide: Slide, index: number, total = 1): Slide {
+  return normalizeSlide(slide, slide.title || `Slayd ${index + 1}`, index, total);
 }
 
 export function enrichPresentationDeck(slides: Slide[], topic: string): Slide[] {

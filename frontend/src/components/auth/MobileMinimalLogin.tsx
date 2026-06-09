@@ -4,7 +4,6 @@ import {
   isValidPhoneDigits,
   loginLocalStaff,
   normalizePhoneDigits,
-  normalizeUserRole,
 } from '../../utils/localStaffAuth';
 import { getBackendAccessToken } from '../../utils/backendAuth';
 
@@ -29,7 +28,7 @@ export default function MobileMinimalLogin() {
     setLoading(true);
     try {
       const u = loginLocalStaff(phone, password);
-      if (normalizeUserRole(u) === 'hodim') void getBackendAccessToken();
+      void getBackendAccessToken();
     } catch {
       setError("Telefon yoki parol noto'g'ri");
     } finally {

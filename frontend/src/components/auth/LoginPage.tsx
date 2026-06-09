@@ -55,7 +55,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
         logoutLocalStaff();
         return;
       }
-      if (normalizeUserRole(u) === 'hodim') void getBackendAccessToken();
+      void getBackendAccessToken();
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {
@@ -102,7 +102,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
         logoutLocalStaff();
         return;
       }
-      if (normalizeUserRole(u) === 'hodim') void getBackendAccessToken();
+      void getBackendAccessToken();
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {

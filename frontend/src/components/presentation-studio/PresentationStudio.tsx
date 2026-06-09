@@ -17,7 +17,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../../App';
 import { aiService } from '../../services/aiService';
 import type { Slide } from '../../services/presentationTypes';
-import { migrateLegacySlide } from '../../services/presentationEngine';
+import { enrichPresentationDeck, migrateLegacySlide } from '../../services/presentationEngine';
 import {
   loadLatestPreparedContent,
   savePreparedContent,
@@ -36,6 +36,12 @@ import SlideStage from './SlideStage';
 import PresenterMode from './PresenterMode';
 import { STUDIO_THEMES, themeById, type StudioThemeId } from './themes';
 import { exportDeckToPptx } from './exportDeckPptx';
+import { messageFromAiError } from '../../utils/aiErrors';
+
+function normalizeDeck(slides: Slide[], deckTopic: string): Slide[] {
+  if (!slides.length) return [];
+  return enrichPresentationDeck(slides, deckTopic.trim() || 'Taqdimot');
+}
 
 export default function PresentationStudio() {
   const globalTopic = useContext(GlobalTopicContext);
@@ -84,7 +90,7 @@ export default function PresentationStudio() {
         topic,
       );
       if (!mounted || !prepared?.slides?.length) return;
-      setSlides(prepared.slides.map((s, i) => migrateLegacySlide(s, i)));
+      setSlides(normalizeDeck(prepared.slides, prepared.topic || topic));
       setCurrentIndex(0);
       refreshVersions();
     })();
@@ -117,14 +123,14 @@ export default function PresentationStudio() {
         }
       }
       const deck = await aiService.generatePresentation(topic, ctx, slideCount, language);
-      const normalized = deck.map((s, i) => migrateLegacySlide(s, i));
+      const normalized = normalizeDeck(deck, topic);
       setSlides(normalized);
       setCurrentIndex(0);
       await persistDeck(normalized, topic);
       const list = listPreparedForTopic('presentation', topic);
       setActiveVersionId(list[0]?.id ?? null);
-    } catch {
-      setError('Taqdimot yaratilmadi. Tarmoq va AI kalitini tekshiring, 1–2 daqiqadan keyin qayta urinib ko‘ring.');
+    } catch (err) {
+      setError(messageFromAiError(err, 'Taqdimot yaratilmadi. Tarmoqni tekshirib, 1–2 daqiqadan keyin qayta urinib ko‘ring.'));
     } finally {
       setLoading(false);
     }
@@ -135,10 +141,10 @@ export default function PresentationStudio() {
     setError(null);
     try {
       const deck = await aiService.generatePresentationFromFile(file, language);
-      const normalized = deck.map((s, i) => migrateLegacySlide(s, i));
+      const t = topic || file.name.replace(/\.[^.]+$/, '');
+      const normalized = normalizeDeck(deck, t);
       setSlides(normalized);
       setCurrentIndex(0);
-      const t = topic || file.name.replace(/\.[^.]+$/, '');
       setTopic(t);
       await persistDeck(normalized, t);
     } catch {
@@ -171,13 +177,17 @@ export default function PresentationStudio() {
         ],
       },
     };
-    setSlides((p) => [...p, migrateLegacySlide(n, p.length)]);
+    setSlides((p) => [...p, migrateLegacySlide(n, p.length, p.length + 1)]);
     setCurrentIndex(slides.length);
   };
 
   const duplicateSlide = () => {
     if (!currentSlide) return;
-    const copy = migrateLegacySlide({ ...currentSlide, title: `${currentSlide.title} (nusxa)` }, slides.length);
+    const copy = migrateLegacySlide(
+      { ...currentSlide, title: `${currentSlide.title} (nusxa)` },
+      slides.length,
+      slides.length + 1,
+    );
     setSlides((p) => {
       const next = [...p];
       next.splice(currentIndex + 1, 0, copy);
@@ -195,7 +205,7 @@ export default function PresentationStudio() {
   const handleSelectVersion = (id: string) => {
     const data = loadPreparedById<{ topic: string; slides: Slide[] }>('presentation', id);
     if (!data?.slides?.length) return;
-    setSlides(data.slides.map((s, i) => migrateLegacySlide(s, i)));
+    setSlides(normalizeDeck(data.slides, data.topic || topic));
     setCurrentIndex(0);
     setActiveVersionId(id);
     setShowArchive(false);
@@ -225,7 +235,7 @@ export default function PresentationStudio() {
                   type="button"
                   className="flex-1 text-left text-sm font-medium"
                   onClick={() => {
-                    setSlides(a.slides.map((s, i) => migrateLegacySlide(s, i)));
+                    setSlides(normalizeDeck(a.slides, a.topic));
                     setTopic(a.topic);
                     setCurrentIndex(0);
                     setShowArchive(false);

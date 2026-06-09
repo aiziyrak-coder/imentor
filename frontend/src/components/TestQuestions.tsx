@@ -25,6 +25,7 @@ import {
   type PreparedContentSummary,
 } from '../utils/preparedContentStore';
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
+import { messageFromAiError } from '../utils/aiErrors';
 import {
   upsertLiveTestSessionOnServer,
   fetchLiveTestSessionFromServer,
@@ -351,7 +352,7 @@ export default function TestQuestions() {
       }
     } catch (err) {
       console.error('Test generation error:', err);
-      setError("Test savollarini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
+      setError(messageFromAiError(err, "Test savollarini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring."));
     } finally {
       setLoading(false);
     }

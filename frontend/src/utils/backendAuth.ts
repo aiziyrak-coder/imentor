@@ -93,17 +93,58 @@ async function localLoginAndGetTokens(): Promise<CachedBundle | null> {
   return writeCached(resp);
 }
 
+async function refreshAccessToken(cached: CachedBundle): Promise<CachedBundle | null> {
+  if (!cached.refresh) return null;
+  const now = Date.now();
+  const leewayMs = 30_000;
+  if (cached.refreshExpMs > 0 && cached.refreshExpMs - leewayMs <= now) return null;
+  try {
+    const resp = await httpJson<{ access: string; refresh?: string }>(
+      `${apiBaseUrl()}/v1/auth/token/refresh/`,
+      {
+        method: 'POST',
+        body: { refresh: cached.refresh },
+        timeoutMs: 20000,
+      },
+    );
+    if (!resp.access) return null;
+    return writeCached({
+      access: resp.access,
+      refresh: resp.refresh || cached.refresh,
+      role: cached.role,
+      username: cached.username,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function getBackendAccessToken(): Promise<string | null> {
   const now = Date.now();
   const leewayMs = 30_000;
-  const cached = readCached();
+  let cached = readCached();
   const localUser = getCurrentLocalUser();
   if (localUser && cached && normalizeUserRole(localUser) !== cached.role) {
     clearBackendAuthTokens();
-  } else if (cached?.access && cached.accessExpMs - leewayMs > now) {
+    cached = null;
+  }
+  if (cached?.access && cached.accessExpMs - leewayMs > now) {
     return cached.access;
+  }
+  if (cached?.refresh) {
+    const refreshed = await refreshAccessToken(cached);
+    if (refreshed?.access) return refreshed.access;
   }
   const renewed = await localLoginAndGetTokens();
   return renewed?.access ?? null;
+}
+
+/** AI va boshqa JWT API lar uchun — token yo‘q bo‘lsa aniq xato */
+export async function ensureBackendAccessToken(): Promise<string> {
+  const token = await getBackendAccessToken();
+  if (!token) {
+    throw new Error('no-backend-token');
+  }
+  return token;
 }
 

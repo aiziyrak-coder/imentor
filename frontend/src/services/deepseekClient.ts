@@ -5,7 +5,7 @@
  */
 import * as pdfjsLib from 'pdfjs-dist';
 import { httpJson } from '../api/httpClient';
-import { getBackendAccessToken } from '../utils/backendAuth';
+import { ensureBackendAccessToken, getBackendAccessToken } from '../utils/backendAuth';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -79,13 +79,8 @@ async function chatViaBackend(params: {
   maxTokens: number;
   temperature?: number;
 }): Promise<string> {
-  const token = await getBackendAccessToken();
-  if (!token) {
-    throw new Error('AI uchun tizimga kirish kerak (JWT).');
-  }
-  const data = await httpJson<{ content?: string; detail?: string }>(
-    `${apiBaseUrl()}/v1/education-ai/completion/`,
-    {
+  const call = async (token: string) =>
+    httpJson<{ content?: string; detail?: string }>(`${apiBaseUrl()}/v1/education-ai/completion/`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: {
@@ -95,11 +90,31 @@ async function chatViaBackend(params: {
         temperature: params.temperature ?? 0.35,
       },
       timeoutMs: 180_000,
+    });
+
+  let token = await ensureBackendAccessToken().catch(async () => {
+    const fallback = await getBackendAccessToken();
+    if (!fallback) throw new Error('no-backend-token');
+    return fallback;
+  });
+
+  try {
+    const data = await call(token);
+    const text = data.content?.trim();
+    if (!text) throw new Error(data.detail || 'DeepSeek: bo‘sh javob (server proxy)');
+    return text;
+  } catch (e: unknown) {
+    const status = e && typeof e === 'object' && 'status' in e ? (e as { status: number }).status : 0;
+    if (status !== 401) throw e;
+    const retryToken = await getBackendAccessToken();
+    if (!retryToken || retryToken === token) {
+      throw new Error('no-backend-token');
     }
-  );
-  const text = data.content?.trim();
-  if (!text) throw new Error(data.detail || 'DeepSeek: bo‘sh javob (server proxy)');
-  return text;
+    const data = await call(retryToken);
+    const text = data.content?.trim();
+    if (!text) throw new Error(data.detail || 'DeepSeek: bo‘sh javob (server proxy)');
+    return text;
+  }
 }
 
 async function chatViaDirectApi(params: {

@@ -142,10 +142,14 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
 SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", default=not DEBUG)
 ALLOW_LEGACY_PREPARED_CONTENT_API = env_bool("DJANGO_ALLOW_LEGACY_PREPARED_CONTENT_API", default=DEBUG)
 
-# DeepSeek — server startap AI + frontend build (taqdimot, test, keys, tarjima). Kalit gitga kirmaydi.
+# DeepSeek — test, keys, ma'ruza, tarjima va boshqalar (taqdimot emas). Kalit gitga kirmaydi.
 DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
 # Eski muhit fayllari (bir martalik moslik)
 if not DEEPSEEK_API_KEY:
     DEEPSEEK_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+
+# OpenAI — faqat taqdimot generatsiyasi (GPT-4.1 yoki OPENAI_PRESENTATION_MODEL).
+OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
+OPENAI_PRESENTATION_MODEL = (os.getenv("OPENAI_PRESENTATION_MODEL") or "gpt-4.1").strip()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

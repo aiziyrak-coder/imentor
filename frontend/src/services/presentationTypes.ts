@@ -64,4 +64,6 @@ export interface Slide {
   notes?: string;
   imagePrompt?: string;
   imageUrl?: string;
+  /** Mermaid diagramma kodi (flow/cycle slaydlar uchun). */
+  mermaid?: string;
 }

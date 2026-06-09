@@ -1,21 +1,22 @@
 /**
- * Tibbiy taqdimot yaratish — AI + post-process (infografika, diagramma, klinik slaydlar).
+ * Tibbiy taqdimot — OpenAI (server) + post-process (infografika, diagramma, klinik slaydlar).
+ * Test, keys, ma'ruza va boshqalar DeepSeek da qoladi.
  */
+import * as pdfjsLib from 'pdfjs-dist';
 import { type AppLanguage } from '../i18n/language';
 import {
-  DEEPSEEK_CHAT,
-  DEEPSEEK_REASONER,
-  assertDeepseekApiKey,
-  deepseekJson,
-  deepseekWithPdf,
-} from './deepseekClient';
-import { parseAiJson } from '../utils/parseAiJson';
+  generatePresentationFromTextViaOpenAI,
+  generatePresentationViaOpenAI,
+  type PresentationPhase,
+} from './openaiPresentationClient';
 import type { Slide, SlideKind, SlideLayout, VisualBlock, VisualBlockType } from './presentationTypes';
 
-const SYS =
-  "Siz xalqaro tibbiy konferensiya darajasidagi taqdimot dizayneri va FJSTI professorisiz. " +
-  "Har bir slayd zamonaviy infografika, raqamli diagramma yoki klinik karta bilan — oddiy bullet-list emas. " +
-  "2020+ yil PowerPoint/Keynote estetikasi: qisqa matn, kuchli vizual, klinik aniqlik.";
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.mjs',
+  import.meta.url,
+).toString();
+
+export type { PresentationPhase };
 
 const VISUAL_TYPES: VisualBlockType[] = [
   'flow',
@@ -28,18 +29,6 @@ const VISUAL_TYPES: VisualBlockType[] = [
   'icon-grid',
   'clinical',
 ];
-
-function languageName(lang: AppLanguage): string {
-  if (lang === 'ru') return 'Russian';
-  if (lang === 'en') return 'English';
-  return 'Uzbek';
-}
-
-function parseSlideArray(text: string): Slide[] {
-  const parsed = parseAiJson<Slide[]>(text);
-  if (!Array.isArray(parsed)) throw new Error('AI javobi massiv emas');
-  return parsed;
-}
 
 function buildPedagogicSlidePlan(topic: string, count: number): string[] {
   const core = [
@@ -87,8 +76,8 @@ function buildVisualFromContent(slide: Slide, type: VisualBlockType): VisualBloc
         caption: slide.subtitle || slide.title,
         stats: bullets.slice(0, 4).map((b, i) => ({
           label: b.slice(0, 48),
-          value: ['↑', '↓', '~', '•'][i % 4],
-          unit: i === 0 ? '%' : undefined,
+          value: ['24', '68', '12', '85'][i % 4],
+          unit: i % 2 === 0 ? '%' : undefined,
         })),
       };
     case 'compare':
@@ -96,7 +85,10 @@ function buildVisualFromContent(slide: Slide, type: VisualBlockType): VisualBloc
         type: 'compare',
         caption: slide.title,
         left: { title: 'Asosiy', items: bullets.slice(0, 2) },
-        right: { title: 'Farqli', items: bullets.slice(2, 4).length ? bullets.slice(2, 4) : ['Alternativa 1', 'Alternativa 2'] },
+        right: {
+          title: 'Farqli',
+          items: bullets.slice(2, 4).length ? bullets.slice(2, 4) : ['Alternativa 1', 'Alternativa 2'],
+        },
       };
     case 'pyramid':
       return {
@@ -154,7 +146,10 @@ function buildVisualFromContent(slide: Slide, type: VisualBlockType): VisualBloc
       return {
         type: 'flow',
         caption: slide.title,
-        steps: bullets.slice(0, 5).map((b) => ({ label: b.slice(0, 50), detail: b.length > 50 ? b.slice(50, 120) : undefined })),
+        steps: bullets.slice(0, 5).map((b) => ({
+          label: b.slice(0, 50),
+          detail: b.length > 50 ? b.slice(50, 120) : undefined,
+        })),
       };
   }
 }
@@ -232,6 +227,7 @@ function normalizeSlide(raw: Partial<Slide>, planTitle: string, index: number, t
     visual: undefined,
     imagePrompt: raw.imagePrompt?.trim(),
     imageUrl: undefined,
+    mermaid: raw.mermaid?.trim(),
   };
 
   slide.visual = normalizeVisual(raw.visual, slide, index);
@@ -250,8 +246,7 @@ export function enrichPresentationDeck(slides: Slide[], topic: string): Slide[] 
   const total = slides.length;
   return slides.map((s, i) => {
     const plan = buildPedagogicSlidePlan(topic, total);
-    const base = normalizeSlide(s, plan[i] || s.title, i, total);
-    return base;
+    return normalizeSlide(s, plan[i] || s.title, i, total);
   });
 }
 
@@ -262,90 +257,19 @@ export function looksLikeWeakDeck(slides: Slide[], expected: number): boolean {
   return withVisual < Math.max(5, expected - 3) || withTitles < Math.max(5, expected - 2);
 }
 
-const JSON_SCHEMA_HINT = `
-Har bir slayd obyekti:
-{
-  "title": "string",
-  "subtitle": "string (ixtiyoriy)",
-  "slideKind": "title|section|content|diagram|clinical|summary|hook",
-  "content": ["2-4 qisqa punkt — faqat asosiy matn, uzun paragraf emas"],
-  "keyTakeaway": "1 jumla — talaba eslab qolishi kerak",
-  "notes": "o'qituvchi uchun 3-5 gap",
-  "visual": {
-    "type": "flow|stats|compare|pyramid|timeline|cycle|table|icon-grid|clinical",
-    "caption": "diagramma sarlavhasi",
-    ... type bo'yicha maydonlar:
-    flow: "steps": [{"label":"", "detail":""}]
-    stats: "stats": [{"label":"","value":"42","unit":"%"}]
-    compare: "left": {"title":"","items":[]}, "right": {...}
-    pyramid: "levels": [{"label":"","items":[]}]
-    timeline: "events": [{"time":"1-hafta","text":""}]
-    cycle: "nodes": [{"id":"a","label":""}], "links": [{"from":"a","to":"b"}]
-    table: "rows": [["Ustun1","Ustun2"], ["",""]]
-    icon-grid: "icons": [{"icon":"🫀","label":"","text":""}]
-    clinical: "vignette": {"patient":"","findings":[],"question":""}
+async function extractTextFromPdfBase64(pdfBase64: string): Promise<string> {
+  const binary = atob(pdfBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+  const pageTexts: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const line = content.items.map((it) => ('str' in it ? String(it.str) : '')).join(' ');
+    pageTexts.push(line);
   }
-}
-`;
-
-function buildGenerationPrompt(
-  topic: string,
-  description: string,
-  count: number,
-  outLang: string,
-  strict: boolean,
-): string {
-  const plan = buildPedagogicSlidePlan(topic, count);
-  return `Mavzu: "${topic}".
-Kontekst (ma'ruza / qo'llanma):
-${description || '(kontekst berilmagan — mavzu bo\'yicha to\'liq professional taqdimot)'}
-
-Vazifa: Aynan ${count} ta slaydli tibbiy taqdimot JSON massivi.
-Til: ${outLang}.
-
-Didaktik reja (har slaydga mos visual tanlang):
-${plan.map((p, i) => `${i + 1}. ${p}`).join('\n')}
-
-Qoidalar:
-- Har slaydda majburiy "visual" — to'liq to'ldirilgan JSON (steps, stats, vignette va h.k.).
-- "content" qisqa (har biri 6–14 so'z), asosiy ma'lumot VISUALda; matn faqat qo'llab-quvvatlovchi.
-- Kamida 3 ta "clinical", 3 ta "stats" (haqiqiy raqamlar % yoki n/1000), 2 ta "flow", 1 ta "compare", 1 ta "timeline".
-- stats.value — raqamli (masalan "24", "1.2", "85"), unit "%" yoki "ml" bo'lishi mumkin.
-- Birinchi slayd: slideKind "title", stats yoki icon-grid.
-- Oxirgi slayd: slideKind "summary".
-- Talabalar uchun qiziqarli: raqamlar, klinik savol, taqqoslash.
-- Suvli matn, "..." va umumiy gaplar taqiqlanadi.
-${strict ? '- Yuqori sifat: xalqaro konferensiya darajasidagi tuzilma.' : ''}
-${JSON_SCHEMA_HINT}
-Faqat JSON massiv qaytaring.`;
-}
-
-const JSON_STRICT_SUFFIX = `
-
-MUHIM JSON qoidalari:
-- Faqat double-quote (") ishlating; satr ichidagi " belgisini \\" qilib yozing.
-- Satr ichida yangi qator bo'lmasin — bitta qator yoki \\n.
-- Trailing comma yo'q.
-- Faqat JSON massiv, boshqa matn yo'q.`;
-
-async function requestPresentationDeck(
-  topic: string,
-  description: string,
-  safeCount: number,
-  outLang: string,
-  strict: boolean,
-  jsonStrict: boolean,
-): Promise<Slide[]> {
-  return deepseekJson({
-    model: DEEPSEEK_REASONER,
-    system: `${SYS} JSON massiv — har slaydda visual blok bilan.`,
-    user:
-      buildGenerationPrompt(topic, description, safeCount, outLang, strict) +
-      (jsonStrict ? JSON_STRICT_SUFFIX : ''),
-    maxTokens: 16384,
-    temperature: jsonStrict ? 0.22 : strict ? 0.28 : 0.38,
-    parse: parseSlideArray,
-  });
+  return pageTexts.join('\n');
 }
 
 export async function generateMedicalPresentation(
@@ -353,45 +277,28 @@ export async function generateMedicalPresentation(
   description: string = '',
   count: number = 12,
   language: AppLanguage = 'uz',
+  onPhase?: (phase: PresentationPhase) => void,
 ): Promise<Slide[]> {
-  assertDeepseekApiKey();
-  const outLang = languageName(language);
   const safeCount = Math.min(24, Math.max(8, count));
-
-  let raw: Slide[];
-  try {
-    raw = await requestPresentationDeck(topic, description, safeCount, outLang, false, false);
-  } catch {
-    raw = await requestPresentationDeck(topic, description, safeCount, outLang, true, true);
-  }
-  if (looksLikeWeakDeck(raw, safeCount)) {
-    try {
-      raw = await requestPresentationDeck(topic, description, safeCount, outLang, true, false);
-    } catch {
-      raw = await requestPresentationDeck(topic, description, safeCount, outLang, true, true);
-    }
-  }
+  const raw = await generatePresentationViaOpenAI({
+    topic,
+    context: description,
+    slideCount: safeCount,
+    language,
+    onPhase,
+  });
   if (!Array.isArray(raw) || raw.length < 4) {
     throw new Error('AI taqdimot strukturasini qaytarmadi');
   }
-  const trimmed = raw.slice(0, safeCount);
-  while (trimmed.length < safeCount) {
-    trimmed.push({
-      title: buildPedagogicSlidePlan(topic, safeCount)[trimmed.length] || `Slayd ${trimmed.length + 1}`,
-      content: ['Mavzu davomi'],
-      slideKind: 'content',
-    });
-  }
-  return enrichPresentationDeck(trimmed, topic);
+  return enrichPresentationDeck(raw.slice(0, safeCount), topic);
 }
 
 export async function generateMedicalPresentationFromFile(
   file: File,
   topicHint: string,
   language: AppLanguage = 'uz',
+  onPhase?: (phase: PresentationPhase) => void,
 ): Promise<Slide[]> {
-  assertDeepseekApiKey();
-  const outLang = languageName(language);
   const base64Data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -403,17 +310,25 @@ export async function generateMedicalPresentationFromFile(
     reader.readAsDataURL(file);
   });
 
-  const raw = await deepseekWithPdf({
-    model: DEEPSEEK_CHAT,
-    system: `${SYS} Fayldan 10-16 slayd JSON — har birida visual blok. ${JSON_SCHEMA_HINT}`,
-    userText: `Fayl asosida tibbiy taqdimot. Mavzu: ${topicHint || file.name}. Til: ${outLang}. Vizual diagrammalar bilan.`,
-    pdfBase64: base64Data,
-    maxTokens: 16384,
+  let pdfText = '';
+  try {
+    pdfText = await extractTextFromPdfBase64(base64Data);
+  } catch {
+    pdfText = '';
+  }
+
+  const topic = topicHint || file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
+  const raw = await generatePresentationFromTextViaOpenAI({
+    topic,
+    sourceText:
+      pdfText.trim().length > 80
+        ? pdfText.slice(0, 100_000)
+        : `PDF: ${file.name}. Mavzu: ${topic}. Kontekst bo'yicha professional tibbiy taqdimot yarating.`,
+    slideCount: 14,
+    language,
+    onPhase,
   });
 
-  const parsed = parseSlideArray(raw);
-  const topic = topicHint || file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
-  const targetCount = Math.min(16, Math.max(8, parsed.length || 12));
-  const slice = parsed.slice(0, targetCount);
-  return enrichPresentationDeck(slice, topic);
+  const targetCount = Math.min(16, Math.max(8, raw.length || 12));
+  return enrichPresentationDeck(raw.slice(0, targetCount), topic);
 }

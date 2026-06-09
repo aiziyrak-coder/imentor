@@ -17,7 +17,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../../App';
 import { aiService } from '../../services/aiService';
 import type { Slide } from '../../services/presentationTypes';
-import { enrichPresentationDeck, migrateLegacySlide } from '../../services/presentationEngine';
+import {
+  enrichPresentationDeck,
+  migrateLegacySlide,
+  type PresentationPhase,
+} from '../../services/presentationEngine';
 import {
   loadLatestPreparedContent,
   savePreparedContent,
@@ -54,6 +58,7 @@ export default function PresentationStudio() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [themeId, setThemeId] = useState<StudioThemeId>('aurora');
   const [loading, setLoading] = useState(false);
+  const [genPhase, setGenPhase] = useState<PresentationPhase | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [presenting, setPresenting] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
@@ -109,9 +114,18 @@ export default function PresentationStudio() {
     [refreshVersions],
   );
 
+  const phaseLabel = (p: PresentationPhase | null): string => {
+    if (p === 'structure') return 'Tuzilma rejalashtirilmoqda (GPT)…';
+    if (p === 'content') return 'Slayd matni va diagrammalar yozilmoqda…';
+    if (p === 'images') return 'Rasm promptlari tayyorlanmoqda…';
+    if (p === 'done') return 'Yakunlanmoqda…';
+    return 'AI taqdimot yaratilmoqda…';
+  };
+
   const handleGenerate = async () => {
     if (!topic.trim()) return;
     setLoading(true);
+    setGenPhase('structure');
     setError(null);
     try {
       let ctx = lectureText;
@@ -122,7 +136,7 @@ export default function PresentationStudio() {
           setLectureText(lec.content);
         }
       }
-      const deck = await aiService.generatePresentation(topic, ctx, slideCount, language);
+      const deck = await aiService.generatePresentation(topic, ctx, slideCount, language, setGenPhase);
       const normalized = normalizeDeck(deck, topic);
       setSlides(normalized);
       setCurrentIndex(0);
@@ -133,14 +147,16 @@ export default function PresentationStudio() {
       setError(messageFromAiError(err, 'Taqdimot yaratilmadi. Tarmoqni tekshirib, 1–2 daqiqadan keyin qayta urinib ko‘ring.'));
     } finally {
       setLoading(false);
+      setGenPhase(null);
     }
   };
 
   const handleFromFile = async (file: File) => {
     setLoading(true);
+    setGenPhase('structure');
     setError(null);
     try {
-      const deck = await aiService.generatePresentationFromFile(file, language);
+      const deck = await aiService.generatePresentationFromFile(file, language, setGenPhase);
       const t = topic || file.name.replace(/\.[^.]+$/, '');
       const normalized = normalizeDeck(deck, t);
       setSlides(normalized);
@@ -151,6 +167,7 @@ export default function PresentationStudio() {
       setError('PDF dan taqdimot yaratib bo‘lmadi.');
     } finally {
       setLoading(false);
+      setGenPhase(null);
       if (fileRef.current) fileRef.current.value = '';
     }
   };
@@ -285,7 +302,7 @@ export default function PresentationStudio() {
           </div>
           <div>
             <h1 className="text-[15px] font-bold text-slate-900 leading-none">Taqdimot Studio</h1>
-            <p className="text-[10px] text-slate-500">AI · Infografika · Professional</p>
+            <p className="text-[10px] text-slate-500">OpenAI GPT · PPTXGenJS · Diagrammalar</p>
           </div>
         </div>
 
@@ -335,7 +352,7 @@ export default function PresentationStudio() {
           onTopicChange={setTopic}
           topicLabel="Mavzu (Syllabusdan)"
           topicPlaceholder="Avval Syllabusda mavzu tanlang"
-          createLabel={loading ? 'Yaratilmoqda…' : 'AI taqdimot'}
+          createLabel={loading ? phaseLabel(genPhase) : 'AI taqdimot yaratish'}
           loading={loading}
           onCreate={() => void handleGenerate()}
           accent="indigo"
@@ -349,7 +366,7 @@ export default function PresentationStudio() {
             <input
               type="range"
               min={8}
-              max={20}
+              max={24}
               value={slideCount}
               onChange={(e) => setSlideCount(Number(e.target.value))}
               className="w-24"
@@ -375,6 +392,9 @@ export default function PresentationStudio() {
             <FileUp size={14} /> PDF dan yaratish
           </button>
         </div>
+        {loading && genPhase && (
+          <p className="mt-2 text-[13px] text-indigo-700 font-medium animate-pulse">{phaseLabel(genPhase)}</p>
+        )}
         {error && <p className="mt-2 text-[13px] text-rose-600 font-medium">{error}</p>}
       </div>
 
@@ -391,7 +411,7 @@ export default function PresentationStudio() {
             <div>
               <h2 className="text-2xl font-black text-slate-900 tracking-tight">Professional taqdimot</h2>
               <p className="text-slate-600 mt-2 text-[15px] leading-relaxed">
-                AI diagrammalar, statistika, klinik kartalar va zamonaviy slayd dizayni — bir bosishda.
+                OpenAI GPT tuzilma va matn, Mermaid diagrammalar, statistika, klinik kartalar — bir bosishda. PPTX eksport.
               </p>
             </div>
             <button

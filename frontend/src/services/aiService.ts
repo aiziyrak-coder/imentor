@@ -454,19 +454,29 @@ export const aiService = {
     return result.topics;
   },
 
-  async generatePresentation(topic: string, description: string = '', count: number = 12, language: AppLanguage = 'uz'): Promise<Slide[]> {
+  async generatePresentation(
+    topic: string,
+    description: string = '',
+    count: number = 12,
+    language: AppLanguage = 'uz',
+    onPhase?: (phase: 'structure' | 'content' | 'images' | 'done') => void,
+  ): Promise<Slide[]> {
     try {
-      return await generateMedicalPresentation(topic, description, count, language);
+      return await generateMedicalPresentation(topic, description, count, language, onPhase);
     } catch (error) {
       console.error('Presentation generation failed:', error);
       throw error;
     }
   },
 
-  async generatePresentationFromFile(file: File, language: AppLanguage = 'uz'): Promise<Slide[]> {
+  async generatePresentationFromFile(
+    file: File,
+    language: AppLanguage = 'uz',
+    onPhase?: (phase: 'structure' | 'content' | 'images' | 'done') => void,
+  ): Promise<Slide[]> {
     const topicFromFile = file.name.replace(/\.[^.]+$/, '').trim() || 'Taqdimot';
     try {
-      return await generateMedicalPresentationFromFile(file, topicFromFile, language);
+      return await generateMedicalPresentationFromFile(file, topicFromFile, language, onPhase);
     } catch (error) {
       console.error('Presentation generation from file failed:', error);
       throw error;

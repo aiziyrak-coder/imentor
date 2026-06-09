@@ -22,6 +22,7 @@ import {
 } from '../utils/preparedContentStore';
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
 import { messageFromAiError } from '../utils/aiErrors';
+import MedicalReferencesList from './staff/MedicalReferencesList';
 
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -193,7 +194,7 @@ export default function CaseStudies() {
       {loading && (
         <div className="ios-glass p-12 rounded-[2rem] flex flex-col items-center gap-4 print:hidden">
           <Loader2 className="animate-spin text-emerald-600" size={36} />
-          <p className="text-[14px] font-medium text-black/60">AI 3 ta klinik keys tayyorlamoqda…</p>
+          <p className="text-[14px] font-medium text-black/60">AI 3 ta klinik keys va ilmiy manbalar tayyorlamoqda…</p>
         </div>
       )}
 
@@ -260,6 +261,9 @@ export default function CaseStudies() {
             </div>
 
             <div className="p-8 space-y-10 bg-white/40 print:bg-transparent">
+              {caseSession.references && caseSession.references.length > 0 && (
+                <MedicalReferencesList references={caseSession.references} className="print:break-inside-avoid" />
+              )}
               <div className="space-y-12">
                 {caseSession.questions.map((q, i) => (
                   <div key={i} className="space-y-5 print:break-inside-avoid">
@@ -290,7 +294,16 @@ export default function CaseStudies() {
                               <AlertCircle size={16} />
                               Keys javobi:
                             </h4>
-                            <p className="text-[14px] text-blue-900/80 leading-relaxed font-medium">{q.answer}</p>
+                            <p className="text-[14px] text-blue-900/80 leading-relaxed font-medium whitespace-pre-wrap">{q.answer}</p>
+                            {q.references && q.references.length > 0 && (
+                              <div className="mt-4">
+                                <MedicalReferencesList
+                                  references={q.references}
+                                  title="Ushbu keys manbalari"
+                                  compact
+                                />
+                              </div>
+                            )}
                           </motion.div>
                         )}
                       </div>

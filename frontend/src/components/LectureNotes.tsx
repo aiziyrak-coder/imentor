@@ -258,7 +258,7 @@ export default function LectureNotes() {
               AI akademik ma'ruza matnini shakllantirmoqda...
             </p>
             <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
-              Tibbiy ilmiy manbalar asosida batafsil matn tayyorlanmoqda, bu bir oz vaqt olishi mumkin.
+              Tibbiy ilmiy manbalar (PubMed, WHO va boshqalar) asosida batafsil matn va giperhavolalar tayyorlanmoqda.
             </p>
           </div>
         )}

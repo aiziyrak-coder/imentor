@@ -32,6 +32,7 @@ import {
   submitLiveTestOnServer,
   fetchLiveTestSubmissionsFromServer,
 } from '../utils/liveTestApi';
+import MedicalReferencesList from './staff/MedicalReferencesList';
 
 interface LiveTestSessionDoc {
   topic: string;
@@ -560,7 +561,7 @@ export default function TestQuestions() {
               AI test savollarini shakllantirmoqda...
             </p>
             <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
-              Bu jarayon 10 ta murakkab klinik savolni tayyorlaydi.
+              Bu jarayon 10 ta murakkab klinik savol va har biriga ilmiy manba havolalarini tayyorlaydi.
             </p>
           </div>
         )}
@@ -573,6 +574,9 @@ export default function TestQuestions() {
           >
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
               <h2 className="text-2xl font-bold text-gray-800">{testSession.topic}</h2>
+              {testSession.references && testSession.references.length > 0 && (
+                <MedicalReferencesList references={testSession.references} />
+              )}
               {joinUrl && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
                   <div className="lg:col-span-1 flex justify-center">
@@ -688,11 +692,18 @@ export default function TestQuestions() {
                         </div>
                       ))}
                     </div>
-                    <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-4">
+                    <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-3">
                       <h4 className="font-semibold text-blue-800 mb-1 flex items-center gap-2">
                         <Brain size={16} /> To'g'ri javob tahlili
                       </h4>
-                      <p className="text-blue-800/90">{q.explanation}</p>
+                      <p className="text-blue-800/90 whitespace-pre-wrap">{q.explanation}</p>
+                      {q.references && q.references.length > 0 && (
+                        <MedicalReferencesList
+                          references={q.references}
+                          title="Ushbu savol manbalari"
+                          compact
+                        />
+                      )}
                     </div>
                   </div>
                 ))}

@@ -26,6 +26,15 @@ import {
   generateMedicalPresentation,
   generateMedicalPresentationFromFile,
 } from './presentationEngine';
+import {
+  LECTURE_REFERENCES_AI_RULES,
+  MEDICAL_REFERENCES_AI_RULES,
+  mergeReferences,
+  normalizeMedicalReferences,
+  type MedicalReference,
+} from '../utils/medicalReferences';
+
+export type { MedicalReference };
 
 export interface CaseStudyQuestion {
   scenario: string;
@@ -33,11 +42,13 @@ export interface CaseStudyQuestion {
   options?: string[];
   correctOptionIndex?: number;
   explanation?: string;
+  references?: MedicalReference[];
 }
 
 export interface CaseStudySession {
   topic: string;
   questions: CaseStudyQuestion[];
+  references?: MedicalReference[];
 }
 
 export interface TestQuestion {
@@ -45,12 +56,14 @@ export interface TestQuestion {
   options: string[];
   correctOptionIndex: number;
   explanation: string;
+  references?: MedicalReference[];
 }
 
 export interface TestSession {
   id?: string;
   topic: string;
   questions: TestQuestion[];
+  references?: MedicalReference[];
   createdAt?: number;
   authorUid?: string;
 }
@@ -302,14 +315,19 @@ function normalizeCaseSession(topic: string, data: CaseStudySession): CaseStudyS
         "(4) dalillarga asoslangan davolash rejasi va monitoring;",
         "(5) bemor xavfsizligi hamda keyingi kuzatuv rejasi.",
       ].join(' ');
+      const refs = normalizeMedicalReferences(q.references, topic);
       return {
         scenario: scenario.length >= 120 ? scenario : fallbackScenario,
         answer: answer.length >= 120 ? answer : fallbackAnswer,
+        ...(refs.length ? { references: refs } : {}),
       };
     });
+  const sessionRefs = normalizeMedicalReferences(data.references, topic);
+  const allQRefs = cleanedQuestions.flatMap((q) => q.references || []);
   return {
     topic: (data.topic || topic || '').trim() || topic,
     questions: cleanedQuestions,
+    references: mergeReferences(sessionRefs, allQRefs),
   };
 }
 
@@ -336,17 +354,22 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
         typeof q.correctOptionIndex === 'number' && q.correctOptionIndex >= 0 && q.correctOptionIndex < 5
           ? q.correctOptionIndex
           : 0;
+      const refs = normalizeMedicalReferences(q.references, topic);
       return {
         question: (q.question || '').trim(),
         options: options.map((o) => (o || '').trim()),
         explanation: (q.explanation || '').trim(),
         correctOptionIndex,
+        ...(refs.length ? { references: refs } : {}),
       };
     });
+  const sessionRefs = normalizeMedicalReferences(data.references, topic);
+  const allQRefs = questions.flatMap((q) => q.references || []);
   return {
     ...data,
     topic: (data.topic || topic || '').trim() || topic,
     questions,
+    references: mergeReferences(sessionRefs, allQRefs),
   };
 }
 
@@ -457,8 +480,8 @@ export const aiService = {
       const requestCases = async (strict: boolean): Promise<CaseStudySession> =>
         deepseekJson({
           model: DEEPSEEK_CHAT,
-          system: `${SYS_MEDICAL} 3 ta klinik case JSON: {topic, questions:[{scenario, answer}]}. Til: ${outLang}.`,
-          user: `Mavzu: "${topic}". Har scenario 3-5 paragraf (anamnez, ko'rik, lab). Har answer: differensial, tashxis, davolash. ${strict ? 'Maksimal sifat.' : ''}`,
+          system: `${SYS_MEDICAL} 3 ta klinik case JSON: {topic, references:[{title,authors,year,publisher,url}], questions:[{scenario, answer, references:[...]}]}. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
+          user: `Mavzu: "${topic}". Har scenario 3-5 paragraf (anamnez, ko'rik, lab). Har answer: differensial, tashxis, davolash — javob oxirida [1][2] iqtiboslar. ${strict ? 'Maksimal sifat.' : ''}`,
           maxTokens: 8192,
           temperature: strict ? 0.28 : 0.38,
           parse: (t) => parseJSONSafe<CaseStudySession>(t),
@@ -487,8 +510,8 @@ export const aiService = {
     const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
       const parsed = await deepseekJson({
         model: DEEPSEEK_CHAT,
-        system: `${SYS_MEDICAL} ${requestedCount} ta test JSON: {topic, questions:[{question, options[5], correctOptionIndex, explanation}]}. Til: ${outLang}.`,
-        user: `Mavzu: "${topic}". Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap. ${strict ? 'Faqat valid JSON.' : ''}`,
+        system: `${SYS_MEDICAL} ${requestedCount} ta test JSON: {topic, references:[{title,authors,year,publisher,url}], questions:[{question, options[5], correctOptionIndex, explanation, references:[...]}]}. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
+        user: `Mavzu: "${topic}". Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap — oxirida [1][2] iqtiboslar. ${strict ? 'Faqat valid JSON.' : ''}`,
         maxTokens: 4096,
         temperature: strict ? 0.3 : 0.4,
         parse: (t) => parseJSONSafe<TestSession>(t),
@@ -540,8 +563,8 @@ export const aiService = {
       const outLang = languageName(language);
       const content = await deepseekText({
         model: DEEPSEEK_CHAT,
-        system: `${SYS_MEDICAL} Ma'ruza faqat Markdown. Kirish, 3-4 bo'lim, klinik qo'llash, xulosa. Til: ${outLang}.`,
-        user: `Mavzu: "${topic}". Qo'shimcha: ${description || '—'}. Batafsil ma'ruza matni.`,
+        system: `${SYS_MEDICAL} Ma'ruza faqat Markdown. Kirish, 3-4 bo'lim, klinik qo'llash, xulosa. Matn ichida muhim faktlar yonida [manba](url) havolalari. ${LECTURE_REFERENCES_AI_RULES} Til: ${outLang}.`,
+        user: `Mavzu: "${topic}". Qo'shimcha: ${description || '—'}. Batafsil ma'ruza matni. Har bo'limda ilmiy dalillar va havolalar bo'lsin.`,
         maxTokens: 8192,
         temperature: 0.4,
       });

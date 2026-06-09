@@ -298,6 +298,11 @@ echo "nginx reloaded for imentor"
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description="SSH deploy imentor")
     parser.add_argument("--dry-run", action="store_true", help="Only print remote commands")
     parser.add_argument("--skip-nginx", action="store_true", help="Do not upload/reload nginx config")

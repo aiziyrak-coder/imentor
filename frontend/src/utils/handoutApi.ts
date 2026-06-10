@@ -1,7 +1,11 @@
 import { HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
 import { normTopicKey } from './preparedContentStore';
-import { resolveTopicNorm, type SyllabusTopicContext } from './syllabusTopicContext';
+import {
+  resolveTopicNorm,
+  topicNormLookupKeys,
+  type SyllabusTopicContext,
+} from './syllabusTopicContext';
 import type { SyllabusTopic } from '../services/aiService';
 
 export type HandoutKind = 'pdf' | 'image';
@@ -77,13 +81,12 @@ export async function fetchHandoutsForTopic(
 ): Promise<TopicHandoutItem[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const topicNorm = normHandoutTopic(topic);
-  const res = await fetch(
-    `${apiBaseUrl()}/v1/handouts/?topic_norm=${encodeURIComponent(topicNorm)}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+  const lookupKeys = topicNormLookupKeys(topic);
+  const params = new URLSearchParams();
+  for (const key of lookupKeys) params.append('topic_norm', key);
+  const res = await fetch(`${apiBaseUrl()}/v1/handouts/?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const text = await res.text();
   let data: unknown = [];
   if (text) {

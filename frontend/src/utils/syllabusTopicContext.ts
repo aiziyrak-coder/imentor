@@ -29,10 +29,48 @@ export function buildTopicContext(
   };
 }
 
-/** Handout/presentation/lecture uchun noyob kalit (fanlar arasi aralashmasin) */
-export function topicNormForStorage(ctx: Pick<SyllabusTopicContext, 'syllabusId' | 'variantLabel' | 'title'>): string {
-  const title = ctx.title.trim().toLowerCase();
-  return `${ctx.syllabusId}::${ctx.variantLabel}::${title}`;
+function normTopicSegment(value: string, max: number): string {
+  return value.trim().toLowerCase().slice(0, max);
+}
+
+/** Handout/presentation/lecture uchun qisqa barqaror kalit (M1, L2 — to'liq sarlavha emas) */
+export function topicNormForStorage(
+  ctx: Pick<SyllabusTopicContext, 'syllabusId' | 'variantLabel' | 'title' | 'id'>,
+): string {
+  const variant = normTopicSegment(ctx.variantLabel, 48);
+  const topicKey = normTopicSegment((ctx.id || ctx.title).replace(/\s+/g, ''), 32);
+  return `${ctx.syllabusId}::${variant}::${topicKey}`;
+}
+
+/** Eski yozuvlar — to'liq mavzu sarlavhasi bilan */
+export function topicNormLegacyTitleKey(
+  ctx: Pick<SyllabusTopicContext, 'syllabusId' | 'variantLabel' | 'title'>,
+): string {
+  const variant = normTopicSegment(ctx.variantLabel, 48);
+  const title = normTopicSegment(ctx.title, 160);
+  return `${ctx.syllabusId}::${variant}::${title}`;
+}
+
+/** API so'rovida eski va yangi kalitlarni qidirish */
+export function topicNormLookupKeys(topic: SyllabusTopic | SyllabusTopicContext | string): string[] {
+  if (typeof topic === 'string') {
+    const k = topic.trim().toLowerCase();
+    return k ? [k] : [];
+  }
+  if (!topic?.title) return [];
+  const keys = new Set<string>();
+  if (
+    'syllabusId' in topic &&
+    topic.syllabusId != null &&
+    topic.variantLabel
+  ) {
+    const ctx = topic as SyllabusTopicContext;
+    keys.add(topicNormForStorage(ctx));
+    keys.add(topicNormLegacyTitleKey(ctx));
+    keys.add(`${ctx.syllabusId}::${ctx.variantLabel.trim()}::${ctx.title.trim().toLowerCase()}`);
+  }
+  keys.add(topicNormLegacy(topic.title));
+  return [...keys].filter(Boolean);
 }
 
 /** Eski mavzular bilan moslik — kontekstsiz title */

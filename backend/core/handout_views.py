@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 import os
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Max, Q
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -48,6 +49,30 @@ _BLOCKED_CONTENT_TYPES = frozenset(
 
 def _norm_topic(topic: str) -> str:
     return (topic or "").strip().lower()
+
+
+def _canonical_topic_norm(raw: str, topic: str = "") -> str:
+    """Bitta format: kichik harf, max 255 belgi (hash bilan qisqartirish)."""
+    s = (raw or topic or "").strip().lower()
+    if len(s) > 255:
+        digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
+        s = f"{s[:240]}::{digest}"
+    return s[:255]
+
+
+def _topic_norm_query(norms: list[str]) -> Q:
+    variants: set[str] = set()
+    for raw in norms:
+        piece = (raw or "").strip()
+        if not piece:
+            continue
+        variants.add(piece)
+        variants.add(piece.lower())
+        variants.add(_canonical_topic_norm(piece))
+    q = Q()
+    for v in variants:
+        q |= Q(topic_norm__iexact=v)
+    return q
 
 
 def _detect_kind(name: str, content_type: str) -> str:
@@ -99,7 +124,7 @@ class TopicHandoutUploadSerializer(serializers.Serializer):
         topic = (attrs.get("topic") or "").strip()
         if len(topic) < 2:
             raise serializers.ValidationError({"topic": "Mavzu nomi juda qisqa."})
-        topic_norm = (attrs.get("topic_norm") or "").strip() or _norm_topic(topic)
+        topic_norm = _canonical_topic_norm(attrs.get("topic_norm") or "", topic)
         if not topic_norm:
             raise serializers.ValidationError({"topic_norm": "Mavzu normallashtirilmadi."})
         attrs["topic"] = topic
@@ -117,10 +142,14 @@ class TopicHandoutListCreateView(APIView):
 
     @extend_schema(responses=TopicHandoutSerializer(many=True))
     def get(self, request):
-        topic_norm = _norm_topic(request.query_params.get("topic_norm", ""))
-        if not topic_norm:
+        norms = [n.strip() for n in request.query_params.getlist("topic_norm") if n.strip()]
+        if not norms:
+            single = (request.query_params.get("topic_norm") or "").strip()
+            if single:
+                norms = [single]
+        if not norms:
             return Response({"detail": "topic_norm parametri kerak."}, status=400)
-        qs = TopicHandout.objects.filter(topic_norm=topic_norm)
+        qs = TopicHandout.objects.filter(_topic_norm_query(norms)).distinct()
         ser = TopicHandoutSerializer(qs, many=True, context={"request": request})
         return Response(ser.data)
 

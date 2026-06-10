@@ -2,6 +2,8 @@ import { HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
 import { normTopicKey } from './preparedContentStore';
 import {
+  handoutMatchesTopic,
+  isTopicContextComplete,
   resolveTopicNorm,
   topicNormLookupKeys,
   type SyllabusTopicContext,
@@ -83,6 +85,11 @@ export async function fetchHandoutsForTopic(
   if (!token) throw new Error('no-backend-token');
   const lookupKeys = topicNormLookupKeys(topic);
   const params = new URLSearchParams();
+  if (isTopicContextComplete(topic)) {
+    params.set('syllabus_id', String(topic.syllabusId));
+    params.set('variant_label', topic.variantLabel);
+    params.set('topic_code', topic.id);
+  }
   for (const key of lookupKeys) params.append('topic_norm', key);
   const res = await fetch(`${apiBaseUrl()}/v1/handouts/?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -99,7 +106,8 @@ export async function fetchHandoutsForTopic(
   if (!res.ok) {
     throw new HttpError(`HTTP ${res.status}`, res.status, data);
   }
-  return Array.isArray(data) ? (data as TopicHandoutItem[]) : [];
+  const rows = Array.isArray(data) ? (data as TopicHandoutItem[]) : [];
+  return rows.filter((row) => handoutMatchesTopic(row, topic));
 }
 
 export async function uploadHandout(params: {
@@ -113,6 +121,11 @@ export async function uploadHandout(params: {
     typeof params.topic === 'string' ? params.topic.trim() : params.topic.title.trim();
   const form = new FormData();
   form.append('topic', displayTopic);
+  if (isTopicContextComplete(params.topic)) {
+    form.append('syllabus_id', String(params.topic.syllabusId));
+    form.append('variant_label', params.topic.variantLabel);
+    form.append('topic_code', params.topic.id);
+  }
   form.append('topic_norm', normHandoutTopic(params.topic));
   form.append('file', params.file);
   if (params.title?.trim()) form.append('title', params.title.trim());

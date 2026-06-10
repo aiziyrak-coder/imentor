@@ -60,7 +60,15 @@ def _canonical_topic_norm(raw: str, topic: str = "") -> str:
     return s[:255]
 
 
-def _topic_norm_query(norms: list[str]) -> Q:
+def _build_topic_norm(syllabus_id: int, variant_label: str, topic_code: str) -> str:
+    variant = (variant_label or "").strip().lower()[:48]
+    code = (topic_code or "").strip().lower().replace(" ", "")[:16]
+    if not variant or not code:
+        return ""
+    return _canonical_topic_norm(f"{int(syllabus_id)}::{variant}::{code}")
+
+
+def _topic_norm_query(norms: list[str]) -> Q | None:
     variants: set[str] = set()
     for raw in norms:
         piece = (raw or "").strip()
@@ -69,6 +77,8 @@ def _topic_norm_query(norms: list[str]) -> Q:
         variants.add(piece)
         variants.add(piece.lower())
         variants.add(_canonical_topic_norm(piece))
+    if not variants:
+        return None
     q = Q()
     for v in variants:
         q |= Q(topic_norm__iexact=v)
@@ -117,6 +127,9 @@ def _validate_uploaded_file(uploaded) -> None:
 class TopicHandoutUploadSerializer(serializers.Serializer):
     topic = serializers.CharField(max_length=255)
     topic_norm = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    syllabus_id = serializers.IntegerField(required=False, min_value=1)
+    variant_label = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    topic_code = serializers.CharField(max_length=32, required=False, allow_blank=True)
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     file = serializers.FileField()
 
@@ -124,7 +137,13 @@ class TopicHandoutUploadSerializer(serializers.Serializer):
         topic = (attrs.get("topic") or "").strip()
         if len(topic) < 2:
             raise serializers.ValidationError({"topic": "Mavzu nomi juda qisqa."})
-        topic_norm = _canonical_topic_norm(attrs.get("topic_norm") or "", topic)
+        syllabus_id = attrs.get("syllabus_id")
+        variant_label = (attrs.get("variant_label") or "").strip()
+        topic_code = (attrs.get("topic_code") or "").strip()
+        if syllabus_id and variant_label and topic_code:
+            topic_norm = _build_topic_norm(syllabus_id, variant_label, topic_code)
+        else:
+            topic_norm = _canonical_topic_norm(attrs.get("topic_norm") or "", topic)
         if not topic_norm:
             raise serializers.ValidationError({"topic_norm": "Mavzu normallashtirilmadi."})
         attrs["topic"] = topic
@@ -142,14 +161,28 @@ class TopicHandoutListCreateView(APIView):
 
     @extend_schema(responses=TopicHandoutSerializer(many=True))
     def get(self, request):
-        norms = [n.strip() for n in request.query_params.getlist("topic_norm") if n.strip()]
+        norms: list[str] = []
+        syllabus_raw = (request.query_params.get("syllabus_id") or "").strip()
+        variant_label = (request.query_params.get("variant_label") or "").strip()
+        topic_code = (request.query_params.get("topic_code") or "").strip()
+        if syllabus_raw and variant_label and topic_code:
+            try:
+                built = _build_topic_norm(int(syllabus_raw), variant_label, topic_code)
+            except (TypeError, ValueError):
+                built = ""
+            if built:
+                norms.append(built)
+        norms.extend(n.strip() for n in request.query_params.getlist("topic_norm") if n.strip())
         if not norms:
             single = (request.query_params.get("topic_norm") or "").strip()
             if single:
                 norms = [single]
         if not norms:
             return Response({"detail": "topic_norm parametri kerak."}, status=400)
-        qs = TopicHandout.objects.filter(_topic_norm_query(norms)).distinct()
+        query = _topic_norm_query(norms)
+        if query is None:
+            return Response([], status=status.HTTP_200_OK)
+        qs = TopicHandout.objects.filter(query).distinct()
         ser = TopicHandoutSerializer(qs, many=True, context={"request": request})
         return Response(ser.data)
 

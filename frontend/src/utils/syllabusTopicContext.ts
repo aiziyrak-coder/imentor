@@ -33,13 +33,16 @@ function normTopicSegment(value: string, max: number): string {
   return value.trim().toLowerCase().slice(0, max);
 }
 
-/** Handout/presentation/lecture uchun qisqa barqaror kalit (M1, L2 — to'liq sarlavha emas) */
+/** Handout/presentation/lecture uchun qisqa barqaror kalit — faqat M1/A2 kodi (sarlavha emas) */
 export function topicNormForStorage(
-  ctx: Pick<SyllabusTopicContext, 'syllabusId' | 'variantLabel' | 'title' | 'id'>,
+  ctx: Pick<SyllabusTopicContext, 'syllabusId' | 'variantLabel' | 'id'>,
 ): string {
   const variant = normTopicSegment(ctx.variantLabel, 48);
-  const topicKey = normTopicSegment((ctx.id || ctx.title).replace(/\s+/g, ''), 32);
-  return `${ctx.syllabusId}::${variant}::${topicKey}`;
+  const topicCode = normTopicSegment(ctx.id.replace(/\s+/g, ''), 16);
+  if (!topicCode) {
+    throw new Error('Mavzu kodi (M1, L2, …) topilmadi.');
+  }
+  return `${ctx.syllabusId}::${variant}::${topicCode}`;
 }
 
 /** Eski yozuvlar — to'liq mavzu sarlavhasi bilan */
@@ -51,26 +54,36 @@ export function topicNormLegacyTitleKey(
   return `${ctx.syllabusId}::${variant}::${title}`;
 }
 
-/** API so'rovida eski va yangi kalitlarni qidirish */
+/** API so'rovida faqat shu mavzuga tegishli kalitlar (umumiy sarlavha kaliti yo'q) */
 export function topicNormLookupKeys(topic: SyllabusTopic | SyllabusTopicContext | string): string[] {
   if (typeof topic === 'string') {
     const k = topic.trim().toLowerCase();
     return k ? [k] : [];
   }
   if (!topic?.title) return [];
-  const keys = new Set<string>();
-  if (
-    'syllabusId' in topic &&
-    topic.syllabusId != null &&
-    topic.variantLabel
-  ) {
-    const ctx = topic as SyllabusTopicContext;
-    keys.add(topicNormForStorage(ctx));
-    keys.add(topicNormLegacyTitleKey(ctx));
-    keys.add(`${ctx.syllabusId}::${ctx.variantLabel.trim()}::${ctx.title.trim().toLowerCase()}`);
+  if (!isTopicContextComplete(topic)) {
+    return [topicNormLegacy(topic.title)];
   }
-  keys.add(topicNormLegacy(topic.title));
+  const ctx = topic;
+  const keys = new Set<string>();
+  try {
+    keys.add(topicNormForStorage(ctx));
+  } catch {
+    /* id yo'q */
+  }
+  keys.add(topicNormLegacyTitleKey(ctx));
+  keys.add(
+    `${ctx.syllabusId}::${ctx.variantLabel.trim().toLowerCase()}::${ctx.title.trim().toLowerCase()}`,
+  );
   return [...keys].filter(Boolean);
+}
+
+export function handoutMatchesTopic(
+  row: { topic_norm: string },
+  topic: SyllabusTopic | SyllabusTopicContext | string,
+): boolean {
+  const allowed = new Set(topicNormLookupKeys(topic).map((k) => k.toLowerCase()));
+  return allowed.has((row.topic_norm || '').trim().toLowerCase());
 }
 
 /** Eski mavzular bilan moslik — kontekstsiz title */
@@ -80,12 +93,8 @@ export function topicNormLegacy(title: string): string {
 
 export function resolveTopicNorm(topic: SyllabusTopic | SyllabusTopicContext | null): string {
   if (!topic?.title) return '';
-  if (
-    'syllabusId' in topic &&
-    topic.syllabusId != null &&
-    topic.variantLabel
-  ) {
-    return topicNormForStorage(topic as SyllabusTopicContext);
+  if (isTopicContextComplete(topic)) {
+    return topicNormForStorage(topic);
   }
   return topicNormLegacy(topic.title);
 }
@@ -95,6 +104,7 @@ export function isTopicContextComplete(
 ): topic is SyllabusTopicContext {
   return Boolean(
     topic &&
+      topic.id?.trim() &&
       'syllabusId' in topic &&
       topic.syllabusId != null &&
       topic.subjectName &&
@@ -135,7 +145,7 @@ export function loadPersistedSelectedTopic(): SyllabusTopicContext | null {
     const raw = localStorage.getItem(SELECTED_TOPIC_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SyllabusTopicContext;
-    if (!parsed?.id || !parsed?.title || parsed.syllabusId == null) return null;
+    if (!parsed?.id || !parsed?.title || parsed.syllabusId == null || !parsed.variantLabel) return null;
     if (!parsed.instructionLanguage) {
       parsed.instructionLanguage = 'uz';
     }

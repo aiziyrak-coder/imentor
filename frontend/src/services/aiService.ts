@@ -97,6 +97,7 @@ export interface SyllabusTopic {
 export interface SyllabusExtractResult {
   subject_name: string;
   topics: SyllabusTopic[];
+  instruction_language: AppLanguage;
 }
 
 function languageName(lang: AppLanguage): string {
@@ -165,7 +166,32 @@ async function extractPdfText(file: File): Promise<string> {
 }
 
 const SYLLABUS_AI_JSON_HINT =
-  '{"subject_name":"Fan nomi PDF dan","topics":[{"id":"M1","title":"...","type":"lecture|practical"}]}';
+  '{"subject_name":"...","instruction_language":"uz|en|ru","topics":[{"id":"M1","title":"...","type":"lecture|practical"}]}';
+
+const SYLLABUS_NO_TRANSLATE_RULE =
+  'CRITICAL: subject_name and every topic title MUST stay in the original PDF language. NEVER translate to another language.';
+
+function inferSyllabusInstructionLanguage(
+  result: Pick<SyllabusExtractResult, 'subject_name' | 'topics'>,
+  pdfText: string,
+  explicit?: string,
+): AppLanguage {
+  const raw = (explicit || '').trim().toLowerCase();
+  if (raw === 'uz' || raw === 'en' || raw === 'ru') return raw;
+  const blob = [pdfText, result.subject_name, ...result.topics.map((t) => t.title)].filter(Boolean).join('\n');
+  return inferPdfLanguage(blob);
+}
+
+function finalizeSyllabusExtract(
+  result: Omit<SyllabusExtractResult, 'instruction_language'>,
+  pdfText: string,
+  explicitLang?: string,
+): SyllabusExtractResult {
+  return {
+    ...result,
+    instruction_language: inferSyllabusInstructionLanguage(result, pdfText, explicitLang),
+  };
+}
 
 function normalizeSyllabusExtract(
   data: Partial<SyllabusExtractResult> | SyllabusTopic[] | null | undefined,
@@ -193,10 +219,13 @@ function normalizeSyllabusExtract(
       .trim();
   }
 
-  return {
+  const base = {
     subject_name: subject_name.slice(0, 255) || 'Fan',
     topics,
   };
+  const explicitLang =
+    data && !Array.isArray(data) && typeof data === 'object' ? data.instruction_language : undefined;
+  return finalizeSyllabusExtract(base, pdfText, explicitLang);
 }
 
 function guessSubjectFromPdfText(text: string): string {
@@ -371,15 +400,15 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
 }
 
 export const aiService = {
-  async extractSyllabusFromPdf(
-    file: File,
-    uiLanguage: AppLanguage = 'uz',
-  ): Promise<SyllabusExtractResult> {
-    let firstPass: SyllabusExtractResult = { subject_name: '', topics: [] };
+  async extractSyllabusFromPdf(file: File): Promise<SyllabusExtractResult> {
+    let firstPass: SyllabusExtractResult = { subject_name: '', topics: [], instruction_language: 'uz' };
     let pdfText = '';
-    const uiLangName = languageName(uiLanguage);
 
     try {
+      pdfText = await extractPdfText(file);
+      const docLang = inferPdfLanguage(pdfText);
+      const docLangName = languageName(docLang);
+
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -396,14 +425,16 @@ export const aiService = {
         const raw = await deepseekWithPdf({
           model: DEEPSEEK_CHAT,
           system:
-            `Syllabus PDF dan fan nomi va mavzular ro'yxatini JSON qilib chiqaring: ${SYLLABUS_AI_JSON_HINT}. ` +
-            "subject_name: PDF sarlavhasidagi fan/kurs nomi. topics id: M/L/Л+raqam (ma'ruza), A/P/П+raqam (amaliyot).",
+            `Extract course name and syllabus topics as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
+            "topics id: M/L/Л+number (lecture), A/P/П+number (practical). " +
+            SYLLABUS_NO_TRANSLATE_RULE,
           userText:
-            `PDF tahlil. Fan nomi va mavzu sarlavhalari PDF tilida qolsin. Noaniq bo'lsa ${uiLangName}.`,
+            `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE} ` +
+            'Set instruction_language to the PDF language code (uz, en, or ru).',
           pdfBase64: base64Data,
           maxTokens: 4096,
         });
-        firstPass = normalizeSyllabusExtract(parseJSONSafe<Partial<SyllabusExtractResult>>(raw), file.name);
+        firstPass = normalizeSyllabusExtract(parseJSONSafe<Partial<SyllabusExtractResult>>(raw), file.name, pdfText);
         if (!needsSyllabusFallback(firstPass.topics)) {
           return firstPass;
         }
@@ -411,16 +442,15 @@ export const aiService = {
         console.warn('Syllabus first-pass AI failed, trying fallback:', firstAiError);
       }
 
-      pdfText = await extractPdfText(file);
-      const docLang = inferPdfLanguage(pdfText);
-      const docLangName = languageName(docLang);
       try {
         const fallbackRaw = await deepseekJson({
           model: DEEPSEEK_FAST,
           system:
-            `Syllabus matndan fan nomi va mavzular: ${SYLLABUS_AI_JSON_HINT}. ` +
-            'subject_name PDF dagi fan nomi.',
-          user: `Til: ${docLangName}. Matn:\n${pdfText.slice(0, 80000)}`,
+            `Extract syllabus from text as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
+            SYLLABUS_NO_TRANSLATE_RULE,
+          user:
+            `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE}\n\n` +
+            pdfText.slice(0, 80000),
           maxTokens: 4096,
           parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
         });
@@ -446,8 +476,8 @@ export const aiService = {
     }
   },
 
-  async extractSyllabusTopics(file: File, uiLanguage: AppLanguage = 'uz'): Promise<SyllabusTopic[]> {
-    const result = await aiService.extractSyllabusFromPdf(file, uiLanguage);
+  async extractSyllabusTopics(file: File): Promise<SyllabusTopic[]> {
+    const result = await aiService.extractSyllabusFromPdf(file);
     return result.topics;
   },
 

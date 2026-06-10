@@ -14,7 +14,6 @@ import {
 import { HttpError } from '../../api/httpClient';
 import { aiService } from '../../services/aiService';
 import { clearBackendAuthTokens } from '../../utils/backendAuth';
-import { AppLanguageContext } from '../../App';
 import {
   createAdminCourseSyllabus,
   deleteAdminCourseSyllabus,
@@ -28,6 +27,11 @@ import {
   totalTopicCount,
   type SyllabusVariant,
 } from '../../utils/syllabusVariant';
+import type { AppLanguage } from '../../i18n/language';
+import {
+  instructionLanguageBadge,
+  resolveSyllabusInstructionLanguage,
+} from '../../utils/syllabusInstructionLanguage';
 
 type UploadProgress = {
   current: number;
@@ -48,7 +52,6 @@ function listLoadErrorMessage(err: unknown): string {
 }
 
 export default function AdminSyllabusCatalog() {
-  const { language } = React.useContext(AppLanguageContext);
   const [list, setList] = useState<CourseSyllabusRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -131,6 +134,9 @@ export default function AdminSyllabusCatalog() {
     setError(null);
     const newVariants: SyllabusVariant[] = [];
     let detectedSubjectName = subjectName.trim() || existingSubject?.subject_name || '';
+    let detectedInstructionLanguage: AppLanguage = existingSubject
+      ? resolveSyllabusInstructionLanguage(existingSubject)
+      : 'uz';
     let lastFileName = '';
 
     try {
@@ -138,7 +144,10 @@ export default function AdminSyllabusCatalog() {
         const file = pdfFiles[i];
         lastFileName = file.name;
         setProgress({ current: i + 1, total: pdfFiles.length, fileName: file.name });
-        const extracted = await aiService.extractSyllabusFromPdf(file, language);
+        const extracted = await aiService.extractSyllabusFromPdf(file);
+        if (i === 0) {
+          detectedInstructionLanguage = extracted.instruction_language;
+        }
         if (!extracted.topics.length) {
           throw new Error(`empty:${file.name}`);
         }
@@ -162,6 +171,7 @@ export default function AdminSyllabusCatalog() {
       if (existingSubject) {
         await updateAdminCourseSyllabus(existingSubject.id, {
           description: description.trim(),
+          instruction_language: detectedInstructionLanguage,
           variants: newVariants,
           append_variants: true,
         });
@@ -169,6 +179,7 @@ export default function AdminSyllabusCatalog() {
         await createAdminCourseSyllabus({
           subject_name: fanName,
           description: description.trim(),
+          instruction_language: detectedInstructionLanguage,
           variants: newVariants,
           sort_order: list.length,
         });
@@ -393,7 +404,12 @@ export default function AdminSyllabusCatalog() {
                     <FileText size={20} className="text-slate-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-900">{row.subject_name}</p>
+                    <p className="font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                      {row.subject_name}
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                        {instructionLanguageBadge(resolveSyllabusInstructionLanguage(row))}
+                      </span>
+                    </p>
                     <p className="text-[12px] text-slate-500">
                       {variants.length} PDF · {totalTopicCount(variants)} mavzu
                       {row.description ? ` · ${row.description}` : ''}

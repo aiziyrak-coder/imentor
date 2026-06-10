@@ -32,6 +32,11 @@ import {
   topicsMatch,
   type SyllabusTopicContext,
 } from '../utils/syllabusTopicContext';
+import {
+  applyInstructionLanguage,
+  instructionLanguageBadge,
+  resolveSyllabusInstructionLanguage,
+} from '../utils/syllabusInstructionLanguage';
 
 interface SyllabusViewProps {
   selectedTopic: SyllabusTopicContext | null;
@@ -52,7 +57,7 @@ export default function SyllabusView({
   onOpenLectures,
   onOpenHandouts,
 }: SyllabusViewProps) {
-  const { language } = React.useContext(AppLanguageContext);
+  const { language, setLanguage } = React.useContext(AppLanguageContext);
   const lang = language === 'ru' || language === 'en' ? language : 'uz';
   const steps = STEP_LABELS[lang];
 
@@ -105,10 +110,15 @@ export default function SyllabusView({
     void load();
   }, [load]);
 
+  const syncCourseLanguage = (row: CourseSyllabusRow) => {
+    applyInstructionLanguage(resolveSyllabusInstructionLanguage(row), setLanguage);
+  };
+
   const addSubject = async (row: CourseSyllabusRow) => {
     setBusyId(row.id);
     try {
       await selectCourseSyllabus(row.id);
+      syncCourseLanguage(row);
       await load();
       setShowCatalog(false);
     } catch {
@@ -135,7 +145,11 @@ export default function SyllabusView({
     syllabus: CourseSyllabusRow,
     variantLabel: string,
   ) => {
-    onSelectTopic(buildTopicContext(topic, syllabus.id, syllabus.subject_name, variantLabel));
+    const instructionLanguage = resolveSyllabusInstructionLanguage(syllabus);
+    applyInstructionLanguage(instructionLanguage, setLanguage);
+    onSelectTopic(
+      buildTopicContext(topic, syllabus.id, syllabus.subject_name, variantLabel, instructionLanguage),
+    );
   };
 
   if (loading) {
@@ -339,9 +353,17 @@ export default function SyllabusView({
               >
                 <div className="bg-slate-50 px-4 sm:px-6 py-4 flex items-center justify-between gap-3 border-b border-gray-100">
                   <div>
-                    <h3 className="font-bold text-gray-900 text-lg">{syllabus.subject_name}</h3>
+                    <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2 flex-wrap">
+                      {syllabus.subject_name}
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                        {instructionLanguageBadge(resolveSyllabusInstructionLanguage(syllabus))}
+                      </span>
+                    </h3>
                     <p className="text-xs text-gray-500">
-                      {variants.length} yo‘nalish · {totalTopicCount(variants)} mavzu
+                      {variants.length}{' '}
+                      {lang === 'en' ? 'tracks' : lang === 'ru' ? 'направл.' : 'yo‘nalish'} ·{' '}
+                      {totalTopicCount(variants)}{' '}
+                      {lang === 'en' ? 'topics' : lang === 'ru' ? 'тем' : 'mavzu'}
                     </p>
                   </div>
                   <button
@@ -461,7 +483,13 @@ function TopicColumn({
       {topics.length > 0 ? (
         <div className="grid gap-3">
           {topics.map((topic) => {
-            const ctx = buildTopicContext(topic, syllabus.id, syllabus.subject_name, variantLabel);
+            const ctx = buildTopicContext(
+              topic,
+              syllabus.id,
+              syllabus.subject_name,
+              variantLabel,
+              resolveSyllabusInstructionLanguage(syllabus),
+            );
             const isSelected = topicsMatch(selectedTopic, ctx);
             return (
               <button

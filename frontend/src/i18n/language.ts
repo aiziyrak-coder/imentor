@@ -39,10 +39,30 @@ export function inferPdfLanguage(text: string): AppLanguage {
     '\u0441\u043e\u0434\u0435\u0440\u0436\u0430\u043d\u0438\u0435',
     '\u0434\u0438\u0441\u0446\u0438\u043f\u043b\u0438\u043d\u0430',
   ];
-  const enHints = ['lecture', 'practical', 'topic', 'syllabus', 'course'];
+  const enHints = [
+    'lecture',
+    'practical',
+    'topic',
+    'syllabus',
+    'course',
+    'module',
+    'semester',
+    'anatomy',
+    'physiology',
+    'pathology',
+    'pharmacology',
+    'clinical',
+    'discipline',
+    'curriculum',
+    'objectives',
+    'assessment',
+    'hours',
+    'content',
+  ];
 
   const ruScore = ruHints.reduce((acc, w) => acc + (sample.includes(w) ? 2 : 0), 0) + (cyr > lat ? 2 : 0);
-  const enScore = enHints.reduce((acc, w) => acc + (sample.includes(w) ? 2 : 0), 0) + (lat > cyr ? 1 : 0);
+  const enScore =
+    enHints.reduce((acc, w) => acc + (sample.includes(w) ? 2 : 0), 0) + (lat > cyr + 40 ? 3 : lat > cyr ? 1 : 0);
 
   if (ruScore >= enScore + 2) return 'ru';
   if (enScore >= ruScore + 2) return 'en';

@@ -62,9 +62,24 @@ class CourseSyllabus(models.Model):
     Administrator yuklaydigan markaziy fan syllabus (barcha o'qituvchilar uchun katalog).
     """
 
+    LANG_UZ = "uz"
+    LANG_EN = "en"
+    LANG_RU = "ru"
+    INSTRUCTION_LANGUAGE_CHOICES = (
+        (LANG_UZ, "Uzbek"),
+        (LANG_EN, "English"),
+        (LANG_RU, "Russian"),
+    )
+
     subject_name = models.CharField(max_length=255, db_index=True)
     subject_code = models.CharField(max_length=64, unique=True, db_index=True)
     description = models.CharField(max_length=512, blank=True)
+    instruction_language = models.CharField(
+        max_length=8,
+        choices=INSTRUCTION_LANGUAGE_CHOICES,
+        default=LANG_UZ,
+        db_index=True,
+    )
     file_name = models.CharField(max_length=512)
     topics = models.JSONField(default=list)
     # Bir fan ichida bir nechta yo'nalish PDF (masalan: PI, DI, TPI)

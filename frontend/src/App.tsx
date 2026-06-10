@@ -272,7 +272,11 @@ export default function App() {
     loadPersistedSelectedTopic(),
   );
   const [latestLectureContent, setLatestLectureContent] = useState('');
-  const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
+  const [language, setLanguage] = useState<AppLanguage>(() => {
+    const topic = loadPersistedSelectedTopic();
+    if (topic?.instructionLanguage) return topic.instructionLanguage;
+    return getAppLanguage();
+  });
   const [notifications, setNotifications] = useState<AppNotification[]>(readStoredNotifications);
   const [isNotificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -427,12 +431,20 @@ export default function App() {
   const handleSelectTopic = (topic: SyllabusTopicContext) => {
     setSelectedTopic(topic);
     persistSelectedTopic(topic);
+    if (topic.instructionLanguage) {
+      setLanguage(topic.instructionLanguage);
+      persistAppLanguage(topic.instructionLanguage);
+    }
     addNotification('Mavzu tanlandi', `${topic.subjectName} · ${topic.id}: ${topic.title}`);
   };
 
   const handleOpenLectures = (topic: SyllabusTopicContext) => {
     setSelectedTopic(topic);
     persistSelectedTopic(topic);
+    if (topic.instructionLanguage) {
+      setLanguage(topic.instructionLanguage);
+      persistAppLanguage(topic.instructionLanguage);
+    }
     setActiveView('lectures');
   };
 

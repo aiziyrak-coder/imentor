@@ -1,6 +1,7 @@
 import { httpJson, HttpError } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
 import type { SyllabusTopic } from '../services/aiService';
+import type { AppLanguage } from '../i18n/language';
 import type { SyllabusVariant } from './syllabusVariant';
 
 /** Markaziy fan syllabus (admin katalog) */
@@ -9,6 +10,7 @@ export type CourseSyllabusRow = {
   subject_name: string;
   subject_code: string;
   description: string;
+  instruction_language?: AppLanguage;
   file_name: string;
   topics: SyllabusTopic[];
   variants: SyllabusVariant[];
@@ -66,6 +68,7 @@ export async function createAdminCourseSyllabus(payload: {
   subject_name: string;
   subject_code?: string;
   description?: string;
+  instruction_language?: AppLanguage;
   file_name?: string;
   topics?: SyllabusTopic[];
   variants?: SyllabusVariant[];
@@ -86,6 +89,7 @@ export async function updateAdminCourseSyllabus(
   payload: Partial<{
     subject_name: string;
     description: string;
+    instruction_language: AppLanguage;
     file_name: string;
     topics: SyllabusTopic[];
     variants: SyllabusVariant[];

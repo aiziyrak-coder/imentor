@@ -68,10 +68,14 @@ class AdminCourseSyllabusListCreateView(APIView):
             file_name = variants[0]["file_name"]
         if variants and not topics:
             topics = variants[0]["topics"]
+        instr_lang = (data.get("instruction_language") or "uz").strip().lower()
+        if instr_lang not in ("uz", "en", "ru"):
+            instr_lang = "uz"
         obj = CourseSyllabus.objects.create(
             subject_name=data["subject_name"].strip(),
             subject_code=code,
             description=(data.get("description") or "").strip()[:512],
+            instruction_language=instr_lang,
             file_name=file_name,
             topics=topics,
             variants=variants,
@@ -125,6 +129,10 @@ class AdminCourseSyllabusDetailView(APIView):
             obj.sort_order = int(data["sort_order"])
         if "is_active" in data:
             obj.is_active = bool(data["is_active"])
+        if "instruction_language" in data:
+            lang = (data.get("instruction_language") or "uz").strip().lower()
+            if lang in ("uz", "en", "ru"):
+                obj.instruction_language = lang
         if "subject_code" in data and data["subject_code"]:
             new_code = data["subject_code"].strip()[:64]
             if new_code != obj.subject_code and not CourseSyllabus.objects.filter(subject_code=new_code).exclude(pk=pk).exists():

@@ -183,6 +183,7 @@ class CourseSyllabusSerializer(serializers.ModelSerializer):
             "subject_name",
             "subject_code",
             "description",
+            "instruction_language",
             "file_name",
             "topics",
             "variants",
@@ -217,6 +218,10 @@ class CourseSyllabusUpsertSerializer(serializers.Serializer):
     sort_order = serializers.IntegerField(required=False, default=0, min_value=0, max_value=9999)
     is_active = serializers.BooleanField(required=False, default=True)
     append_variants = serializers.BooleanField(required=False, default=False)
+    instruction_language = serializers.ChoiceField(
+        choices=["uz", "en", "ru"],
+        required=False,
+    )
 
     def validate_subject_name(self, value: str) -> str:
         v = value.strip()

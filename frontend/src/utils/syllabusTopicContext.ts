@@ -1,10 +1,13 @@
 import type { SyllabusTopic } from '../services/aiService';
+import type { AppLanguage } from '../i18n/language';
 
 /** Fan + yo'nalish + mavzu — barcha modullar uchun barqaror kalit */
 export interface SyllabusTopicContext extends SyllabusTopic {
   syllabusId: number;
   subjectName: string;
   variantLabel: string;
+  /** Fan o'qitilish tili — platforma va AI shu tilga o'tadi */
+  instructionLanguage: AppLanguage;
 }
 
 const SELECTED_TOPIC_KEY = 'imentor-selected-topic-v2';
@@ -15,12 +18,14 @@ export function buildTopicContext(
   syllabusId: number,
   subjectName: string,
   variantLabel: string,
+  instructionLanguage: AppLanguage,
 ): SyllabusTopicContext {
   return {
     ...topic,
     syllabusId,
     subjectName,
     variantLabel,
+    instructionLanguage,
   };
 }
 
@@ -93,6 +98,9 @@ export function loadPersistedSelectedTopic(): SyllabusTopicContext | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SyllabusTopicContext;
     if (!parsed?.id || !parsed?.title || parsed.syllabusId == null) return null;
+    if (!parsed.instructionLanguage) {
+      parsed.instructionLanguage = 'uz';
+    }
     return parsed;
   } catch {
     return null;

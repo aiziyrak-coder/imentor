@@ -153,13 +153,4 @@ export async function deleteHandout(id: number): Promise<void> {
   }
 }
 
-export function isAllowedHandoutFile(file: File): boolean {
-  const name = file.name.toLowerCase();
-  const okExt = ['.pdf', '.jpg', '.jpeg', '.png'].some((e) => name.endsWith(e));
-  const okType =
-    file.type === 'application/pdf' ||
-    file.type === 'image/jpeg' ||
-    file.type === 'image/png' ||
-    file.type === '';
-  return okExt && okType;
-}
+export { isAllowedHandoutFile, HANDOUT_FILE_ACCEPT, handoutFileTypeLabel } from './handoutFileTypes';

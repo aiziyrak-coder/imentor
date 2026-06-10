@@ -1,7 +1,8 @@
-"""Tarqatma materiallar: mavzu bo‘yicha PDF/JPG yuklash va ko‘rish."""
+"""Tarqatma materiallar: mavzu bo‘yicha PDF va rasm yuklash va ko‘rish."""
 
 from __future__ import annotations
 
+import mimetypes
 import os
 
 from django.conf import settings
@@ -18,16 +19,31 @@ from .models import TopicHandout
 from .permissions import HasEducationRole, resolve_user_role
 from .serializers import TopicHandoutSerializer
 
-_ALLOWED_CONTENT_TYPES = frozenset(
+_ALLOWED_EXTENSIONS = frozenset(
     {
-        "application/pdf",
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-        "image/pjpeg",
+        ".pdf",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".tif",
+        ".tiff",
+        ".svg",
+        ".heic",
+        ".heif",
     }
 )
-_ALLOWED_EXTENSIONS = frozenset({".pdf", ".jpg", ".jpeg", ".png"})
+_BLOCKED_CONTENT_TYPES = frozenset(
+    {
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/x-msdownload",
+        "text/html",
+        "application/javascript",
+    }
+)
 
 
 def _norm_topic(topic: str) -> str:
@@ -41,17 +57,30 @@ def _detect_kind(name: str, content_type: str) -> str:
     return TopicHandout.KIND_IMAGE
 
 
+def _mime_for_handout(filename: str, kind: str) -> str:
+    guessed, _ = mimetypes.guess_type(filename or "")
+    if guessed:
+        return guessed
+    if kind == TopicHandout.KIND_PDF:
+        return "application/pdf"
+    return "image/jpeg"
+
+
 def _validate_uploaded_file(uploaded) -> None:
     if not uploaded:
         raise serializers.ValidationError({"file": "Fayl tanlanmadi."})
     ext = os.path.splitext(uploaded.name or "")[1].lower()
     if ext not in _ALLOWED_EXTENSIONS:
         raise serializers.ValidationError(
-            {"file": "Faqat PDF, JPG yoki PNG yuklash mumkin."}
+            {"file": "Faqat PDF yoki rasm (JPG, PNG, WEBP, GIF va boshqalar) yuklash mumkin."}
         )
     ctype = (getattr(uploaded, "content_type", None) or "").split(";")[0].strip().lower()
-    if ctype and ctype not in _ALLOWED_CONTENT_TYPES:
+    if ctype in _BLOCKED_CONTENT_TYPES:
         raise serializers.ValidationError({"file": "Ruxsat etilmagan fayl turi."})
+    if ctype == "application/pdf" and ext != ".pdf":
+        raise serializers.ValidationError({"file": "PDF kengaytmasi mos kelmadi."})
+    if ctype.startswith("image/") and ext == ".pdf":
+        raise serializers.ValidationError({"file": "Fayl turi va kengaytma mos kelmadi."})
     size = int(getattr(uploaded, "size", 0) or 0)
     max_bytes = int(getattr(settings, "HANDOUT_MAX_BYTES", 20 * 1024 * 1024))
     if size > max_bytes:
@@ -146,9 +175,7 @@ class TopicHandoutFileView(APIView):
         from django.http import FileResponse
 
         name = obj.file_name or obj.file.name
-        ctype = "application/pdf" if obj.kind == TopicHandout.KIND_PDF else "image/jpeg"
-        if name.lower().endswith(".png"):
-            ctype = "image/png"
+        ctype = _mime_for_handout(name, obj.kind)
         return FileResponse(f, as_attachment=False, filename=name, content_type=ctype)
 
 

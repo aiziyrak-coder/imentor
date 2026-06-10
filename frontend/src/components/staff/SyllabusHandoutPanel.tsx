@@ -3,6 +3,8 @@ import { Files, Loader2, Upload } from 'lucide-react';
 import type { SyllabusTopicContext } from '../../utils/syllabusTopicContext';
 import {
   fetchHandoutsForTopic,
+  HANDOUT_FILE_ACCEPT,
+  handoutFileTypeLabel,
   isAllowedHandoutFile,
   uploadHandout,
 } from '../../utils/handoutApi';
@@ -46,7 +48,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
     try {
       for (const file of Array.from(fileList)) {
         if (!isAllowedHandoutFile(file)) {
-          setError(`${file.name}: faqat PDF yoki JPG/PNG.`);
+          setError(`${file.name}: faqat PDF yoki rasm (${handoutFileTypeLabel()}).`);
           continue;
         }
         await uploadHandout({ topic, file });
@@ -67,7 +69,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
         <div className="min-w-0 flex-1">
           <p className="text-[14px] font-bold text-amber-950">Tarqatma materiallar</p>
           <p className="text-[12px] text-amber-900/70 leading-snug mt-0.5">
-            PDF yoki JPG — shu mavzuga yuklanadi. Barcha o‘qituvchilar ko‘ra oladi.
+            {handoutFileTypeLabel()} — shu mavzuga yuklanadi. Barcha o‘qituvchilar ko‘ra oladi.
           </p>
         </div>
       </div>
@@ -76,7 +78,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+          accept={HANDOUT_FILE_ACCEPT}
           multiple
           className="hidden"
           onChange={(e) => void handleFiles(e.target.files)}

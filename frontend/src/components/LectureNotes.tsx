@@ -13,6 +13,7 @@ import {
 import { motion } from 'motion/react';
 import { aiService, LectureNote } from '../services/aiService';
 import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../App';
+import { useUiText } from '../i18n/useUiText';
 import Markdown from 'react-markdown';
 import {
   listAllPreparedForKind,
@@ -26,11 +27,12 @@ export default function LectureNotes() {
   const globalTopic = useContext(GlobalTopicContext);
   const globalLecture = useContext(GlobalLectureContext);
   const { language } = useContext(AppLanguageContext);
+  const { t, locale } = useUiText();
+  const topicTypeLabel = (type: 'lecture' | 'practical') =>
+    type === 'lecture' ? t('lecture.typeLecture') : t('lecture.typePractical');
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [description, setDescription] = useState(
-    globalTopic
-      ? `${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}`
-      : '',
+    globalTopic ? `${globalTopic.id} - ${topicTypeLabel(globalTopic.type)}` : '',
   );
 
   const [loading, setLoading] = useState(false);
@@ -51,9 +53,7 @@ export default function LectureNotes() {
   useEffect(() => {
     if (globalTopic) {
       setTopic(globalTopic.title);
-      setDescription(
-        `${globalTopic.id} - ${globalTopic.type === 'lecture' ? "Ma'ruza" : "Amaliy mashg'ulot"}`,
-      );
+      setDescription(`${globalTopic.id} - ${topicTypeLabel(globalTopic.type)}`);
     }
   }, [globalTopic]);
 
@@ -101,7 +101,7 @@ export default function LectureNotes() {
       refreshHistory();
     } catch (err) {
       console.error('Lecture generation error:', err);
-      setError("Ma'ruza matnini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring.");
+      setError(t('lecture.errorGenerate'));
     } finally {
       setLoading(false);
     }
@@ -141,11 +141,11 @@ export default function LectureNotes() {
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 transition-colors"
           >
             <ArrowLeft size={20} />
-            Orqaga qaytish
+            {t('lecture.back')}
           </button>
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <History className="text-blue-500" />
-            Ma'ruzalar Bazasi
+            {t('lecture.database')}
           </h2>
         </div>
 
@@ -154,7 +154,7 @@ export default function LectureNotes() {
             <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
               <FileText size={40} />
             </div>
-            <p className="text-gray-500 font-medium">Hali saqlangan ma'ruzalar mavjud emas.</p>
+            <p className="text-gray-500 font-medium">{t('lecture.noSaved')}</p>
           </div>
         ) : (
           <div className="grid gap-4 w-full max-w-4xl">
@@ -168,13 +168,13 @@ export default function LectureNotes() {
                   <h3 className="font-bold text-gray-800 text-lg mb-1">{lecture.topic}</h3>
                   <div className="flex items-center gap-4 text-sm font-medium text-gray-500">
                     <span className="flex items-center gap-1.5">
-                      <BookOpen size={14} /> Ma'ruza matni
+                      <BookOpen size={14} /> {t('lecture.badge')}
                     </span>
                     <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
                     <span>
                       {lecture.createdAt
-                        ? new Date(lecture.createdAt).toLocaleDateString('uz-UZ')
-                        : 'Yaqinda'}
+                        ? new Date(lecture.createdAt).toLocaleDateString(locale)
+                        : t('common.recently')}
                     </span>
                   </div>
                 </div>
@@ -193,17 +193,16 @@ export default function LectureNotes() {
         <div className="text-center space-y-4 pt-4">
           <div className="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-full font-semibold text-sm mb-4">
             <FileText size={16} />
-            Akademik Ma'ruza Matnini Generatsiya Qilish
+            {t('lecture.generateBadge')}
           </div>
           <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
-            O'qituvchi uchun <br className="hidden sm:block" />
+            {t('lecture.heroTitle')} <br className="hidden sm:block" />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">
-              Ma'ruza Matni
+              {t('lecture.heroHighlight')}
             </span>
           </h1>
           <p className="text-gray-500 text-lg max-w-2xl mx-auto font-medium">
-            Tanlangan dars mavzusi bo'yicha eng dolzarb klinik faktlar va akademik tuzilmaga ega bo'lgan
-            mukammal o'quv materialini yarating.
+            {t('lecture.heroSubtitleLong')}
           </p>
         </div>
 
@@ -216,14 +215,14 @@ export default function LectureNotes() {
             <input
               type="text"
               className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
-              placeholder="Mavzu nomi..."
+              placeholder={t('lecture.topicPlaceholderShort')}
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
             />
             <input
               type="text"
               className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
-              placeholder="Qo'shimcha ma'lumotlar yoki guruh (Masalan: 3-kurs UMB)..."
+              placeholder={t('lecture.descriptionPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -235,7 +234,7 @@ export default function LectureNotes() {
               className="flex-1 bg-gray-900 text-white px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
-              Matnni Yaratish
+              {t('lecture.generateButton')}
             </button>
             <button
               onClick={() => {
@@ -245,7 +244,7 @@ export default function LectureNotes() {
               className="bg-emerald-50 text-emerald-600 px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all border border-emerald-100"
             >
               <History size={20} />
-              Baza
+              {t('lecture.databaseShort')}
             </button>
           </div>
         </motion.div>
@@ -264,10 +263,10 @@ export default function LectureNotes() {
               <FileText size={28} className="absolute inset-0 m-auto text-emerald-600 animate-pulse" />
             </div>
             <p className="text-gray-500 font-medium animate-pulse text-lg">
-              AI akademik ma'ruza matnini shakllantirmoqda...
+              {t('lecture.generating')}
             </p>
             <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
-              Tibbiy ilmiy manbalar (PubMed, WHO va boshqalar) asosida batafsil matn va giperhavolalar tayyorlanmoqda.
+              {t('lecture.generatingHint')}
             </p>
           </div>
         )}
@@ -286,23 +285,23 @@ export default function LectureNotes() {
                   }`}
                 >
                   <FileText size={18} />
-                  <span>{isEditing ? "Ko'rish" : 'Tahrirlash'}</span>
+                  <span>{isEditing ? t('lecture.view') : t('lecture.edit')}</span>
                 </button>
                 <button
                   onClick={handleCopy}
                   className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors disabled:opacity-50"
-                  title="Nusxa ko'chirish"
+                  title={t('lecture.copyTitle')}
                 >
                   {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
-                  <span>{copied ? "Ko'chirildi" : 'Nusxa olish'}</span>
+                  <span>{copied ? t('lecture.copied') : t('lecture.copy')}</span>
                 </button>
                 <button
                   onClick={handlePrint}
                   className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
-                  title="Chop etish yoki PDF"
+                  title={t('lecture.printTitle')}
                 >
                   <Download size={18} />
-                  <span>Saqlash / Print</span>
+                  <span>{t('lecture.print')}</span>
                 </button>
               </div>
             </div>

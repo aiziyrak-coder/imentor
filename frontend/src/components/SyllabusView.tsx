@@ -15,6 +15,7 @@ import SyllabusHandoutPanel from './staff/SyllabusHandoutPanel';
 import { motion } from 'motion/react';
 import type { SyllabusTopic } from '../services/aiService';
 import { AppLanguageContext } from '../App';
+import { useUiText } from '../i18n/useUiText';
 import type { UserRole } from '../utils/localStaffAuth';
 import {
   fetchCourseSyllabusCatalog,
@@ -47,12 +48,6 @@ interface SyllabusViewProps {
   onOpenHandouts: () => void;
 }
 
-const STEP_LABELS = {
-  uz: ['1. Fan tanlang', '2. Yo‘nalish', '3. Mavzu tanlang'],
-  ru: ['1. Выберите предмет', '2. Направление', '3. Выберите тему'],
-  en: ['1. Pick course', '2. Track', '3. Pick topic'],
-};
-
 export default function SyllabusView({
   userRole,
   selectedTopic,
@@ -61,8 +56,8 @@ export default function SyllabusView({
   onOpenHandouts,
 }: SyllabusViewProps) {
   const { language, setLanguage } = React.useContext(AppLanguageContext);
-  const lang = language === 'ru' || language === 'en' ? language : 'uz';
-  const steps = STEP_LABELS[lang];
+  const { t } = useUiText();
+  const steps = [t('syllabus.step1'), t('syllabus.step2'), t('syllabus.step3')];
 
   const [loading, setLoading] = useState(true);
   const [catalog, setCatalog] = useState<CourseSyllabusRow[]>([]);
@@ -89,7 +84,7 @@ export default function SyllabusView({
       setLoading(false);
       setCatalog([]);
       setMySelections([]);
-      setError('Bu bo‘lim faqat «Hodim» roli uchun. Hodim sifatida kiring.');
+      setError(t('syllabus.errorRole'));
       return;
     }
     setLoading(true);
@@ -105,16 +100,16 @@ export default function SyllabusView({
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'no-backend-token') {
-        setError('Tizimga qayta kiring (hodim hisobi kerak).');
+        setError(t('syllabus.errorLogin'));
       } else if (isSyncUnavailable(err)) {
-        setError('Bu bo‘lim faqat «Hodim» roli uchun. Hodim sifatida kiring.');
+        setError(t('syllabus.errorRole'));
       } else {
-        setError('Ma’lumot yuklanmadi. Internetni tekshiring.');
+        setError(t('syllabus.errorLoad'));
       }
     } finally {
       setLoading(false);
     }
-  }, [userRole]);
+  }, [userRole, t]);
 
   useEffect(() => {
     void load();
@@ -132,7 +127,7 @@ export default function SyllabusView({
       await load();
       setShowCatalog(false);
     } catch {
-      setError('Fanni qo‘shib bo‘lmadi.');
+      setError(t('syllabus.errorAdd'));
     } finally {
       setBusyId(null);
     }
@@ -144,7 +139,7 @@ export default function SyllabusView({
       await unselectCourseSyllabus(syllabusId);
       await load();
     } catch {
-      setError('Fanni olib tashlab bo‘lmadi.');
+      setError(t('syllabus.errorRemove'));
     } finally {
       setBusyId(null);
     }
@@ -166,7 +161,7 @@ export default function SyllabusView({
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-500">
         <Loader2 size={40} className="animate-spin text-blue-500" />
-        <p className="text-sm font-medium">Fanlar yuklanmoqda…</p>
+        <p className="text-sm font-medium">{t('syllabus.loading')}</p>
       </div>
     );
   }
@@ -179,14 +174,10 @@ export default function SyllabusView({
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <GraduationCap className="text-blue-600" size={28} />
-              {lang === 'ru' ? 'Мои предметы' : lang === 'en' ? 'My courses' : 'Mening fanlarim'}
+              {t('syllabus.title')}
             </h2>
             <p className="text-slate-500 mt-1 text-sm max-w-xl">
-              {lang === 'ru'
-                ? 'Администратор загрузил syllabus. Выберите предметы, затем тему — откроются лекции и материалы.'
-                : lang === 'en'
-                  ? 'Admin uploaded syllabuses. Pick your courses, then a topic to unlock lectures and materials.'
-                  : 'Administrator fanlar katalogini yuklagan. O‘qitadigan fanlaringizni tanlang, keyin mavzuni bosing — ma’ruza va materiallar ochiladi.'}
+              {t('syllabus.subtitle')}
             </p>
           </div>
           <button
@@ -195,17 +186,7 @@ export default function SyllabusView({
             className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white font-semibold text-sm shadow-md hover:bg-blue-500 shrink-0"
           >
             <Plus size={18} />
-            {showCatalog
-              ? lang === 'ru'
-                ? 'Закрыть'
-                : lang === 'en'
-                  ? 'Close'
-                  : 'Yopish'
-              : lang === 'ru'
-                ? 'Добавить предмет'
-                : lang === 'en'
-                  ? 'Add course'
-                  : 'Fan qo‘shish'}
+            {showCatalog ? t('syllabus.close') : t('syllabus.addCourse')}
           </button>
         </div>
 
@@ -243,15 +224,11 @@ export default function SyllabusView({
           className="max-w-6xl mx-auto w-full bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-3"
         >
           <p className="text-[13px] font-bold text-slate-700">
-            {lang === 'ru' ? 'Доступные предметы' : lang === 'en' ? 'Available courses' : 'Mavjud fanlar'}
+            {t('syllabus.availableCourses')}
           </p>
           {catalog.length === 0 ? (
             <p className="text-slate-500 text-sm py-6 text-center">
-              {lang === 'ru'
-                ? 'Администратор ещё не добавил предметы с темами.'
-                : lang === 'en'
-                  ? 'Admin has not published any courses with topics yet.'
-                  : 'Administrator hali mavzuli fan qo‘shmagan. Administrator bilan bog‘laning.'}
+              {t('syllabus.noCourses')}
             </p>
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -273,15 +250,15 @@ export default function SyllabusView({
                   >
                     <p className="font-semibold text-slate-900">{row.subject_name}</p>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      {variants.length} yo‘nalish · {topics} mavzu
+                      {variants.length} {t('syllabus.tracks')} · {topics} {t('syllabus.topics')}
                     </p>
                     {picked ? (
                       <span className="inline-block mt-2 text-[10px] text-emerald-700 font-bold">
-                        ✓ Tanlangan
+                        ✓ {t('syllabus.selected')}
                       </span>
                     ) : (
                       <span className="inline-block mt-2 text-[10px] text-blue-600 font-semibold">
-                        + Qo‘shish
+                        + {t('syllabus.add')}
                       </span>
                     )}
                   </button>
@@ -299,7 +276,7 @@ export default function SyllabusView({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
-                  {lang === 'ru' ? 'Выбранная тема' : lang === 'en' ? 'Selected topic' : 'Tanlangan mavzu'}
+                  {t('syllabus.selectedTopic')}
                 </p>
                 <p className="text-[12px] text-blue-800/80 mt-0.5">{selectedTopic.subjectName}</p>
                 <p className="text-base sm:text-lg font-bold text-gray-900 mt-1">
@@ -312,14 +289,14 @@ export default function SyllabusView({
                   onClick={() => onOpenLectures(selectedTopic)}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-[13px] font-semibold"
                 >
-                  Ma&apos;ruza matni
+                  {t('syllabus.lectureNotes')}
                 </button>
                 <button
                   type="button"
                   onClick={onOpenHandouts}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-400 bg-white text-amber-900 text-[13px] font-semibold"
                 >
-                  Tarqatma materiallar
+                  {t('syllabus.handouts')}
                 </button>
               </div>
             </div>
@@ -334,10 +311,10 @@ export default function SyllabusView({
           <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-gray-100 w-full">
             <BookOpen size={48} className="text-blue-400 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-gray-900 mb-2">
-              {lang === 'ru' ? 'Предмет не выбран' : lang === 'en' ? 'No course selected' : 'Fan tanlanmagan'}
+              {t('syllabus.noCourseSelected')}
             </h3>
             <p className="text-gray-500 text-sm">
-              «Fan qo‘shish» tugmasini bosing va o‘qitadigan fanlaringizni tanlang.
+              {t('syllabus.noCourseHint')}
             </p>
           </div>
         </div>
@@ -370,10 +347,7 @@ export default function SyllabusView({
                       </span>
                     </h3>
                     <p className="text-xs text-gray-500">
-                      {variants.length}{' '}
-                      {lang === 'en' ? 'tracks' : lang === 'ru' ? 'направл.' : 'yo‘nalish'} ·{' '}
-                      {totalTopicCount(variants)}{' '}
-                      {lang === 'en' ? 'topics' : lang === 'ru' ? 'тем' : 'mavzu'}
+                      {variants.length} {t('syllabus.tracks')} · {totalTopicCount(variants)} {t('syllabus.topics')}
                     </p>
                   </div>
                   <button
@@ -382,7 +356,7 @@ export default function SyllabusView({
                     onClick={() => void removeSubject(syllabus.id)}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 text-[12px] font-semibold"
                   >
-                    <X size={16} /> Olib tashlash
+                    <X size={16} /> {t('syllabus.remove')}
                   </button>
                 </div>
 
@@ -417,7 +391,7 @@ export default function SyllabusView({
 
                 <div className="p-4 sm:p-6 md:p-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <TopicColumn
-                    title={lang === 'ru' ? 'Лекции' : lang === 'en' ? 'Lectures' : "Ma'ruzalar"}
+                    title={t('syllabus.lectures')}
                     icon={<BookOpen size={18} />}
                     iconBg="bg-blue-50 text-blue-600"
                     topics={lectures}
@@ -428,13 +402,7 @@ export default function SyllabusView({
                     accent="blue"
                   />
                   <TopicColumn
-                    title={
-                      lang === 'ru'
-                        ? 'Практические'
-                        : lang === 'en'
-                          ? 'Practical'
-                          : "Amaliy mashg'ulotlar"
-                    }
+                    title={t('syllabus.practicals')}
                     icon={<FlaskConical size={18} />}
                     iconBg="bg-indigo-50 text-indigo-600"
                     topics={practicals}
@@ -475,6 +443,7 @@ function TopicColumn({
   onPickTopic: (topic: SyllabusTopic, syllabus: CourseSyllabusRow, variantLabel: string) => void;
   accent: 'blue' | 'indigo';
 }) {
+  const { t } = useUiText();
   const selectedCard =
     accent === 'blue'
       ? 'border-2 ring-blue-200 border-blue-500 bg-blue-50/80'
@@ -536,7 +505,7 @@ function TopicColumn({
           })}
         </div>
       ) : (
-        <p className="text-gray-400 text-sm italic">Bu yo‘nalishda mavzular yo‘q.</p>
+        <p className="text-gray-400 text-sm italic">{t('syllabus.noTopicsInTrack')}</p>
       )}
     </div>
   );

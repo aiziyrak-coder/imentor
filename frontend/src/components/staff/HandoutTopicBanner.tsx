@@ -1,10 +1,12 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Files, Loader2 } from 'lucide-react';
 import { GlobalTopicContext, AppNavigationContext } from '../../App';
+import { useUiText } from '../../i18n/useUiText';
 import { fetchHandoutsForTopic, type TopicHandoutItem } from '../../utils/handoutApi';
 
 /** Syllabus mavzusi tanlanganda boshqa modullarda qisqa ko‘rsatkich. */
 export default function HandoutTopicBanner() {
+  const { t } = useUiText();
   const topic = useContext(GlobalTopicContext);
   const { openHandouts, openSyllabus } = useContext(AppNavigationContext);
   const [items, setItems] = useState<TopicHandoutItem[]>([]);
@@ -45,12 +47,12 @@ export default function HandoutTopicBanner() {
           <p className="text-[11px] text-amber-900/70">
             {loading ? (
               <span className="inline-flex items-center gap-1">
-                <Loader2 size={12} className="animate-spin" /> Yuklanmoqda…
+                <Loader2 size={12} className="animate-spin" /> {t('banner.loading')}
               </span>
             ) : items.length > 0 ? (
-              `${items.length} ta material mavjud`
+              t('banner.materialsCount', { count: items.length })
             ) : (
-              'Hali material yuklanmagan'
+              t('banner.noMaterials')
             )}
           </p>
         </div>
@@ -60,7 +62,7 @@ export default function HandoutTopicBanner() {
         onClick={items.length > 0 ? openHandouts : openSyllabus}
         className="shrink-0 px-4 py-2 rounded-xl bg-amber-600 text-white text-[13px] font-semibold hover:bg-amber-500 shadow-sm"
       >
-        {items.length > 0 ? 'Ko‘rish' : 'Syllabusda yuklash'}
+        {items.length > 0 ? t('banner.view') : t('banner.uploadInSyllabus')}
       </button>
     </div>
   );

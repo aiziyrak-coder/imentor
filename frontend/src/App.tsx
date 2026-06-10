@@ -45,9 +45,11 @@ import { clearBackendAuthTokens, getBackendAccessToken } from './utils/backendAu
 import {
   type AppLanguage,
   getAppLanguage,
+  localeForLanguage,
   setAppLanguage as persistAppLanguage,
   languageLabel,
 } from './i18n/language';
+import { navLabel, navMobileLabel, roleLabel, translate } from './i18n/translations';
 import { type AppNotificationEventDetail } from './utils/notifications';
 import { isPublicStudentTestUrl } from './utils/liveTestApi';
 
@@ -117,80 +119,52 @@ type View =
 
 type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
-/** Hodim: dars kontenti + keys/test yaratish (bazaga yoziladi) */
-const HODIM_NAV: NavItemDef[] = [
-  { id: 'syllabus', label: 'Mening fanlarim', icon: BookOpen },
-  { id: 'lectures', label: "Ma'ruza matni", icon: FileText },
-  { id: 'presentation', label: 'Taqdimotlar', icon: Presentation },
-  { id: 'handouts', label: 'Tarqatma materiallar', icon: Files },
-  { id: 'cases', label: 'Keys yaratish', icon: BriefcaseMedical },
-  { id: 'tests', label: 'Test yaratish', icon: ClipboardList },
-  { id: 'profile', label: 'Profil', icon: UserCircle },
-];
-
-/** Administrator: faqat nazorat va bazalar (dars modullari yo‘q) */
-const ADMIN_NAV: NavItemDef[] = [
-  { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'admin-staff', label: 'Hodimlar', icon: Users },
-  { id: 'admin-staff-location', label: 'Joylashuv (GPS)', icon: MapPin },
-  { id: 'admin-campus-buildings', label: 'Kampus binolari', icon: Building2 },
-  { id: 'admin-startups', label: 'Startap arizalar', icon: Rocket },
-  { id: 'admin-syllabuses', label: 'Fan katalogi', icon: BookOpen },
-  { id: 'admin-cases', label: 'Keys bazasi', icon: BriefcaseMedical },
-  { id: 'admin-tests', label: 'Test bazasi', icon: ClipboardList },
-  { id: 'profile', label: 'Profil', icon: UserCircle },
-];
-
-const TARJIMON_NAV: NavItemDef[] = [
-  { id: 'translator', label: 'Tarjima', icon: Languages },
-  { id: 'profile', label: 'Profil', icon: UserCircle },
-];
-
-const STARTUPER_NAV: NavItemDef[] = [
-  { id: 'startup', label: 'Startap studiyasi', icon: Rocket },
-  { id: 'startup-dossier', label: 'Dossye va yuborish', icon: FolderOpen },
-  { id: 'profile', label: 'Profil', icon: UserCircle },
-];
-
-/** Short labels for the mobile bottom tab bar */
-const MOBILE_NAV_SHORT: Partial<Record<View, string>> = {
-  'admin-dashboard': 'Panel',
-  'admin-staff': 'Hodimlar',
-  'admin-staff-location': 'GPS',
-  'admin-campus-buildings': 'Binolar',
-  'admin-startups': 'Startap',
-  'admin-syllabuses': 'Fanlar',
-  'admin-cases': 'Case',
-  'admin-tests': 'Test',
-  startup: 'Studiya',
-  'startup-dossier': 'Dossye',
-  syllabus: 'Fanlar',
-  handouts: 'Tarqatma',
-  lectures: "Ma'ruza",
-  presentation: 'Slayd',
-  cases: 'Klinik',
-  tests: 'Testlar',
-  profile: 'Profil',
-  translator: 'Tarjima',
+const NAV_ICONS: Record<View, LucideIcon> = {
+  'admin-dashboard': LayoutDashboard,
+  'admin-staff': Users,
+  'admin-staff-location': MapPin,
+  'admin-campus-buildings': Building2,
+  'admin-cases': BriefcaseMedical,
+  'admin-tests': ClipboardList,
+  'admin-startups': Rocket,
+  'admin-syllabuses': BookOpen,
+  syllabus: BookOpen,
+  lectures: FileText,
+  presentation: Presentation,
+  handouts: Files,
+  cases: BriefcaseMedical,
+  tests: ClipboardList,
+  profile: UserCircle,
+  translator: Languages,
+  startup: Rocket,
+  'startup-dossier': FolderOpen,
 };
 
-function mobileTabLabel(view: View, fullLabel: string): string {
-  return MOBILE_NAV_SHORT[view] ?? fullLabel.split('(')[0]?.trim().slice(0, 11) ?? fullLabel;
-}
+const HODIM_NAV_IDS: View[] = ['syllabus', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
+const ADMIN_NAV_IDS: View[] = [
+  'admin-dashboard',
+  'admin-staff',
+  'admin-staff-location',
+  'admin-campus-buildings',
+  'admin-startups',
+  'admin-syllabuses',
+  'admin-cases',
+  'admin-tests',
+  'profile',
+];
+const TARJIMON_NAV_IDS: View[] = ['translator', 'profile'];
+const STARTUPER_NAV_IDS: View[] = ['startup', 'startup-dossier', 'profile'];
 
-function navItemsForRole(role: UserRole): NavItemDef[] {
-  switch (role) {
-    case 'admin':
-      return ADMIN_NAV;
-    case 'hodim':
-      return HODIM_NAV;
-    case 'tarjimon':
-      return TARJIMON_NAV;
-    case 'startuper':
-      return STARTUPER_NAV;
-    default:
-      return HODIM_NAV;
-  }
+function navItemsForRole(role: UserRole, lang: AppLanguage): NavItemDef[] {
+  const ids =
+    role === 'admin'
+      ? ADMIN_NAV_IDS
+      : role === 'tarjimon'
+        ? TARJIMON_NAV_IDS
+        : role === 'startuper'
+          ? STARTUPER_NAV_IDS
+          : HODIM_NAV_IDS;
+  return ids.map((id) => ({ id, label: navLabel(lang, id), icon: NAV_ICONS[id] }));
 }
 
 const LECTURE_BY_TOPIC_KEY = 'imentor-lecture-by-topic-v2';
@@ -366,7 +340,13 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-    addNotification('Xush kelibsiz', `${user.displayName || 'Foydalanuvchi'}, tizimga muvaffaqiyatli kirdingiz.`, 'success');
+    addNotification(
+      translate(language, 'shell.welcomeTitle'),
+      translate(language, 'shell.welcomeBody', {
+        name: user.displayName || translate(language, 'shell.staffDefaultName'),
+      }),
+      'success',
+    );
   }, [user?.uid, user?.displayName, addNotification]);
 
   /** Kirishdan keyin JWT ni yangilash (AI, fanlar, QR juftlash — parolsiz refresh) */
@@ -398,27 +378,30 @@ export default function App() {
   };
 
   const userRole = user ? normalizeUserRole(user) : null;
-  const navItems = useMemo(() => (userRole ? navItemsForRole(userRole) : []), [userRole]);
+  const navItems = useMemo(
+    () => (userRole ? navItemsForRole(userRole, language) : []),
+    [userRole, language],
+  );
 
   /** Hodim GPS faqat HodimMobileCompanion ichida (telefon) */
   useStaffLocationTracking(false);
 
   useEffect(() => {
     if (!user || !userRole) return;
-    const allowed = navItemsForRole(userRole).map((i) => i.id);
+    const allowed = navItemsForRole(userRole, language).map((i) => i.id);
     setActiveView((current) => (allowed.includes(current) ? current : allowed[0]));
-  }, [user?.uid, user?.role, userRole]);
+  }, [user?.uid, user?.role, userRole, language]);
 
   useEffect(() => {
     if (!user || !userRole) return;
-    const allowed = new Set(navItemsForRole(userRole).map((i) => i.id));
+    const allowed = new Set(navItemsForRole(userRole, language).map((i) => i.id));
     setMountedViews((prev) => {
       const filtered = prev.filter((v) => allowed.has(v));
       if (allowed.has(activeView) && !filtered.includes(activeView)) filtered.push(activeView);
-      if (filtered.length === 0) filtered.push(navItemsForRole(userRole)[0].id);
+      if (filtered.length === 0) filtered.push(navItemsForRole(userRole, language)[0].id);
       return filtered;
     });
-  }, [activeView, user?.uid, userRole]);
+  }, [activeView, user?.uid, userRole, language]);
 
   const openHandouts = useCallback(() => {
     setActiveView('handouts');
@@ -435,7 +418,14 @@ export default function App() {
       setLanguage(topic.instructionLanguage);
       persistAppLanguage(topic.instructionLanguage);
     }
-    addNotification('Mavzu tanlandi', `${topic.subjectName} · ${topic.id}: ${topic.title}`);
+    addNotification(
+      translate(language, 'shell.topicSelectedTitle'),
+      translate(language, 'shell.topicSelectedBody', {
+        subject: topic.subjectName,
+        id: topic.id,
+        title: topic.title,
+      }),
+    );
   };
 
   const handleOpenLectures = (topic: SyllabusTopicContext) => {
@@ -633,14 +623,14 @@ export default function App() {
       <div className="w-full border-t border-white/70 bg-white/80 backdrop-blur-md shadow-[0_-6px_24px_rgba(0,0,0,0.05)]">
         <div className="mx-auto w-full max-w-[1600px] px-3 py-1.5 overflow-x-auto scrollbar-hide">
           <div className="flex flex-nowrap items-center justify-center gap-x-3 text-[9px] md:text-[10px] leading-tight text-black/65 whitespace-nowrap min-w-max mx-auto">
-            <span className="font-medium">{'\u00A9'} 2026 iMentor Platform</span>
+            <span className="font-medium">{translate(language, 'footer.copyright')}</span>
             <a
               href="https://fjsti.uz"
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
             >
-              Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
+              {translate(language, 'footer.developer')}
             </a>
             <a
               href="https://fjsti.uz"
@@ -648,11 +638,11 @@ export default function App() {
               rel="noopener noreferrer"
               className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
             >
-              Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
+              {translate(language, 'footer.supporter')}
             </a>
-            <span className="font-medium text-violet-700">Patent raqami: IM-2026-PAT-001</span>
-            <span className="font-medium text-slate-700">Litsenziyalangan: Medical EdTech Suite</span>
-            <span className="font-medium text-cyan-700">Sertifikatlangan: ISO/IEC yo&apos;riqnomalari asosida</span>
+            <span className="font-medium text-violet-700">{translate(language, 'footer.patent')}</span>
+            <span className="font-medium text-slate-700">{translate(language, 'footer.license')}</span>
+            <span className="font-medium text-cyan-700">{translate(language, 'footer.certified')}</span>
           </div>
         </div>
       </div>
@@ -733,7 +723,9 @@ export default function App() {
           </div>
 
           <div className={`px-6 mb-2 mt-2 transition-opacity duration-200 ${!isSidebarOpen ? 'opacity-0 h-0 hidden' : 'opacity-100'}`}>
-            <p className="text-[11px] font-semibold text-black/40 uppercase tracking-widest">Asosiy Menyu</p>
+            <p className="text-[11px] font-semibold text-black/40 uppercase tracking-widest">
+              {translate(language, 'shell.mainMenu')}
+            </p>
           </div>
 
           <nav className="flex-1 px-4 py-2 space-y-2 overflow-y-auto scrollbar-hide">
@@ -758,7 +750,7 @@ export default function App() {
                 className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-300 text-[15px] text-rose-500 hover:bg-rose-500/10 hover:shadow-sm font-medium group`}
               >
                 <LogOut size={22} className="shrink-0 text-rose-400 group-hover:text-rose-500 transition-colors" strokeWidth={2} />
-                {isSidebarOpen && <span className="truncate">Chiqish</span>}
+                {isSidebarOpen && <span className="truncate">{translate(language, 'shell.logout')}</span>}
               </button>
           </div>
         </motion.aside>
@@ -772,13 +764,15 @@ export default function App() {
                 <Search size={18} className="sm:w-5 sm:h-5" />
               </div>
               <div className="flex-col hidden sm:flex border-l border-black/10 pl-4 sm:pl-6 space-y-0.5 min-w-0">
-                <h1 className="text-[14px] sm:text-[16px] font-semibold tracking-tight text-black/90 truncate">iMentor Platform</h1>
+                <h1 className="text-[14px] sm:text-[16px] font-semibold tracking-tight text-black/90 truncate">
+                  {translate(language, 'shell.platformTitle')}
+                </h1>
                 <p className="text-[11px] sm:text-[12px] text-black/50 font-medium tracking-wide truncate">
                   {userRole === 'admin'
-                    ? 'Markaziy nazorat paneli'
+                    ? translate(language, 'shell.platformSubtitle.admin')
                     : userRole === 'startuper'
-                      ? 'Innovatsiya va startap loyihalari'
-                      : 'Tizim holati va monitoring'}
+                      ? translate(language, 'shell.platformSubtitle.startuper')
+                      : translate(language, 'shell.platformSubtitle.default')}
                 </p>
               </div>
             </div>
@@ -808,15 +802,11 @@ export default function App() {
               <div className="w-px h-8 bg-black/10"></div>
               <div className="flex items-center gap-4 cursor-pointer group" onClick={() => setActiveView('profile')}>
                 <div className="flex-col items-end hidden md:flex">
-                  <span className="text-[14px] font-semibold text-black/80 group-hover:text-blue-600 transition-colors">{user.displayName || 'Xodim'}</span>
+                  <span className="text-[14px] font-semibold text-black/80 group-hover:text-blue-600 transition-colors">
+                    {user.displayName || translate(language, 'shell.staffDefaultName')}
+                  </span>
                   <span className="text-[11px] text-black/40 font-medium mt-0.5">
-                    {userRole === 'admin'
-                      ? 'Administrator'
-                      : userRole === 'tarjimon'
-                        ? 'Tarjimon'
-                        : userRole === 'startuper'
-                          ? 'Startuper'
-                          : 'Hodim'}
+                    {userRole ? roleLabel(language, userRole) : ''}
                   </span>
                 </div>
                 <div className="w-12 h-12 rounded-[16px] bg-gradient-to-tr from-blue-400 to-indigo-500 p-[2px] shadow-md group-hover:shadow-lg transition-all group-hover:scale-105">
@@ -845,18 +835,18 @@ export default function App() {
               className="absolute top-24 right-8 z-[80] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-white/70 bg-white/90 shadow-2xl backdrop-blur-md overflow-hidden"
             >
               <div className="px-4 py-3 border-b border-black/10 flex items-center justify-between">
-                <h3 className="text-[13px] font-bold text-black/80">Bildirishnomalar</h3>
+                <h3 className="text-[13px] font-bold text-black/80">{translate(language, 'shell.notifications')}</h3>
                 <button
                   onClick={markAllNotificationsRead}
                   className="text-[11px] font-semibold text-blue-600 hover:text-blue-500"
                 >
-                  Barchasini o&apos;qildi qilish
+                  {translate(language, 'shell.markAllRead')}
                 </button>
               </div>
               <div className="max-h-80 overflow-y-auto">
                 {notifications.length === 0 ? (
                   <div className="px-4 py-6 text-[12px] text-black/45 text-center">
-                    Hozircha bildirishnoma yo&apos;q.
+                    {translate(language, 'shell.noNotifications')}
                   </div>
                 ) : (
                   notifications.map((n) => (
@@ -885,7 +875,7 @@ export default function App() {
                           <p className="text-[12px] font-semibold text-black/80">{n.title}</p>
                           <p className="text-[12px] text-black/60 mt-0.5 break-words">{n.body}</p>
                           <p className="text-[10px] text-black/35 mt-1">
-                            {new Date(n.createdAt).toLocaleString('uz-UZ')}
+                            {new Date(n.createdAt).toLocaleString(localeForLanguage(language))}
                           </p>
                         </div>
                       </div>
@@ -932,7 +922,7 @@ export default function App() {
         </div>
         <nav
           className="flex flex-nowrap items-stretch justify-start gap-1 overflow-x-auto px-2 pt-1 pb-0.5 scrollbar-hide"
-          aria-label="Asosiy navigatsiya"
+          aria-label={translate(language, 'shell.mobileNav')}
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {navItems.map((item) => {
@@ -952,7 +942,7 @@ export default function App() {
                   className={`shrink-0 ${active ? 'text-white' : 'text-black/45'}`}
                 />
                 <span className="mt-0.5 max-w-full truncate px-0.5 text-center text-[9px] font-semibold leading-tight">
-                  {mobileTabLabel(item.id, item.label)}
+                  {navMobileLabel(language, item.id, item.label)}
                 </span>
               </button>
             );

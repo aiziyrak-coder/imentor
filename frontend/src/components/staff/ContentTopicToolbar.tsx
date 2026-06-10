@@ -1,6 +1,7 @@
 import React from 'react';
 import { Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import type { PreparedContentSummary } from '../../utils/preparedContentStore';
+import { useUiText } from '../../i18n/useUiText';
 
 type Props = {
   topic: string;
@@ -18,8 +19,8 @@ type Props = {
   versionsTitle?: string;
 };
 
-function formatWhen(ts: number): string {
-  return new Date(ts).toLocaleString('uz-UZ', {
+function formatWhen(ts: number, locale: string): string {
+  return new Date(ts).toLocaleString(locale, {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -40,8 +41,10 @@ export default function ContentTopicToolbar({
   activeVersionId,
   onSelectVersion,
   onDeleteVersion,
-  versionsTitle = 'Saqlanganlar',
+  versionsTitle,
 }: Props) {
+  const { t, locale } = useUiText();
+  const resolvedVersionsTitle = versionsTitle ?? t('toolbar.saved');
   const btn =
     accent === 'emerald'
       ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
@@ -75,7 +78,7 @@ export default function ContentTopicToolbar({
       {versions.length > 0 && (
         <div className="space-y-2 pt-1 border-t border-black/5">
           <p className="text-[12px] font-semibold text-black/50">
-            {versionsTitle} ({versions.length}) — eng yangisi avtomatik ochiladi
+            {resolvedVersionsTitle} ({versions.length}) — {t('toolbar.savedHint')}
           </p>
           <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto scrollbar-hide">
             {versions.map((v) => {
@@ -93,14 +96,14 @@ export default function ContentTopicToolbar({
                         : 'bg-white/70 text-black/70 border-black/10 hover:border-black/20'
                     }`}
                   >
-                    {formatWhen(v.createdAt)}
+                    {formatWhen(v.createdAt, locale)}
                   </button>
                   {onDeleteVersion && (
                     <button
                       type="button"
                       onClick={() => onDeleteVersion(v.id)}
                       className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200"
-                      aria-label="Versiyani o‘chirish"
+                      aria-label={t('toolbar.deleteVersion')}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -115,7 +118,7 @@ export default function ContentTopicToolbar({
       {!loading && versions.length === 0 && topic.trim() && (
         <p className="text-[12px] text-black/45 flex items-center gap-1.5">
           <Sparkles size={14} className="opacity-60" />
-          Hali saqlangan variant yo‘q — «{createLabel}» bilan birinchi marta yarating.
+          {t('toolbar.noVersions', { action: createLabel })}
         </p>
       )}
     </div>

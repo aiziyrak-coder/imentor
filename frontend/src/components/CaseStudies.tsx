@@ -11,6 +11,7 @@ import {
 import { motion } from 'motion/react';
 import { aiService, CaseStudySession } from '../services/aiService';
 import { AppLanguageContext, GlobalTopicContext } from '../App';
+import { useUiText } from '../i18n/useUiText';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendCaseStudyToLibrary } from '../utils/staffContentLibrary';
 import {
@@ -30,6 +31,7 @@ import html2canvas from 'html2canvas';
 export default function CaseStudies() {
   const globalTopic = useContext(GlobalTopicContext);
   const { language } = useContext(AppLanguageContext);
+  const { t } = useUiText();
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -119,7 +121,7 @@ export default function CaseStudies() {
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      setError(messageFromAiError(err, "Klinik keys yaratishda xatolik yuz berdi. Iltimos qaytadan urinib ko'ring."));
+      setError(messageFromAiError(err, t('case.errorGenerate')));
     } finally {
       setLoading(false);
     }
@@ -172,16 +174,16 @@ export default function CaseStudies() {
       <ContentTopicToolbar
         topic={topic}
         onTopicChange={setTopic}
-        topicLabel="Mavzu yoki tibbiy holat"
-        topicPlaceholder="Masalan: Ko'krak bezi saratoni..."
-        createLabel="Yangi 3 ta keys yaratish"
+        topicLabel={t('case.topicLabel')}
+        topicPlaceholder={t('case.topicPlaceholder')}
+        createLabel={t('case.create')}
         loading={loading}
         onCreate={() => void handleGenerate(topic)}
         accent="emerald"
         versions={versions}
         activeVersionId={activeVersionId}
         onSelectVersion={(id) => void handleSelectVersion(id)}
-        versionsTitle="Saqlangan keys to'plamlari"
+        versionsTitle={t('case.savedVersions')}
       />
 
       {error && (
@@ -194,7 +196,7 @@ export default function CaseStudies() {
       {loading && (
         <div className="ios-glass p-12 rounded-[2rem] flex flex-col items-center gap-4 print:hidden">
           <Loader2 className="animate-spin text-emerald-600" size={36} />
-          <p className="text-[14px] font-medium text-black/60">AI 3 ta klinik keys va ilmiy manbalar tayyorlamoqda…</p>
+          <p className="text-[14px] font-medium text-black/60">{t('case.generating')}</p>
         </div>
       )}
 
@@ -208,8 +210,7 @@ export default function CaseStudies() {
             <Stethoscope strokeWidth={2} size={28} />
           </div>
           <p className="text-[14px] text-black/55 max-w-md">
-            Bu mavzuda saqlangan keys topilmadi. Yuqoridagi <strong>Yangi 3 ta keys yaratish</strong> tugmasini
-            bosing.
+            {t('case.noSavedHint', { action: t('case.create') })}
           </p>
         </motion.div>
       )}
@@ -218,7 +219,7 @@ export default function CaseStudies() {
         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
           <div className="flex items-center justify-between ios-glass p-3 rounded-[1.5rem] shadow-sm print:hidden flex-wrap gap-2">
             <div className="flex items-center gap-2 font-mono text-[12px] font-medium text-black/40">
-              Ko&apos;rish: <span className="font-bold text-black/70">{caseSession.topic}</span>
+              {t('case.viewLabel')}: <span className="font-bold text-black/70">{caseSession.topic}</span>
             </div>
             <div className="flex items-center gap-2">
               <button

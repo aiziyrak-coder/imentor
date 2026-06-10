@@ -14,6 +14,7 @@ import {
 import { motion } from 'motion/react';
 import { aiService, TestSession, TestQuestion } from '../services/aiService';
 import { AppLanguageContext, GlobalTopicContext } from '../App';
+import { useUiText } from '../i18n/useUiText';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendTestToLibrary } from '../utils/staffContentLibrary';
 import {
@@ -118,6 +119,7 @@ function saveLocalSubmissions(sessionId: string, list: TestSubmissionDoc[]): voi
 export default function TestQuestions() {
   const globalTopic = useContext(GlobalTopicContext);
   const { language } = useContext(AppLanguageContext);
+  const { t } = useUiText();
   const queryParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const isStudentMode = queryParams.get('mode') === 'student';
   /** QR ba'zan `id=` bilan chiqishi mumkin — ikkalasini qabul qilamiz */
@@ -338,9 +340,7 @@ export default function TestQuestions() {
     if (!topic.trim()) return;
 
     if (testSession && teacherSessionId) {
-      const ok = window.confirm(
-        "Yangi test yangi QR kod va havola beradi. Avvalgi QR bilan kirgan talabalar eski sessiyada qoladi. Davom etasizmi?",
-      );
+      const ok = window.confirm(t('test.regenerateConfirm'));
       if (!ok) return;
     }
 
@@ -369,7 +369,7 @@ export default function TestQuestions() {
       }
     } catch (err) {
       console.error('Test generation error:', err);
-      setError(messageFromAiError(err, "Test savollarini shakllantirishda xatolik yuz berdi. Iltimos qayta urinib ko'ring."));
+      setError(messageFromAiError(err, t('test.errorGenerate')));
     } finally {
       setLoading(false);
     }
@@ -517,13 +517,13 @@ export default function TestQuestions() {
             Teacher Test Sessiyasi + QR (10 savol)
           </div>
           <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
-            Bilimni sinash uchun <br className="hidden sm:block"/>
+            {t('test.heroTitle')} <br className="hidden sm:block"/>
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-              Diagnostik Testlar
+              {t('test.heroHighlight')}
             </span>
           </h1>
           <p className="text-gray-500 text-lg max-w-2xl mx-auto font-medium">
-            Test yarating, katta QR ni ekranda ko'rsating, talabalar skaner qilib ishlasin. Standart: 10 ta murakkab savol.
+            {t('test.heroSubtitle')}
           </p>
         </div>
 
@@ -531,16 +531,16 @@ export default function TestQuestions() {
           <ContentTopicToolbar
             topic={topic}
             onTopicChange={setTopic}
-            topicLabel="Test mavzusi"
-            topicPlaceholder="Masalan: Yurak qon-tomir kasalliklari"
-            createLabel="Yangi 10 savolli test"
+            topicLabel={t('test.topicLabel')}
+            topicPlaceholder={t('test.topicPlaceholder')}
+            createLabel={t('test.create')}
             loading={loading}
             onCreate={() => void handleGenerate()}
             accent="indigo"
             versions={versions}
             activeVersionId={activeVersionId}
             onSelectVersion={handleSelectVersion}
-            versionsTitle="Saqlangan testlar"
+            versionsTitle={t('test.savedVersions')}
           />
         </div>
 

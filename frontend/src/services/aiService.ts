@@ -1,5 +1,5 @@
-import * as pdfjsLib from 'pdfjs-dist';
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
+import { pdfjsLib } from '../utils/pdfjsSetup';
 import { parseAiJson } from '../utils/parseAiJson';
 import {
   DEEPSEEK_CHAT,
@@ -10,11 +10,6 @@ import {
   deepseekWithImage,
   deepseekWithPdf,
 } from './deepseekClient';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
 
 const SYS_MEDICAL =
   'Siz FJSTI tibbiyot professori va klinik ta\'lim metodistisiz. Javoblar ilmiy, aniq, darsga tayyor.';

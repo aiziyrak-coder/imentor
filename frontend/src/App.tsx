@@ -262,7 +262,7 @@ function readStoredNotifications(): AppNotification[] {
 export default function App() {
   const { isMobile: isMobileDevice } = useDeviceProfile();
   const [activeView, setActiveView] = useState<View>('syllabus');
-  const [mountedViews, setMountedViews] = useState<View[]>(['syllabus']);
+  const [mountedViews, setMountedViews] = useState<View[]>([]);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
   const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
@@ -473,6 +473,7 @@ export default function App() {
       case 'syllabus':
         return (
           <SyllabusView
+            userRole={userRole}
             selectedTopic={selectedTopic}
             onSelectTopic={handleSelectTopic}
             onOpenLectures={handleOpenLectures}
@@ -496,6 +497,7 @@ export default function App() {
       default:
         return (
           <SyllabusView
+            userRole={userRole}
             selectedTopic={selectedTopic}
             onSelectTopic={handleSelectTopic}
             onOpenLectures={handleOpenLectures}

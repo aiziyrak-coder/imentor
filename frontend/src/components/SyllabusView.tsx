@@ -15,6 +15,7 @@ import SyllabusHandoutPanel from './staff/SyllabusHandoutPanel';
 import { motion } from 'motion/react';
 import type { SyllabusTopic } from '../services/aiService';
 import { AppLanguageContext } from '../App';
+import type { UserRole } from '../utils/localStaffAuth';
 import {
   fetchCourseSyllabusCatalog,
   fetchMyCourseSelections,
@@ -39,6 +40,7 @@ import {
 } from '../utils/syllabusInstructionLanguage';
 
 interface SyllabusViewProps {
+  userRole: UserRole | null;
   selectedTopic: SyllabusTopicContext | null;
   onSelectTopic: (topic: SyllabusTopicContext) => void;
   onOpenLectures: (topic: SyllabusTopicContext) => void;
@@ -52,6 +54,7 @@ const STEP_LABELS = {
 };
 
 export default function SyllabusView({
+  userRole,
   selectedTopic,
   onSelectTopic,
   onOpenLectures,
@@ -82,6 +85,13 @@ export default function SyllabusView({
   }, []);
 
   const load = useCallback(async () => {
+    if (userRole !== 'hodim') {
+      setLoading(false);
+      setCatalog([]);
+      setMySelections([]);
+      setError('Bu bo‘lim faqat «Hodim» roli uchun. Hodim sifatida kiring.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -104,7 +114,7 @@ export default function SyllabusView({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userRole]);
 
   useEffect(() => {
     void load();

@@ -8,17 +8,12 @@ import {
   FileText,
   AlertCircle
 } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
 import { aiService } from '../services/aiService';
+import { pdfjsLib } from '../utils/pdfjsSetup';
 import Markdown from 'react-markdown';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { pushAppNotification } from '../utils/notifications';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
 
 interface PageData {
   id: number;

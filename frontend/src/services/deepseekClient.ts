@@ -3,14 +3,9 @@
  * Production: server proxy (kalit brauzerga kirmaydi).
  * Dev: to‘g‘ridan-to‘g‘ri API (frontend/.env.local DEEPSEEK_API_KEY).
  */
-import * as pdfjsLib from 'pdfjs-dist';
 import { httpJson } from '../api/httpClient';
 import { ensureBackendAccessToken, getBackendAccessToken } from '../utils/backendAuth';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
+import { pdfjsLib } from '../utils/pdfjsSetup';
 
 export const DEEPSEEK_CHAT = 'deepseek-chat';
 export const DEEPSEEK_FAST = 'deepseek-chat';

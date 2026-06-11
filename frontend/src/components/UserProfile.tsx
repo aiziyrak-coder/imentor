@@ -216,7 +216,7 @@ export default function UserProfile() {
             <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-500 shadow-xl shadow-blue-500/30 relative">
               <div className="w-full h-full rounded-[1.75rem] overflow-hidden bg-white flex items-center justify-center">
                 {user?.photoURL ? (
-                  <img src={resolveProfilePhotoUrl(user.photoURL)} alt="Profile" className="w-full h-full object-cover" />
+                  <img key={user.photoURL} src={resolveProfilePhotoUrl(user.photoURL)} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   <User size={64} className="text-black/20" />
                 )}

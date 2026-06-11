@@ -362,9 +362,15 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     touchCurrentUserActivityIfNeeded();
-    const onFocus = () => touchCurrentUserActivityIfNeeded();
+    const onFocus = () => {
+      touchCurrentUserActivityIfNeeded();
+      void syncStaffPhotoFromServer();
+    };
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') touchCurrentUserActivityIfNeeded();
+      if (document.visibilityState === 'visible') {
+        touchCurrentUserActivityIfNeeded();
+        void syncStaffPhotoFromServer();
+      }
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
@@ -812,7 +818,7 @@ export default function App() {
                 <div className="w-12 h-12 rounded-[16px] bg-gradient-to-tr from-blue-400 to-indigo-500 p-[2px] shadow-md group-hover:shadow-lg transition-all group-hover:scale-105">
                   <div className="w-full h-full rounded-[14px] overflow-hidden bg-white flex items-center justify-center">
                     {user?.photoURL ? (
-                      <img src={resolveProfilePhotoUrl(user.photoURL)} alt="User" className="w-full h-full object-cover" />
+                      <img key={user.photoURL} src={resolveProfilePhotoUrl(user.photoURL)} alt="User" className="w-full h-full object-cover" />
                     ) : (
                       <UserCircle size={24} className="text-black/30" />
                     )}

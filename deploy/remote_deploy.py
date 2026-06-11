@@ -149,14 +149,22 @@ def ssh_connect(cfg: dict[str, str]):
         if pkey:
             break
 
+    connect_kwargs = {
+        "hostname": host,
+        "port": port,
+        "username": user,
+        "timeout": 30,
+        "banner_timeout": 30,
+        "auth_timeout": 30,
+    }
     if pkey:
-        client.connect(hostname=host, port=port, username=user, pkey=pkey, timeout=30)
+        client.connect(**connect_kwargs, pkey=pkey)
     else:
         if not password:
             raise SystemExit(
                 "Need SSH_PASSWORD or a working SSH_KEY_PATH (private key must be authorized on server)."
             )
-        client.connect(hostname=host, port=port, username=user, password=password, timeout=30)
+        client.connect(**connect_kwargs, password=password)
     return client
 
 
@@ -208,9 +216,15 @@ def run(
     timeout: int = 900,
 ) -> tuple[int, str, str]:
     stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
+    stdout.channel.settimeout(1.0)
+    stderr.channel.settimeout(1.0)
     out_chunks: list[str] = []
     err_chunks: list[str] = []
+    deadline = time.time() + timeout
     while not stdout.channel.exit_status_ready():
+        if time.time() > deadline:
+            stdout.channel.close()
+            raise SystemExit(f"Remote command timed out after {timeout}s")
         if stdout.channel.recv_ready():
             out_chunks.append(stdout.channel.recv(65536).decode("utf-8", errors="replace"))
         if stderr.channel.recv_stderr_ready():

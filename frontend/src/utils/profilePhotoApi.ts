@@ -13,6 +13,19 @@ export function resolveProfilePhotoUrl(photoURL: string | null | undefined): str
   return resolveHandoutFileUrl(photoURL);
 }
 
+/** v= cache-bust parametrini solishtirishda e’tiborsiz qoldirish. */
+export function normalizePhotoUrlForCompare(photoURL: string | null | undefined): string {
+  if (!photoURL) return '';
+  if (photoURL.startsWith('data:')) return photoURL;
+  try {
+    const u = new URL(photoURL, window.location.origin);
+    u.searchParams.delete('v');
+    return `${u.pathname}${u.search}`;
+  } catch {
+    return photoURL.replace(/([?&])v=\d+(&)?/g, (_, pre, tail) => (tail ? pre : '')).replace(/[?&]$/, '');
+  }
+}
+
 export async function uploadStaffAvatar(blob: Blob): Promise<string> {
   const token = await ensureBackendAccessToken();
   const form = new FormData();
@@ -25,8 +38,11 @@ export async function uploadStaffAvatar(blob: Blob): Promise<string> {
   if (!res.ok) {
     let detail = '';
     try {
-      const body = (await res.json()) as { detail?: string; file?: string[] };
-      detail = body.detail || body.file?.[0] || '';
+      const body = (await res.json()) as { detail?: string; file?: string | string[] };
+      const fileErr = body.file;
+      detail =
+        body.detail ||
+        (Array.isArray(fileErr) ? fileErr[0] : typeof fileErr === 'string' ? fileErr : '');
     } catch {
       /* ignore */
     }

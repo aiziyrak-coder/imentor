@@ -73,7 +73,6 @@ export async function confirmDevicePairing(
         direction: profile.direction,
         email: profile.email,
         role: profile.role ?? 'hodim',
-        photoURL: profile.photoURL ?? null,
       },
     },
     timeoutMs: 20000,

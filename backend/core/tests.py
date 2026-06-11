@@ -393,3 +393,36 @@ class PreparedContentApiTests(TestCase):
 
         delete = self.client.delete('/api/v1/auth/me/avatar/')
         self.assertEqual(delete.status_code, 204)
+
+        relogin_empty = self._login_user('998901119999', 'AvatarPass123')
+        self.assertEqual(relogin_empty.get('photo_url'), '')
+
+    def test_staff_avatar_rejects_non_image_magic(self):
+        Group.objects.get_or_create(name='hodim')
+        login = self._register_user('998901118888', 'AvatarPass123')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login["access"]}')
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        fake = SimpleUploadedFile('evil.jpg', b'<?php echo 1; ?>', content_type='image/jpeg')
+        resp = self.client.post('/api/v1/auth/me/avatar/', {'file': fake}, format='multipart')
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_staff_avatar_url_has_cache_bust(self):
+        Group.objects.get_or_create(name='hodim')
+        login = self._register_user('998901117777', 'AvatarPass123')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login["access"]}')
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        png = SimpleUploadedFile(
+            'avatar.png',
+            (
+                b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01'
+                b'\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f'
+                b'\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+            ),
+            content_type='image/png',
+        )
+        upload = self.client.post('/api/v1/auth/me/avatar/', {'file': png}, format='multipart')
+        self.assertEqual(upload.status_code, 200, upload.content)
+        photo_url = upload.json().get('photo_url', '')
+        self.assertIn('v=', photo_url)

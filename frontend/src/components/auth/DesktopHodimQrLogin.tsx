@@ -6,7 +6,7 @@ import {
   createDevicePairingSession,
   pollDevicePairingStatus,
 } from '../../utils/devicePairingApi';
-import { writeBackendTokensFromPair } from '../../utils/backendAuth';
+import { syncStaffPhotoFromServer, writeBackendTokensFromPair } from '../../utils/backendAuth';
 import {
   establishLocalSessionFromProfile,
   type LocalStaffUser,
@@ -109,6 +109,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
             updatedAt: Date.now(),
           });
           markDesktopPairedSession(sessionUser.uid);
+          void syncStaffPhotoFromServer();
         } catch (err) {
           if (err instanceof HttpError && err.status === 403) {
             stopPoll();

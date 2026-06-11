@@ -12,6 +12,7 @@ import {
   type UserRole,
 } from './localStaffAuth';
 import { HttpError, httpJson } from '../api/httpClient';
+import { normalizePhotoUrlForCompare } from './profilePhotoApi';
 
 type BackendTokenBundle = {
   access: string;
@@ -150,7 +151,13 @@ function buildLocalUserFromBackendLogin(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     lastActiveAt: now,
-    photoURL: bundle.photo_url?.trim() || existing?.photoURL || null,
+    photoURL: (() => {
+      const serverPhoto = bundle.photo_url?.trim() || null;
+      const existingPhoto = existing?.photoURL ?? null;
+      if (serverPhoto) return serverPhoto;
+      if (existingPhoto?.startsWith('data:')) return existingPhoto;
+      return null;
+    })(),
     participantKind: existing?.participantKind,
     studyGroup: existing?.studyGroup,
     jobTitle: existing?.jobTitle,
@@ -173,7 +180,15 @@ async function localLoginAndGetTokens(): Promise<CachedBundle | null> {
     last_name: user.lastName,
     display_name: user.displayName,
   });
-  return writeCached(resp);
+  const cached = writeCached(resp);
+  const serverPhoto = resp.photo_url?.trim() || null;
+  if (
+    serverPhoto &&
+    normalizePhotoUrlForCompare(serverPhoto) !== normalizePhotoUrlForCompare(user.photoURL)
+  ) {
+    updateCurrentLocalUser({ photoURL: serverPhoto });
+  }
+  return cached;
 }
 
 /**
@@ -371,7 +386,7 @@ export async function syncStaffPhotoFromServer(): Promise<void> {
     const serverPhoto = data.photo_url?.trim() || null;
     const current = user.photoURL ?? null;
     const currentIsLocalOnly = current?.startsWith('data:') ?? false;
-    if (serverPhoto === current) return;
+    if (normalizePhotoUrlForCompare(serverPhoto) === normalizePhotoUrlForCompare(current)) return;
     if (!serverPhoto && currentIsLocalOnly) return;
     updateCurrentLocalUser({ photoURL: serverPhoto });
   } catch {

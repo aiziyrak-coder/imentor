@@ -16,6 +16,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import DevicePairingSession
 from .permissions import IsHodimRole, resolve_user_role
+from .staff_profile_views import staff_photo_url_for_user
 
 PAIRING_TTL_MINUTES = 4
 
@@ -32,15 +33,30 @@ _SENSITIVE_PROFILE_KEYS = frozenset(
 
 
 def _sanitize_profile_snapshot(profile: dict) -> dict:
-    """JWT yetarli — parol va tokenlarni kompyuterga yubormaymiz."""
+    """JWT yetarli — parol, token va katta base64 rasmlarni kompyuterga yubormaymiz."""
     safe: dict = {}
     for key, value in profile.items():
         if key in _SENSITIVE_PROFILE_KEYS:
             continue
+        if key == "photoURL" and isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed.startswith("data:") or len(trimmed) > 512:
+                continue
         if isinstance(value, str) and len(value) > 4000:
             safe[key] = value[:4000]
         else:
             safe[key] = value
+    return safe
+
+
+def _profile_snapshot_for_pairing(request, profile: dict) -> dict:
+    """Serverdagi avatar URL — bitta manba, qurilmalar o‘rtasida sinxron."""
+    safe = _sanitize_profile_snapshot(profile if isinstance(profile, dict) else {})
+    server_photo = staff_photo_url_for_user(request, request.user.username)
+    if server_photo:
+        safe["photoURL"] = server_photo
+    else:
+        safe.pop("photoURL", None)
     return safe
 
 
@@ -199,7 +215,7 @@ class DevicePairConfirmView(APIView):
         obj.status = DevicePairingSession.STATUS_CONFIRMED
         obj.owner_key = request.user.username
         obj.role = role
-        obj.profile_snapshot = _sanitize_profile_snapshot(profile)
+        obj.profile_snapshot = _profile_snapshot_for_pairing(request, profile)
         obj.access_token = str(access)
         obj.refresh_token = str(refresh)
         obj.confirmed_at = now

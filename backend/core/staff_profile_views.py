@@ -28,11 +28,20 @@ _BLOCKED_CONTENT_TYPES = frozenset(
 )
 
 
+def _append_cache_bust(url: str, version: int) -> str:
+    if not url or version <= 0:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}v={version}"
+
+
 def staff_photo_url_for_user(request, owner_key: str) -> str:
     profile = StaffProfile.objects.filter(owner_key=owner_key).first()
     if not profile or not profile.photo:
         return ""
     url = profile.photo.url
+    version = int(profile.updated_at.timestamp()) if profile.updated_at else 0
+    url = _append_cache_bust(url, version)
     if request:
         return request.build_absolute_uri(url)
     return url
@@ -47,9 +56,32 @@ def delete_staff_profile_for_owner(owner_key: str) -> None:
     profile.delete()
 
 
+def _verify_image_magic(uploaded) -> None:
+    pos = uploaded.tell() if hasattr(uploaded, "tell") else 0
+    try:
+        if hasattr(uploaded, "seek"):
+            uploaded.seek(0)
+        head = uploaded.read(16)
+    finally:
+        if hasattr(uploaded, "seek"):
+            uploaded.seek(pos)
+    if len(head) < 3:
+        raise serializers.ValidationError({"file": "Fayl bo‘sh yoki buzilgan."})
+    if head[:3] == b"\xff\xd8\xff":
+        return
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return
+    raise serializers.ValidationError({"file": "Fayl haqiqiy rasm emas."})
+
+
 def _validate_avatar_file(uploaded) -> None:
     if not uploaded:
         raise serializers.ValidationError({"file": "Rasm tanlanmadi."})
+    _verify_image_magic(uploaded)
     ext = os.path.splitext(uploaded.name or "")[1].lower()
     if ext not in _ALLOWED_IMAGE_EXT:
         raise serializers.ValidationError(

@@ -66,6 +66,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 120s;
         client_max_body_size 25m;
+        add_header Cache-Control "private, max-age=3600" always;
     }
 
     location / {

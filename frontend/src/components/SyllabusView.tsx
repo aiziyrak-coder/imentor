@@ -203,52 +203,52 @@ export default function SyllabusView({
   }
 
   return (
-    <div className={`${PAGE_ROOT} py-4 sm:py-6 h-full flex flex-col gap-5 overflow-y-auto`}>
-      {/* Sarlavha va qadamlar */}
-      <div className="w-full bg-white p-5 sm:p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <GraduationCap className="text-blue-600" size={28} />
-            {t('syllabus.title')}
-          </h2>
-          <p className="text-slate-500 mt-1 text-sm max-w-xl">{t('syllabus.subtitle')}</p>
+    <div className={`${PAGE_ROOT} py-4 sm:py-6 h-full flex flex-col overflow-y-auto`}>
+      <div className="w-full bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden pb-2">
+        <div className="p-5 sm:p-6 border-b border-slate-100 bg-slate-50/40">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                <GraduationCap className="text-blue-600" size={28} />
+                {t('syllabus.title')}
+              </h2>
+              <p className="text-slate-500 mt-1 text-sm">{t('syllabus.subtitle')}</p>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {steps.map((label, i) => {
+                const done = i === 0 ? step1Done : i === 1 ? step2Done : step3Done;
+                const active =
+                  (i === 0 && !step1Done) ||
+                  (i === 1 && step1Done && !step2Done) ||
+                  (i === 2 && step2Done && !step3Done);
+                return (
+                  <span
+                    key={label}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold ${
+                      done
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : active
+                          ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                          : 'bg-white text-slate-600 border border-slate-200'
+                    }`}
+                  >
+                    {done ? <Check size={14} /> : <ListChecks size={14} />}
+                    {label}
+                    {i < steps.length - 1 && <ChevronRight size={12} className="opacity-40" />}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {steps.map((label, i) => {
-            const done = i === 0 ? step1Done : i === 1 ? step2Done : step3Done;
-            const active =
-              (i === 0 && !step1Done) ||
-              (i === 1 && step1Done && !step2Done) ||
-              (i === 2 && step2Done && !step3Done) ||
-              (i === 2 && step2Done && step3Done);
-            return (
-              <span
-                key={label}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold ${
-                  done
-                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                    : active
-                      ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                      : 'bg-slate-50 text-slate-600 border border-slate-200'
-                }`}
-              >
-                {done ? <Check size={14} /> : <ListChecks size={14} />}
-                {label}
-                {i < steps.length - 1 && <ChevronRight size={12} className="opacity-40" />}
-              </span>
-            );
-          })}
-        </div>
-      </div>
+        {error && (
+          <div className="mx-5 sm:mx-6 mt-4 bg-rose-50 text-rose-700 p-4 rounded-xl text-sm font-medium border border-rose-100">
+            {error}
+          </div>
+        )}
 
-      {error && (
-        <div className="w-full bg-rose-50 text-rose-700 p-4 rounded-xl text-sm font-medium border border-rose-100">
-          {error}
-        </div>
-      )}
-
-      <div className="w-full space-y-5 pb-4">
+        <div className="divide-y divide-slate-100">
         {/* 1-bosqich: Fan tanlash */}
         <SyllabusStepSection
           step={1}
@@ -422,7 +422,7 @@ export default function SyllabusView({
           ) : activeSyllabus ? (
             <div className="space-y-6">
               {selectedTopic && (
-                <div className="rounded-2xl border-2 border-blue-300 bg-gradient-to-br from-blue-50/90 to-indigo-50/80 p-4 sm:p-5 space-y-4">
+                <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 sm:p-5 space-y-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
@@ -481,6 +481,7 @@ export default function SyllabusView({
             </div>
           ) : null}
         </SyllabusStepSection>
+        </div>
       </div>
     </div>
   );
@@ -502,30 +503,20 @@ function SyllabusStepSection({
   children: React.ReactNode;
 }) {
   return (
-    <section
-      className={`rounded-2xl border p-5 sm:p-6 transition-colors ${
-        muted
-          ? 'border-slate-200 bg-slate-50/60 opacity-80'
-          : active
-            ? 'border-blue-300 bg-white shadow-md shadow-blue-100/40'
-            : done
-              ? 'border-emerald-200 bg-white'
-              : 'border-slate-200 bg-white'
-      }`}
-    >
+    <section className={`px-5 sm:px-6 py-5 sm:py-6 ${muted ? 'opacity-70' : ''}`}>
       <div className="flex items-center gap-3 mb-4">
         <span
-          className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+          className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 ${
             done
               ? 'bg-emerald-500 text-white'
               : active
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-200 text-slate-600'
+                ? 'bg-blue-600 text-white ring-2 ring-blue-200'
+                : 'bg-slate-100 text-slate-600'
           }`}
         >
-          {done ? <Check size={18} /> : step}
+          {done ? <Check size={16} /> : step}
         </span>
-        <h3 className="text-base sm:text-lg font-bold text-slate-900">{title}</h3>
+        <h3 className="text-base font-bold text-slate-900">{title}</h3>
       </div>
       {children}
     </section>

@@ -250,7 +250,7 @@ export default function AdminSyllabusCatalog() {
   const busy = uploading || creating;
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 h-full overflow-y-auto max-w-5xl mx-auto space-y-6">
+    <div className="p-3 sm:p-5 lg:p-6 h-full overflow-y-auto w-full space-y-6">
       <div className="ios-glass rounded-3xl border border-white/70 p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center">

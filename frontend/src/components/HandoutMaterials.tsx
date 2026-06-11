@@ -270,7 +270,7 @@ export default function HandoutMaterials() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-5 pb-8">
+    <div className="w-full px-3 sm:px-5 lg:px-6 py-4 sm:py-6 space-y-5 pb-8">
       <div className="ios-glass rounded-[1.5rem] border border-white/70 p-5 sm:p-6 shadow-sm">
         <h2 className="text-xl sm:text-2xl font-bold text-[#083047]">Tarqatma materiallar</h2>
         <p className="text-[14px] text-black/55 mt-1">
@@ -303,7 +303,7 @@ export default function HandoutMaterials() {
           Bu mavzuda hali tarqatma yo‘q. Syllabusda «Yuklash» tugmasi orqali qo‘shing.
         </p>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
           {items.map((item, idx) => {
             return (
               <motion.div

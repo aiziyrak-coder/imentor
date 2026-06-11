@@ -425,8 +425,8 @@ export default function TestQuestions() {
 
   if (isStudentMode) {
     return (
-      <div className="h-full flex flex-col items-center bg-[#f2f2f7] p-2 sm:p-4 md:p-8 overflow-y-auto">
-        <div className="w-full max-w-4xl space-y-6 pb-20">
+      <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
+        <div className="w-full space-y-6 pb-20">
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold text-gray-900">Talaba testi</h1>
             <p className="text-gray-500">Ism-familiyangizni kiriting va testni yuboring.</p>
@@ -509,8 +509,8 @@ export default function TestQuestions() {
   }
 
   return (
-    <div className="h-full flex flex-col items-center bg-[#f2f2f7] p-2 sm:p-4 md:p-8 overflow-y-auto">
-      <div className="w-full max-w-4xl space-y-8 pb-32">
+    <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
+      <div className="w-full space-y-8 pb-32">
         <div className="text-center space-y-4 pt-4">
           <div className="inline-flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-1.5 rounded-full font-semibold text-sm mb-4">
             <ClipboardList size={16} />
@@ -527,7 +527,7 @@ export default function TestQuestions() {
           </p>
         </div>
 
-        <div className="max-w-3xl mx-auto w-full">
+        <div className="w-full">
           <ContentTopicToolbar
             topic={topic}
             onTopicChange={setTopic}
@@ -545,7 +545,7 @@ export default function TestQuestions() {
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl max-w-3xl mx-auto text-center font-medium">
+          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl w-full text-center font-medium">
             {error}
           </div>
         )}

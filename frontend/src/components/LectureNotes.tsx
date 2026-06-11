@@ -134,8 +134,8 @@ export default function LectureNotes() {
 
   if (showHistory) {
     return (
-      <div className="h-full flex flex-col items-center bg-[#f2f2f7] p-4 sm:p-8 overflow-y-auto">
-        <div className="w-full max-w-4xl flex items-center justify-between mb-8">
+      <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
+        <div className="w-full flex items-center justify-between mb-8">
           <button
             onClick={() => setShowHistory(false)}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 transition-colors"
@@ -150,14 +150,14 @@ export default function LectureNotes() {
         </div>
 
         {savedLectures.length === 0 ? (
-          <div className="bg-white p-10 rounded-3xl shadow-sm border border-gray-100 text-center w-full max-w-4xl">
+          <div className="bg-white p-10 rounded-3xl shadow-sm border border-gray-100 text-center w-full">
             <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
               <FileText size={40} />
             </div>
             <p className="text-gray-500 font-medium">{t('lecture.noSaved')}</p>
           </div>
         ) : (
-          <div className="grid gap-4 w-full max-w-4xl">
+          <div className="grid gap-4 w-full lg:grid-cols-2 xl:grid-cols-3">
             {savedLectures.map((lecture) => (
               <button
                 key={lecture.id}
@@ -188,8 +188,8 @@ export default function LectureNotes() {
   }
 
   return (
-    <div className="h-full flex flex-col items-center bg-[#f2f2f7] p-2 sm:p-4 md:p-8 overflow-y-auto">
-      <div className="w-full max-w-4xl space-y-8 pb-32">
+    <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
+      <div className="w-full space-y-8 pb-32">
         <div className="text-center space-y-4 pt-4">
           <div className="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-full font-semibold text-sm mb-4">
             <FileText size={16} />
@@ -209,7 +209,7 @@ export default function LectureNotes() {
         <motion.div
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="bg-white p-4 flex flex-col shadow-xl rounded-2xl border border-gray-100 gap-4 max-w-3xl mx-auto"
+          className="bg-white p-4 flex flex-col shadow-xl rounded-2xl border border-gray-100 gap-4 w-full"
         >
           <div className="space-y-3">
             <input
@@ -250,7 +250,7 @@ export default function LectureNotes() {
         </motion.div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl max-w-3xl mx-auto text-center font-medium">
+          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl w-full text-center font-medium">
             {error}
           </div>
         )}

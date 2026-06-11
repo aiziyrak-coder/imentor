@@ -60,7 +60,7 @@ export default function Analytics() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto h-[calc(100vh-140px)] flex flex-col gap-5 pb-5">
+    <div className="w-full px-3 sm:px-5 lg:px-6 h-[calc(100vh-140px)] flex flex-col gap-5 pb-5 py-4">
       <header className="flex items-center justify-between pb-2 border-b border-black/5">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-sky-500/10 border border-sky-500/20 rounded-[14px] flex items-center justify-center text-sky-600 backdrop-blur-md">
@@ -130,7 +130,7 @@ export default function Analytics() {
 
         {/* Input area */}
         <div className="p-5 border-t border-black/5 bg-white/40 backdrop-blur-xl relative z-20">
-          <div className="relative flex items-end gap-3 max-w-4xl mx-auto">
+          <div className="relative flex items-end gap-3 w-full">
             <div className="relative flex-1 group">
                <textarea
                  value={input}
@@ -156,7 +156,7 @@ export default function Analytics() {
                </div>
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between px-2 max-w-4xl mx-auto">
+          <div className="mt-3 flex items-center justify-between px-2 w-full">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-black/30 uppercase tracking-widest leading-none">
               <Sparkles size={12} className="text-sky-500" /> DeepSeek AI
             </div>

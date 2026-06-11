@@ -691,7 +691,7 @@ export default function App() {
       <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] bg-cyan-300/20 rounded-full blur-[100px] pointer-events-none orb-float" />
 
       {/* Main Layout Container */}
-      <div className="relative z-10 flex w-full flex-1 min-h-0 p-2 sm:p-4 gap-2 sm:gap-4">
+      <div className="relative z-10 flex w-full flex-1 min-h-0 p-1.5 sm:p-2 lg:p-3 gap-1.5 sm:gap-2">
         
         {/* Floating Sidebar — desktop / tablet only */}
         <motion.aside 

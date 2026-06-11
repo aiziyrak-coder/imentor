@@ -298,7 +298,7 @@ export default function AdminStaffManagement() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16 px-2 sm:px-4">
+    <div className="w-full space-y-6 pb-16 px-3 sm:px-5 lg:px-6 py-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center">

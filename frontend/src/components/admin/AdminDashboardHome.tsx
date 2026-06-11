@@ -36,7 +36,7 @@ export default function AdminDashboardHome() {
   }, [tick]);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-16 px-2 sm:px-4">
+    <div className="w-full space-y-8 pb-16 px-3 sm:px-5 lg:px-6 py-4">
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}

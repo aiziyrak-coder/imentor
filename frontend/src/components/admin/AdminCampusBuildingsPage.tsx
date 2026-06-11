@@ -129,7 +129,7 @@ export default function AdminCampusBuildingsPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 px-2 sm:px-4 pb-24">
+    <div className="w-full space-y-6 px-3 sm:px-5 lg:px-6 pb-24 py-4">
       <div className="flex items-center gap-3">
         <div className="w-12 h-12 rounded-2xl bg-slate-700 text-white flex items-center justify-center">
           <Building2 size={24} />

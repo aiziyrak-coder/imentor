@@ -40,6 +40,7 @@ import {
   instructionLanguageBadge,
   resolveSyllabusInstructionLanguage,
 } from '../utils/syllabusInstructionLanguage';
+import { PAGE_ROOT } from '../layout/pageContainer';
 
 interface SyllabusViewProps {
   userRole: UserRole | null;
@@ -202,9 +203,9 @@ export default function SyllabusView({
   }
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 h-full flex flex-col gap-5 overflow-y-auto">
+    <div className={`${PAGE_ROOT} py-4 sm:py-6 h-full flex flex-col gap-5 overflow-y-auto`}>
       {/* Sarlavha va qadamlar */}
-      <div className="max-w-6xl mx-auto w-full bg-white p-5 sm:p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+      <div className="w-full bg-white p-5 sm:p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <GraduationCap className="text-blue-600" size={28} />
@@ -242,12 +243,12 @@ export default function SyllabusView({
       </div>
 
       {error && (
-        <div className="max-w-6xl mx-auto w-full bg-rose-50 text-rose-700 p-4 rounded-xl text-sm font-medium border border-rose-100">
+        <div className="w-full bg-rose-50 text-rose-700 p-4 rounded-xl text-sm font-medium border border-rose-100">
           {error}
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto w-full space-y-5 pb-4">
+      <div className="w-full space-y-5 pb-4">
         {/* 1-bosqich: Fan tanlash */}
         <SyllabusStepSection
           step={1}
@@ -326,7 +327,7 @@ export default function SyllabusView({
               {catalog.length === 0 ? (
                 <p className="text-slate-500 text-sm py-4 text-center">{t('syllabus.noCourses')}</p>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                   {catalog.map((row) => {
                     const picked = selectedIds.has(row.id);
                     const variants = resolveSyllabusVariants(row);
@@ -453,7 +454,7 @@ export default function SyllabusView({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <TopicColumn
                   title={t('syllabus.lectures')}
                   icon={<BookOpen size={18} />}
@@ -609,7 +610,7 @@ function TopicColumn({
       </div>
       {topics.length > 0 ? (
         <div className="space-y-3">
-        <div className="grid gap-3">
+        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {visibleTopics.map((topic) => {
             const ctx = buildTopicContext(
               topic,

@@ -123,9 +123,9 @@ export default function UserProfile() {
     role === 'admin' ? 'Administrator' : role === 'tarjimon' ? 'Tarjimon' : 'Hodim';
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-10 flex flex-col items-center h-full sm:p-4">
+    <div className="w-full px-3 sm:px-5 lg:px-6 space-y-6 pb-10 flex flex-col h-full py-4 sm:py-6">
       {/* Header Profile Section */}
-      <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm relative w-full max-w-4xl border border-white/60">
+      <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm relative w-full border border-white/60">
         <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[150%] bg-gradient-to-l from-blue-500/20 to-transparent blur-3xl pointer-events-none rounded-full" />
 
         <button
@@ -183,7 +183,7 @@ export default function UserProfile() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full max-w-4xl">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-6 w-full">
          
          {/* Profile Update Form */}
          <div className="space-y-6">

@@ -651,7 +651,7 @@ export default function StartupWorkspace() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 px-2 sm:px-4 pb-20">
+    <div className="w-full space-y-6 px-3 sm:px-5 lg:px-6 pb-20 py-4">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center shadow-md">

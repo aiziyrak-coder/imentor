@@ -178,7 +178,7 @@ export default function Translator() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-10">
+    <div className="w-full px-3 sm:px-5 lg:px-6 space-y-6 pb-10 py-4 sm:py-6">
       <header className="flex flex-col sm:flex-row items-center justify-between pb-4 border-b border-black/5 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-blue-500/10 border border-blue-500/20 rounded-[14px] flex items-center justify-center text-blue-600 backdrop-blur-md">

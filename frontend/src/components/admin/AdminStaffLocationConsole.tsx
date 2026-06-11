@@ -561,7 +561,7 @@ export default function AdminStaffLocationConsole() {
 
   return (
     <div
-      className={`mx-auto space-y-5 px-2 sm:px-4 pb-24 ${tab === 'livemap' ? 'max-w-7xl' : 'max-w-5xl'}`}
+      className="w-full space-y-5 px-3 sm:px-5 lg:px-6 pb-24 py-4"
     >
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">

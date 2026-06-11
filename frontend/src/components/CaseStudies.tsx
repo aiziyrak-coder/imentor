@@ -170,7 +170,7 @@ export default function CaseStudies() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-20 print:p-0 print:max-w-none print:m-0">
+    <div className="w-full px-3 sm:px-5 lg:px-6 space-y-6 pb-20 print:p-0 print:max-w-none print:m-0">
       <ContentTopicToolbar
         topic={topic}
         onTopicChange={setTopic}

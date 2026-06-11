@@ -125,10 +125,20 @@ export default function UserProfile() {
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-10 flex flex-col items-center h-full sm:p-4">
       {/* Header Profile Section */}
-      <div className="ios-glass p-8 rounded-[2rem] shadow-sm relative overflow-hidden w-full max-w-4xl border border-white/60">
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[150%] bg-gradient-to-l from-blue-500/20 to-transparent blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col md:flex-row items-center md:items-start gap-8 relative z-10 w-full">
+      <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm relative w-full max-w-4xl border border-white/60">
+        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[150%] bg-gradient-to-l from-blue-500/20 to-transparent blur-3xl pointer-events-none rounded-full" />
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="absolute top-5 right-5 sm:top-6 sm:right-6 z-20 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-rose-600 bg-white/80 border border-rose-200/70 hover:bg-rose-50 transition-colors shadow-sm"
+        >
+          <LogOut size={16} />
+          <span className="hidden sm:inline">Tizimdan chiqish</span>
+          <span className="sm:hidden">Chiqish</span>
+        </button>
+
+        <div className="flex flex-col md:flex-row items-center md:items-start gap-8 relative z-10 w-full pt-12 sm:pt-0 md:pr-32">
           {/* Avatar container */}
           <div className="relative group shrink-0">
             <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-500 shadow-xl shadow-blue-500/30 transition-transform duration-500 ease-out relative">
@@ -145,42 +155,30 @@ export default function UserProfile() {
             </div>
           </div>
 
-          <div className="flex-1 text-center md:text-left pt-2 w-full flex flex-col h-full justify-between">
-            <div>
-                <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mb-2">
-                <h1 className="text-2xl md:text-3xl font-bold text-black/90 tracking-tight">{user?.displayName || "Foydalanuvchi"}</h1>
-                <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/20 text-sky-700 text-[12px] font-semibold rounded-lg">
-                  Rol: {roleLabel}
-                </span>
-                <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[12px] font-semibold rounded-lg flex items-center gap-1.5">
-                  <ShieldCheck size={14} /> Lokal rejim
-                </span>
-                </div>
-                <p className="text-[14px] font-medium text-black/55 mb-2">
-                  {user?.faculty && (
-                    <>
-                      <span className="text-black/40">Fakultet:</span> {user.faculty}
-                      <br />
-                      <span className="text-black/40">Kafedra:</span> {user.department}
-                      <br />
-                      <span className="text-black/40">Yo&apos;nalish:</span> {user.direction}
-                    </>
-                  )}
-                </p>
-                <p className="text-[12px] font-mono text-black/40 mb-6 break-all">
-                  Tizim ID: {user?.email || '—'}
-                </p>
+          <div className="flex-1 text-center md:text-left pt-2 w-full min-w-0">
+            <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mb-2">
+              <h1 className="text-2xl md:text-3xl font-bold text-black/90 tracking-tight">
+                {user?.displayName || 'Foydalanuvchi'}
+              </h1>
+              <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/20 text-sky-700 text-[12px] font-semibold rounded-lg">
+                Rol: {roleLabel}
+              </span>
+              <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[12px] font-semibold rounded-lg inline-flex items-center gap-1.5">
+                <ShieldCheck size={14} /> Lokal rejim
+              </span>
             </div>
-            
-            <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
-               <button 
-                onClick={handleLogout}
-                className="flex items-center justify-center gap-2 px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-semibold transition-colors border border-rose-100"
-               >
-                 <LogOut size={18} />
-                 Tizimdan chiqish
-               </button>
-            </div>
+            {user?.faculty && (
+              <p className="text-[14px] font-medium text-black/55 mb-2">
+                <span className="text-black/40">Fakultet:</span> {user.faculty}
+                <br />
+                <span className="text-black/40">Kafedra:</span> {user.department}
+                <br />
+                <span className="text-black/40">Yo&apos;nalish:</span> {user.direction}
+              </p>
+            )}
+            <p className="text-[12px] font-mono text-black/40 break-all">
+              Tizim ID: {user?.email || '—'}
+            </p>
           </div>
         </div>
       </div>

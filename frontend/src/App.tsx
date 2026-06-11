@@ -15,7 +15,6 @@ import {
   Languages, 
   Menu, 
   X,
-  Search,
   Bell,
   UserCircle,
   BriefcaseMedical,
@@ -759,15 +758,12 @@ export default function App() {
         <div className="flex-1 flex flex-col gap-2 sm:gap-4 overflow-hidden relative min-w-0 min-h-0">
           {/* Header */}
           <header className="ios-glass h-16 sm:h-20 rounded-2xl sm:rounded-[2rem] flex items-center justify-between px-3 sm:px-8 shrink-0 z-40 shadow-sm border border-white/60 print:hidden gap-2">
-            <div className="flex items-center min-w-0 flex-1 space-x-3 sm:space-x-6">
-              <div className="w-10 h-10 sm:w-11 sm:h-11 bg-white/50 border border-white/60 shadow-sm rounded-2xl flex items-center justify-center text-black/50 cursor-pointer hover:bg-white/80 transition-colors shrink-0">
-                <Search size={18} className="sm:w-5 sm:h-5" />
-              </div>
-              <div className="flex-col hidden sm:flex border-l border-black/10 pl-4 sm:pl-6 space-y-0.5 min-w-0">
+            <div className="flex items-center min-w-0 flex-1">
+              <div className="flex-col space-y-0.5 min-w-0">
                 <h1 className="text-[14px] sm:text-[16px] font-semibold tracking-tight text-black/90 truncate">
                   {translate(language, 'shell.platformTitle')}
                 </h1>
-                <p className="text-[11px] sm:text-[12px] text-black/50 font-medium tracking-wide truncate">
+                <p className="hidden sm:block text-[12px] text-black/50 font-medium tracking-wide truncate">
                   {userRole === 'admin'
                     ? translate(language, 'shell.platformSubtitle.admin')
                     : userRole === 'startuper'

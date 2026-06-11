@@ -16,6 +16,8 @@ import {
   deprovisionBackendStaffAccount,
   provisionBackendStaffAccount,
 } from '../../utils/backendAuth';
+import { AppLanguageContext } from '../../App';
+import { roleLabel } from '../../i18n/translations';
 
 function formatLastActive(ts: number | undefined): string {
   if (ts == null || Number.isNaN(ts)) return '—';
@@ -50,6 +52,7 @@ type SortKey = 'displayName' | 'phoneDisplay' | 'role' | 'faculty' | 'lastActive
 type SortDirection = 'asc' | 'desc';
 
 export default function AdminStaffManagement() {
+  const { language } = React.useContext(AppLanguageContext);
   const [rows, setRows] = useState<LocalStaffUser[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('lastActiveAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -359,7 +362,7 @@ export default function AdminStaffManagement() {
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/5 text-[11px] font-semibold">
                         {normalizeUserRole(u) === 'admin' && <Shield size={12} />}
-                        {normalizeUserRole(u)}
+                        {roleLabel(language, normalizeUserRole(u))}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-black/65 max-w-[180px] truncate">{u.faculty}</td>
@@ -475,10 +478,10 @@ export default function AdminStaffManagement() {
                   value={form.role}
                   onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}
                 >
-                  <option value="hodim">Hodim</option>
-                  <option value="admin">Administrator</option>
-                  <option value="tarjimon">Tarjimon</option>
-                  <option value="startuper">Startuper</option>
+                  <option value="hodim">{roleLabel(language, 'hodim')}</option>
+                  <option value="admin">{roleLabel(language, 'admin')}</option>
+                  <option value="tarjimon">{roleLabel(language, 'tarjimon')}</option>
+                  <option value="startuper">{roleLabel(language, 'startuper')}</option>
                 </select>
               </label>
               {form.role === 'startuper' && (

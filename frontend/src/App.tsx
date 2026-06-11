@@ -892,7 +892,7 @@ export default function App() {
                   initial={isActive ? { opacity: 0, scale: 0.98, y: 10 } : false}
                   animate={isActive ? { opacity: 1, scale: 1, y: 0 } : false}
                   transition={isActive ? { duration: 0.25, ease: [0.22, 1, 0.36, 1] } : undefined}
-                  className={isActive ? 'h-full' : 'hidden'}
+                  className={isActive ? 'min-h-0' : 'hidden'}
                 >
                   {renderContent(view)}
                 </motion.div>

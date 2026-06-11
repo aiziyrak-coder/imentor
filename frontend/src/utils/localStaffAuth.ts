@@ -63,7 +63,7 @@ export const DEMO_ROLE_LOGINS: {
   },
   {
     role: 'hodim',
-    title: 'Hodim',
+    title: 'Assistant professor',
     subtitle: 'Ta‘lim modullari (tarjimasiz)',
     phone: TEST_STAFF_PHONE,
     password: TEST_STAFF_PASSWORD,
@@ -471,6 +471,7 @@ export function updateCurrentLocalUser(
       | 'participantKind'
       | 'studyGroup'
       | 'jobTitle'
+      | 'photoURL'
     >
   >
 ): LocalStaffUser {

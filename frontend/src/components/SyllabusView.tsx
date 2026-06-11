@@ -203,18 +203,18 @@ export default function SyllabusView({
   }
 
   return (
-    <div className={`${PAGE_ROOT} py-4 sm:py-6 h-full flex flex-col overflow-y-auto`}>
-      <div className="w-full bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden pb-2">
-        <div className="p-5 sm:p-6 border-b border-slate-100 bg-slate-50/40">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                <GraduationCap className="text-blue-600" size={28} />
+    <div className={`${PAGE_ROOT} py-2 sm:py-3 pb-6`}>
+      <div className="w-full bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-3 sm:px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                <GraduationCap className="text-blue-600 shrink-0" size={20} />
                 {t('syllabus.title')}
               </h2>
-              <p className="text-slate-500 mt-1 text-sm">{t('syllabus.subtitle')}</p>
+              <p className="text-slate-500 mt-0.5 text-[11px] sm:text-xs leading-snug">{t('syllabus.subtitle')}</p>
             </div>
-            <div className="flex flex-wrap gap-2 shrink-0">
+            <div className="flex flex-wrap gap-1.5 shrink-0">
               {steps.map((label, i) => {
                 const done = i === 0 ? step1Done : i === 1 ? step2Done : step3Done;
                 const active =
@@ -224,7 +224,7 @@ export default function SyllabusView({
                 return (
                   <span
                     key={label}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold ${
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold ${
                       done
                         ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                         : active
@@ -232,9 +232,9 @@ export default function SyllabusView({
                           : 'bg-white text-slate-600 border border-slate-200'
                     }`}
                   >
-                    {done ? <Check size={14} /> : <ListChecks size={14} />}
+                    {done ? <Check size={12} /> : <ListChecks size={12} />}
                     {label}
-                    {i < steps.length - 1 && <ChevronRight size={12} className="opacity-40" />}
+                    {i < steps.length - 1 && <ChevronRight size={10} className="opacity-40 hidden sm:inline" />}
                   </span>
                 );
               })}
@@ -243,91 +243,92 @@ export default function SyllabusView({
         </div>
 
         {error && (
-          <div className="mx-5 sm:mx-6 mt-4 bg-rose-50 text-rose-700 p-4 rounded-xl text-sm font-medium border border-rose-100">
+          <div className="mx-3 sm:mx-4 mt-2 bg-rose-50 text-rose-700 px-3 py-2 rounded-lg text-xs font-medium border border-rose-100">
             {error}
           </div>
         )}
 
-        <div className="divide-y divide-slate-100">
+        <div className="border-b border-slate-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x divide-slate-100">
         {/* 1-bosqich: Fan tanlash */}
         <SyllabusStepSection
           step={1}
           title={t('syllabus.step1')}
           done={step1Done}
           active={!step1Done}
+          className="border-b lg:border-b-0 border-slate-100"
         >
           {mySelections.length > 0 ? (
-            <div className="space-y-3">
-              <p className="text-[12px] font-semibold text-slate-500">{t('syllabus.myCourses')}</p>
-              <div className="flex flex-wrap gap-2">
-                {mySelections.map((sel) => {
+            <div className="flex flex-wrap items-center gap-1.5">
+              {mySelections.map((sel) => {
                   const syllabus = sel.syllabus;
                   const isActive = activeSyllabusId === syllabus.id;
                   return (
                     <div
                       key={sel.id}
-                      className={`flex items-center gap-2 pl-4 pr-2 py-2 rounded-xl border transition ${
+                      className={`inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg border text-[12px] transition ${
                         isActive
-                          ? 'border-blue-400 bg-blue-50 shadow-sm'
+                          ? 'border-blue-400 bg-blue-50'
                           : 'border-slate-200 bg-white'
                       }`}
                     >
                       <button
                         type="button"
                         onClick={() => setActiveSyllabusId(syllabus.id)}
-                        className="text-left min-w-0"
+                        className="text-left min-w-0 flex items-center gap-1.5"
                       >
-                        <p className="font-semibold text-slate-900 text-[13px] truncate max-w-[200px] sm:max-w-none">
+                        <span className="font-semibold text-slate-900 truncate max-w-[140px] sm:max-w-[200px]">
                           {syllabus.subject_name}
-                        </p>
-                        <p className="text-[10px] text-slate-500">
+                        </span>
+                        <span className="text-[9px] text-slate-500 shrink-0">
                           {instructionLanguageBadge(resolveSyllabusInstructionLanguage(syllabus))}
-                        </p>
+                        </span>
                       </button>
                       <button
                         type="button"
                         disabled={busyId === syllabus.id}
                         onClick={() => void removeSubject(syllabus.id)}
-                        className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 shrink-0"
+                        className="p-1 rounded text-rose-500 hover:bg-rose-50 shrink-0"
                         aria-label={t('syllabus.remove')}
                       >
-                        <X size={16} />
+                        <X size={14} />
                       </button>
                     </div>
                   );
                 })}
-              </div>
+              <button
+                type="button"
+                onClick={() => setCatalogOpen((v) => !v)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500"
+              >
+                <Plus size={14} />
+                {catalogOpen ? t('syllabus.close') : t('syllabus.addCourse')}
+              </button>
             </div>
           ) : (
-            <div className="flex flex-col items-center text-center py-4 px-2">
-              <BookOpen size={40} className="text-blue-400 mb-3" />
-              <p className="font-semibold text-slate-800">{t('syllabus.noCourseSelected')}</p>
-              <p className="text-slate-500 text-sm mt-1 max-w-sm">{t('syllabus.noCourseHint')}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[11px] text-slate-500">{t('syllabus.noCourseHint')}</p>
+              <button
+                type="button"
+                onClick={() => setCatalogOpen((v) => !v)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500"
+              >
+                <Plus size={14} />
+                {t('syllabus.addCourse')}
+              </button>
             </div>
           )}
 
-          <div className="pt-3 border-t border-slate-100 mt-3">
-            <button
-              type="button"
-              onClick={() => setCatalogOpen((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-[13px] hover:bg-blue-500"
-            >
-              <Plus size={16} />
-              {catalogOpen ? t('syllabus.close') : t('syllabus.addCourse')}
-            </button>
-          </div>
-
           {catalogOpen && (
             <motion.div
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-4 bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3"
+              className="mt-2 bg-slate-50 rounded-lg border border-slate-200 p-2 sm:p-3 space-y-2"
             >
-              <p className="text-[13px] font-bold text-slate-700">{t('syllabus.availableCourses')}</p>
+              <p className="text-[11px] font-bold text-slate-700">{t('syllabus.availableCourses')}</p>
               {catalog.length === 0 ? (
                 <p className="text-slate-500 text-sm py-4 text-center">{t('syllabus.noCourses')}</p>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-1.5">
                   {catalog.map((row) => {
                     const picked = selectedIds.has(row.id);
                     const variants = resolveSyllabusVariants(row);
@@ -338,14 +339,14 @@ export default function SyllabusView({
                         type="button"
                         disabled={picked || busyId === row.id}
                         onClick={() => void addSubject(row)}
-                        className={`text-left p-4 rounded-xl border transition ${
+                        className={`text-left p-2.5 rounded-lg border transition ${
                           picked
                             ? 'border-emerald-300 bg-emerald-50 opacity-70 cursor-default'
                             : 'border-white bg-white hover:border-blue-300 hover:shadow-md'
                         }`}
                       >
-                        <p className="font-semibold text-slate-900">{row.subject_name}</p>
-                        <p className="text-[11px] text-slate-500 mt-1">
+                        <p className="font-semibold text-slate-900 text-[12px] leading-tight">{row.subject_name}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
                           {variants.length} {t('syllabus.tracks')} · {topics} {t('syllabus.topics')}
                         </p>
                         {picked ? (
@@ -377,37 +378,38 @@ export default function SyllabusView({
           {!step1Done ? (
             <p className="text-sm text-slate-400 italic">{t('syllabus.step2Locked')}</p>
           ) : activeSyllabus ? (
-            <div className="space-y-3">
-              <p className="text-[13px] font-semibold text-slate-800">{activeSyllabus.subject_name}</p>
+            <div className="space-y-1.5">
+              <p className="text-[12px] font-semibold text-slate-800 truncate">{activeSyllabus.subject_name}</p>
               {activeVariants.length > 1 ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {activeVariants.map((v) => (
                     <button
                       key={v.label}
                       type="button"
                       onClick={() => setVariant(activeSyllabus.id, v.label)}
-                      className={`px-3 py-2 rounded-xl text-[12px] font-semibold border transition ${
+                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition ${
                         activeLabel === v.label
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
                       }`}
                     >
                       {v.label}
-                      <span className="opacity-70 ml-1">({v.topics.length})</span>
+                      <span className="opacity-70 ml-0.5">({v.topics.length})</span>
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-                  {t('syllabus.singleTrack')}: {activeVariants[0]?.label ?? '—'}
+                <p className="text-[11px] text-slate-600 inline-flex items-center px-2 py-1 rounded-md bg-slate-100">
+                  {activeVariants[0]?.label ?? '—'}
                 </p>
               )}
               {activeVariant && (
-                <p className="text-[11px] text-gray-400 truncate">PDF: {activeVariant.file_name}</p>
+                <p className="text-[10px] text-gray-400 truncate">PDF: {activeVariant.file_name}</p>
               )}
             </div>
           ) : null}
         </SyllabusStepSection>
+        </div>
 
         {/* 3-bosqich: Mavzu tanlash */}
         <SyllabusStepSection
@@ -420,31 +422,30 @@ export default function SyllabusView({
           {!step2Done ? (
             <p className="text-sm text-slate-400 italic">{t('syllabus.step3Locked')}</p>
           ) : activeSyllabus ? (
-            <div className="space-y-6">
+            <div className="space-y-3">
               {selectedTopic && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 sm:p-5 space-y-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
+                <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700">
                         {t('syllabus.selectedTopic')}
                       </p>
-                      <p className="text-[12px] text-blue-800/80 mt-0.5">{selectedTopic.subjectName}</p>
-                      <p className="text-base sm:text-lg font-bold text-gray-900 mt-1">
+                      <p className="text-[12px] font-semibold text-gray-900 mt-0.5 leading-snug">
                         <span className="text-blue-700">{selectedTopic.id}</span> — {selectedTopic.title}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => onOpenLectures(selectedTopic)}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-[13px] font-semibold"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[11px] font-semibold"
                       >
                         {t('syllabus.lectureNotes')}
                       </button>
                       <button
                         type="button"
                         onClick={onOpenHandouts}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-400 bg-white text-amber-900 text-[13px] font-semibold"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-amber-400 bg-white text-amber-900 text-[11px] font-semibold"
                       >
                         {t('syllabus.handouts')}
                       </button>
@@ -454,7 +455,7 @@ export default function SyllabusView({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                 <TopicColumn
                   title={t('syllabus.lectures')}
                   icon={<BookOpen size={18} />}
@@ -481,7 +482,6 @@ export default function SyllabusView({
             </div>
           ) : null}
         </SyllabusStepSection>
-        </div>
       </div>
     </div>
   );
@@ -493,6 +493,7 @@ function SyllabusStepSection({
   done,
   active,
   muted,
+  className,
   children,
 }: {
   step: number;
@@ -500,13 +501,14 @@ function SyllabusStepSection({
   done: boolean;
   active: boolean;
   muted?: boolean;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className={`px-5 sm:px-6 py-5 sm:py-6 ${muted ? 'opacity-70' : ''}`}>
-      <div className="flex items-center gap-3 mb-4">
+    <section className={`px-3 sm:px-4 py-3 ${muted ? 'opacity-70' : ''} ${className ?? ''}`}>
+      <div className="flex items-center gap-2 mb-2">
         <span
-          className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold shrink-0 ${
+          className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
             done
               ? 'bg-emerald-500 text-white'
               : active
@@ -514,9 +516,9 @@ function SyllabusStepSection({
                 : 'bg-slate-100 text-slate-600'
           }`}
         >
-          {done ? <Check size={16} /> : step}
+          {done ? <Check size={14} /> : step}
         </span>
-        <h3 className="text-base font-bold text-slate-900">{title}</h3>
+        <h3 className="text-[13px] font-bold text-slate-900">{title}</h3>
       </div>
       {children}
     </section>
@@ -587,21 +589,21 @@ function TopicColumn({
       : 'hover:border-indigo-300 hover:bg-indigo-50/50';
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 pb-2">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`p-1.5 rounded-lg shrink-0 ${iconBg}`}>{icon}</div>
-          <h4 className="text-lg font-bold text-gray-800 truncate">{title}</h4>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`p-1 rounded-md shrink-0 ${iconBg}`}>{icon}</div>
+          <h4 className="text-[13px] font-bold text-gray-800 truncate">{title}</h4>
         </div>
         {topics.length > 0 && (
-          <span className="text-[11px] font-semibold text-gray-400 shrink-0">
+          <span className="text-[10px] font-semibold text-gray-400 shrink-0">
             {topics.length} {t('syllabus.topics')}
           </span>
         )}
       </div>
       {topics.length > 0 ? (
-        <div className="space-y-3">
-        <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+        <div className="space-y-2">
+        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {visibleTopics.map((topic) => {
             const ctx = buildTopicContext(
               topic,
@@ -616,12 +618,12 @@ function TopicColumn({
                 key={`${syllabus.id}-${variantLabel}-${topic.id}-${topic.title}`}
                 type="button"
                 onClick={() => onPickTopic(topic, syllabus, variantLabel)}
-                className={`flex items-start gap-3 p-3 sm:p-4 text-left rounded-2xl border shadow-sm transition-all ${
+                className={`flex items-start gap-2 p-2 sm:p-2.5 text-left rounded-xl border shadow-sm transition-all ${
                   isSelected ? selectedCard : `bg-white border-gray-100 ${hover}`
                 }`}
               >
                 <div
-                  className={`w-10 h-11 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[10px] shrink-0 ${
                     isSelected
                       ? accent === 'blue'
                         ? 'bg-blue-600 text-white'
@@ -634,7 +636,7 @@ function TopicColumn({
                   {topic.id}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-800 text-sm leading-snug break-words">{topic.title}</p>
+                  <p className="font-medium text-gray-800 text-[12px] leading-snug break-words line-clamp-2">{topic.title}</p>
                 </div>
                 {isSelected ? (
                   <Check size={20} className={accent === 'blue' ? 'text-blue-600' : 'text-indigo-600'} />

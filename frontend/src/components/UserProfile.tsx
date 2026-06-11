@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { 
   User, 
@@ -16,6 +16,7 @@ import {
 import {
   getCurrentLocalUser,
   logoutLocalStaff,
+  subscribeLocalAuth,
   updateCurrentLocalUser,
   normalizeUserRole,
   type LocalStaffUser,
@@ -24,8 +25,12 @@ import {
   clearBackendAuthTokens,
   syncCurrentUserPasswordToBackend,
 } from '../utils/backendAuth';
+import { AppLanguageContext } from '../App';
+import { roleLabel as translateRoleLabel } from '../i18n/translations';
+import { AVATAR_ACCEPT, fileToAvatarDataUrl } from '../utils/profilePhoto';
 
 export default function UserProfile() {
+  const { language } = React.useContext(AppLanguageContext);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
   
   const [displayName, setDisplayName] = useState('');
@@ -38,6 +43,9 @@ export default function UserProfile() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loadingPassword, setLoadingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const isGoogleAuth = false;
 
@@ -47,6 +55,8 @@ export default function UserProfile() {
       setPhone(user.phoneDisplay);
     }
   }, [user]);
+
+  useEffect(() => subscribeLocalAuth(() => setUser(getCurrentLocalUser())), []);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,9 +128,46 @@ export default function UserProfile() {
     logoutLocalStaff();
   };
 
+  const handleAvatarFile = async (fileList: FileList | null) => {
+    const file = fileList?.[0];
+    if (!file || !user) return;
+    setUploadingAvatar(true);
+    setAvatarMessage(null);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      const updated = updateCurrentLocalUser({ photoURL: dataUrl });
+      setUser(updated);
+      setAvatarMessage({ text: 'Profil rasmi saqlandi.', type: 'success' });
+      setTimeout(() => setAvatarMessage(null), 3000);
+    } catch (err) {
+      const code = err instanceof Error ? err.message : '';
+      if (code === 'invalid-type') {
+        setAvatarMessage({ text: 'Faqat rasm fayli (JPG, PNG, WEBP).', type: 'error' });
+      } else if (code === 'too-large' || code === 'compress-failed') {
+        setAvatarMessage({ text: 'Rasm juda katta. Boshqa fayl tanlang.', type: 'error' });
+      } else {
+        setAvatarMessage({ text: 'Rasmni yuklab bo‘lmadi.', type: 'error' });
+      }
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    if (!user?.photoURL) return;
+    try {
+      const updated = updateCurrentLocalUser({ photoURL: null });
+      setUser(updated);
+      setAvatarMessage({ text: 'Profil rasmi olib tashlandi.', type: 'success' });
+      setTimeout(() => setAvatarMessage(null), 3000);
+    } catch {
+      setAvatarMessage({ text: 'Rasmni o‘chirib bo‘lmadi.', type: 'error' });
+    }
+  };
+
   const role = user ? normalizeUserRole(user) : 'hodim';
-  const roleLabel =
-    role === 'admin' ? 'Administrator' : role === 'tarjimon' ? 'Tarjimon' : 'Hodim';
+  const displayRole = translateRoleLabel(language, role);
 
   return (
     <div className="w-full px-3 sm:px-5 lg:px-6 space-y-6 pb-10 flex flex-col h-full py-4 sm:py-6">
@@ -140,8 +187,15 @@ export default function UserProfile() {
 
         <div className="flex flex-col md:flex-row items-center md:items-start gap-8 relative z-10 w-full pt-12 sm:pt-0 md:pr-32">
           {/* Avatar container */}
-          <div className="relative group shrink-0">
-            <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-500 shadow-xl shadow-blue-500/30 transition-transform duration-500 ease-out relative">
+          <div className="relative shrink-0">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept={AVATAR_ACCEPT}
+              className="hidden"
+              onChange={(e) => void handleAvatarFile(e.target.files)}
+            />
+            <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-500 shadow-xl shadow-blue-500/30 relative">
               <div className="w-full h-full rounded-[1.75rem] overflow-hidden bg-white flex items-center justify-center">
                 {user?.photoURL ? (
                   <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
@@ -149,10 +203,45 @@ export default function UserProfile() {
                   <User size={64} className="text-black/20" />
                 )}
               </div>
-              <button className="absolute -bottom-3 -right-3 w-12 h-12 bg-white rounded-2xl shadow-lg border border-black/5 flex flex-col items-center justify-center text-blue-600 hover:text-blue-700 hover:scale-105 transition-all">
-                <Camera size={20} />
+              <button
+                type="button"
+                disabled={uploadingAvatar}
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute -bottom-3 -right-3 w-12 h-12 bg-white rounded-2xl shadow-lg border border-black/5 flex items-center justify-center text-blue-600 hover:text-blue-700 hover:scale-105 transition-all disabled:opacity-60"
+                aria-label="Profil rasmini yuklash"
+              >
+                {uploadingAvatar ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
               </button>
             </div>
+            <div className="mt-4 flex flex-wrap justify-center md:justify-start gap-2">
+              <button
+                type="button"
+                disabled={uploadingAvatar}
+                onClick={() => avatarInputRef.current?.click()}
+                className="text-[12px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+              >
+                Rasm yuklash
+              </button>
+              {user?.photoURL && (
+                <button
+                  type="button"
+                  disabled={uploadingAvatar}
+                  onClick={handleRemoveAvatar}
+                  className="text-[12px] font-semibold text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                >
+                  O‘chirish
+                </button>
+              )}
+            </div>
+            {avatarMessage && (
+              <p
+                className={`mt-2 text-[11px] font-medium ${
+                  avatarMessage.type === 'success' ? 'text-emerald-600' : 'text-rose-600'
+                }`}
+              >
+                {avatarMessage.text}
+              </p>
+            )}
           </div>
 
           <div className="flex-1 text-center md:text-left pt-2 w-full min-w-0">
@@ -161,7 +250,7 @@ export default function UserProfile() {
                 {user?.displayName || 'Foydalanuvchi'}
               </h1>
               <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/20 text-sky-700 text-[12px] font-semibold rounded-lg">
-                Rol: {roleLabel}
+                Rol: {displayRole}
               </span>
               <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[12px] font-semibold rounded-lg inline-flex items-center gap-1.5">
                 <ShieldCheck size={14} /> Lokal rejim

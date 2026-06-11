@@ -153,7 +153,7 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
               onChange={(e) => setRegRole(e.target.value as 'hodim' | 'startuper')}
               className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
             >
-              <option value="hodim">Hodim / o‘qituvchi (ta‘lim modullari)</option>
+              <option value="hodim">Assistant professor (ta‘lim modullari)</option>
               <option value="startuper">Startuper (innovatsiya va startap loyihalari)</option>
             </select>
           </div>

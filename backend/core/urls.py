@@ -26,6 +26,7 @@ from .syllabus_catalog_views import (
     StaffCourseSelectionListView,
 )
 from .migrate_views import MigrateFullExportView
+from .staff_profile_views import StaffAvatarView
 from .views import (
     AdminCampusBuildingDetailView,
     AdminCampusBuildingListCreateView,
@@ -75,6 +76,7 @@ urlpatterns = [
     path('v1/live-tests/<str:session_key>/', LiveTestPublicRetrieveView.as_view(), name='live-tests-public'),
     path('v1/live-tests/<str:session_key>/submissions/', LiveTestSubmissionView.as_view(), name='live-tests-submissions'),
     path('v1/auth/me/', AuthMeView.as_view(), name='auth-me'),
+    path('v1/auth/me/avatar/', StaffAvatarView.as_view(), name='auth-me-avatar'),
     path('v1/auth/local-login/', LocalLoginView.as_view(), name='auth-local-login'),
     path('v1/auth/change-password/', ChangePasswordView.as_view(), name='auth-change-password'),
     path('v1/auth/admin-provision-staff/', AdminProvisionStaffView.as_view(), name='auth-admin-provision-staff'),

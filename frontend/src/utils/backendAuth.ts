@@ -7,6 +7,7 @@ import {
   phoneDigitsToEmail,
   registerLocalStaff,
   syncCurrentUserRoleFromServer,
+  updateCurrentLocalUser,
   type LocalStaffUser,
   type UserRole,
 } from './localStaffAuth';
@@ -19,6 +20,7 @@ type BackendTokenBundle = {
   username: string;
   first_name?: string;
   last_name?: string;
+  photo_url?: string;
 };
 
 type CachedBundle = BackendTokenBundle & {
@@ -148,7 +150,7 @@ function buildLocalUserFromBackendLogin(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     lastActiveAt: now,
-    photoURL: existing?.photoURL ?? null,
+    photoURL: bundle.photo_url?.trim() || existing?.photoURL || null,
     participantKind: existing?.participantKind,
     studyGroup: existing?.studyGroup,
     jobTitle: existing?.jobTitle,
@@ -354,4 +356,25 @@ export async function ensureBackendAccessToken(): Promise<string> {
     throw new Error('no-backend-token');
   }
   return token;
+}
+
+/** Serverdagi profil rasmini mahalliy sessiyaga sinxronlash. */
+export async function syncStaffPhotoFromServer(): Promise<void> {
+  const user = getCurrentLocalUser();
+  if (!user?.phoneDigits) return;
+  try {
+    const token = await getBackendAccessToken();
+    if (!token) return;
+    const data = await httpJson<{ photo_url?: string }>(`${apiBaseUrl()}/v1/auth/me/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const serverPhoto = data.photo_url?.trim() || null;
+    const current = user.photoURL ?? null;
+    const currentIsLocalOnly = current?.startsWith('data:') ?? false;
+    if (serverPhoto === current) return;
+    if (!serverPhoto && currentIsLocalOnly) return;
+    updateCurrentLocalUser({ photoURL: serverPhoto });
+  } catch {
+    /* offline yoki eski backend */
+  }
 }

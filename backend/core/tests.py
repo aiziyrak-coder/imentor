@@ -362,3 +362,34 @@ class PreparedContentApiTests(TestCase):
         confirmed = self.client.get(f'/api/v1/device-pair/status/{token}/?secret={secret}')
         self.assertEqual(confirmed.status_code, 200)
         self.assertEqual(confirmed.json()['access'], 'access-demo')
+
+    def test_staff_avatar_upload_and_login_photo_url(self):
+        Group.objects.get_or_create(name='hodim')
+        login = self._register_user('998901119999', 'AvatarPass123')
+        self.assertEqual(login.get('photo_url'), '')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login["access"]}')
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        png = (
+            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01'
+            b'\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+        )
+        upload = self.client.post(
+            '/api/v1/auth/me/avatar/',
+            {'file': SimpleUploadedFile('avatar.png', png, content_type='image/png')},
+            format='multipart',
+        )
+        self.assertEqual(upload.status_code, 200, upload.content)
+        photo_url = upload.json().get('photo_url', '')
+        self.assertTrue(photo_url)
+
+        me = self.client.get('/api/v1/auth/me/')
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json().get('photo_url'), photo_url)
+
+        relogin = self._login_user('998901119999', 'AvatarPass123')
+        self.assertEqual(relogin.get('photo_url'), photo_url)
+
+        delete = self.client.delete('/api/v1/auth/me/avatar/')
+        self.assertEqual(delete.status_code, 204)

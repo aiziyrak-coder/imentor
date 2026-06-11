@@ -40,7 +40,8 @@ import {
   type LocalStaffUser,
   type UserRole,
 } from './utils/localStaffAuth';
-import { clearBackendAuthTokens, getBackendAccessToken } from './utils/backendAuth';
+import { clearBackendAuthTokens, getBackendAccessToken, syncStaffPhotoFromServer } from './utils/backendAuth';
+import { resolveProfilePhotoUrl } from './utils/profilePhotoApi';
 import {
   type AppLanguage,
   getAppLanguage,
@@ -348,10 +349,13 @@ export default function App() {
     );
   }, [user?.uid, user?.displayName, addNotification]);
 
-  /** Kirishdan keyin JWT ni yangilash (AI, fanlar, QR juftlash — parolsiz refresh) */
+  /** Kirishdan keyin JWT ni yangilash va profil rasmini serverdan olish */
   useEffect(() => {
     if (!user) return;
-    void getBackendAccessToken();
+    void (async () => {
+      await getBackendAccessToken();
+      await syncStaffPhotoFromServer();
+    })();
   }, [user?.uid]);
 
   /** Sessiya bilan kirganda va oynaga qaytishda oxirgi faollik vaqtini yangilash */
@@ -808,7 +812,7 @@ export default function App() {
                 <div className="w-12 h-12 rounded-[16px] bg-gradient-to-tr from-blue-400 to-indigo-500 p-[2px] shadow-md group-hover:shadow-lg transition-all group-hover:scale-105">
                   <div className="w-full h-full rounded-[14px] overflow-hidden bg-white flex items-center justify-center">
                     {user?.photoURL ? (
-                      <img src={user.photoURL} alt="User" className="w-full h-full object-cover" />
+                      <img src={resolveProfilePhotoUrl(user.photoURL)} alt="User" className="w-full h-full object-cover" />
                     ) : (
                       <UserCircle size={24} className="text-black/30" />
                     )}

@@ -34,6 +34,7 @@ from .models import (
     SyllabusDocument,
 )
 from .location_service import record_ping_and_evaluate
+from .staff_profile_views import delete_staff_profile_for_owner, staff_photo_url_for_user
 from .week_schedule import current_week_phase_code, iso_week_number, week_phase_label_uz
 from .serializers import (
     AdminDeprovisionStaffSerializer,
@@ -63,6 +64,9 @@ class AuthMeResponseSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     username = serializers.CharField()
     role = serializers.CharField(allow_null=True)
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    photo_url = serializers.CharField(required=False, allow_blank=True)
 
 
 class LocalLoginResponseSerializer(serializers.Serializer):
@@ -72,6 +76,7 @@ class LocalLoginResponseSerializer(serializers.Serializer):
     username = serializers.CharField()
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
+    photo_url = serializers.CharField(required=False, allow_blank=True)
 
 
 class PreparedContentEmptyResponseSerializer(serializers.Serializer):
@@ -193,6 +198,9 @@ class AuthMeView(APIView):
                 "id": request.user.id,
                 "username": request.user.username,
                 "role": role,
+                "first_name": request.user.first_name or "",
+                "last_name": request.user.last_name or "",
+                "photo_url": staff_photo_url_for_user(request, request.user.username),
             }
         )
 
@@ -241,7 +249,7 @@ def _resolve_login_role(user: User, requested_role: str) -> str:
     return db_role or "hodim"
 
 
-def _login_response_payload(user: User, role: str) -> dict:
+def _login_response_payload(user: User, role: str, request=None) -> dict:
     refresh = RefreshToken.for_user(user)
     refresh["role"] = role
     access = refresh.access_token
@@ -253,6 +261,7 @@ def _login_response_payload(user: User, role: str) -> dict:
         "username": user.username,
         "first_name": user.first_name or "",
         "last_name": user.last_name or "",
+        "photo_url": staff_photo_url_for_user(request, user.username),
     }
 
 
@@ -308,7 +317,7 @@ class LocalLoginView(APIView):
                 )
             role = resolve_user_role(user, request=None) or "hodim"
 
-        return Response(_login_response_payload(user, role))
+        return Response(_login_response_payload(user, role, request))
 
 
 class AdminProvisionStaffView(APIView):
@@ -400,6 +409,7 @@ class AdminDeprovisionStaffView(APIView):
                 {"detail": "Superuser o‘chirib bo‘lmaydi."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        delete_staff_profile_for_owner(username)
         user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

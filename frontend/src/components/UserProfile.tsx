@@ -27,7 +27,12 @@ import {
 } from '../utils/backendAuth';
 import { AppLanguageContext } from '../App';
 import { roleLabel as translateRoleLabel } from '../i18n/translations';
-import { AVATAR_ACCEPT, fileToAvatarDataUrl } from '../utils/profilePhoto';
+import { AVATAR_ACCEPT, fileToAvatarBlob } from '../utils/profilePhoto';
+import {
+  deleteStaffAvatarOnServer,
+  resolveProfilePhotoUrl,
+  uploadStaffAvatar,
+} from '../utils/profilePhotoApi';
 
 export default function UserProfile() {
   const { language } = React.useContext(AppLanguageContext);
@@ -134,8 +139,9 @@ export default function UserProfile() {
     setUploadingAvatar(true);
     setAvatarMessage(null);
     try {
-      const dataUrl = await fileToAvatarDataUrl(file);
-      const updated = updateCurrentLocalUser({ photoURL: dataUrl });
+      const blob = await fileToAvatarBlob(file);
+      const photoUrl = await uploadStaffAvatar(blob);
+      const updated = updateCurrentLocalUser({ photoURL: photoUrl });
       setUser(updated);
       setAvatarMessage({ text: 'Profil rasmi saqlandi.', type: 'success' });
       setTimeout(() => setAvatarMessage(null), 3000);
@@ -145,6 +151,8 @@ export default function UserProfile() {
         setAvatarMessage({ text: 'Faqat rasm fayli (JPG, PNG, WEBP).', type: 'error' });
       } else if (code === 'too-large' || code === 'compress-failed') {
         setAvatarMessage({ text: 'Rasm juda katta. Boshqa fayl tanlang.', type: 'error' });
+      } else if (code === 'no-backend-token') {
+        setAvatarMessage({ text: 'Serverga ulanish yo‘q. Qayta kiring.', type: 'error' });
       } else {
         setAvatarMessage({ text: 'Rasmni yuklab bo‘lmadi.', type: 'error' });
       }
@@ -154,15 +162,25 @@ export default function UserProfile() {
     }
   };
 
-  const handleRemoveAvatar = () => {
+  const handleRemoveAvatar = async () => {
     if (!user?.photoURL) return;
+    setUploadingAvatar(true);
+    setAvatarMessage(null);
     try {
+      try {
+        await deleteStaffAvatarOnServer();
+      } catch (err) {
+        const code = err instanceof Error ? err.message : '';
+        if (code !== 'no-backend-token') throw err;
+      }
       const updated = updateCurrentLocalUser({ photoURL: null });
       setUser(updated);
       setAvatarMessage({ text: 'Profil rasmi olib tashlandi.', type: 'success' });
       setTimeout(() => setAvatarMessage(null), 3000);
     } catch {
       setAvatarMessage({ text: 'Rasmni o‘chirib bo‘lmadi.', type: 'error' });
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -198,7 +216,7 @@ export default function UserProfile() {
             <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-500 shadow-xl shadow-blue-500/30 relative">
               <div className="w-full h-full rounded-[1.75rem] overflow-hidden bg-white flex items-center justify-center">
                 {user?.photoURL ? (
-                  <img src={user.photoURL} alt="Profile" className="w-full h-full object-cover" />
+                  <img src={resolveProfilePhotoUrl(user.photoURL)} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   <User size={64} className="text-black/20" />
                 )}

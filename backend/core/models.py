@@ -481,3 +481,24 @@ class DevicePairingSession(models.Model):
 
     def __str__(self) -> str:
         return f"{self.pairing_token[:8]}…:{self.status}"
+
+
+def staff_avatar_upload_to(instance: "StaffProfile", filename: str) -> str:
+    import re
+
+    safe = re.sub(r"[^\w.\-]", "_", filename)[:180]
+    return f"avatars/{instance.owner_key}_{safe}"
+
+
+class StaffProfile(models.Model):
+    """Xodim profil rasmi — qurilmalar o‘rtasida sinxron."""
+
+    owner_key = models.CharField(max_length=128, unique=True, db_index=True)
+    photo = models.FileField(upload_to=staff_avatar_upload_to, max_length=512, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self) -> str:
+        return self.owner_key

@@ -35,7 +35,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "drf_spectacular",
-    "core",
+    "core.apps.CoreConfig",
 ]
 
 MIDDLEWARE = [
@@ -43,6 +43,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -85,10 +86,18 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+LANGUAGE_CODE = "uz"
+TIME_ZONE = "Asia/Tashkent"
 USE_I18N = True
+USE_L10N = True
 USE_TZ = True
+
+LOCALE_PATHS = [BASE_DIR / "locale"]
+
+DATE_FORMAT = "d.m.Y"
+DATETIME_FORMAT = "d.m.Y H:i"
+SHORT_DATE_FORMAT = "d.m.Y"
+SHORT_DATETIME_FORMAT = "d.m.Y H:i"
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -166,7 +175,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 JAZZMIN_SETTINGS = {
     "site_title": "Salomatlik AI",
-    "site_header": "Salomatlik AI",
+    "site_header": "Salomatlik AI boshqaruvi",
     "site_brand": "Salomatlik AI",
     "site_logo_classes": "img-circle",
     "welcome_sign": "Boshqaruv paneliga xush kelibsiz",
@@ -174,7 +183,11 @@ JAZZMIN_SETTINGS = {
     "search_model": ["auth.User", "auth.Group"],
     "topmenu_links": [
         {"name": "Asosiy sayt", "url": "https://imentor.uz", "new_window": True},
-        {"name": "API hujjatlar", "url": "/api/docs/", "new_window": True},
+        {"name": "API hujjatlari", "url": "/api/docs/", "new_window": True},
+        {"name": "Admin bosh sahifa", "url": "admin:index", "permissions": ["auth.view_user"]},
+    ],
+    "usermenu_links": [
+        {"name": "Asosiy sayt", "url": "https://imentor.uz", "new_window": True},
     ],
     "show_sidebar": True,
     "navigation_expanded": True,
@@ -187,6 +200,8 @@ JAZZMIN_SETTINGS = {
         "auth.group": "fas fa-users",
         "core.PreparedContent": "fas fa-book",
         "core.SyllabusDocument": "fas fa-file-pdf",
+        "core.CourseSyllabus": "fas fa-graduation-cap",
+        "core.StaffCourseSelection": "fas fa-check-circle",
         "core.LiveTestSession": "fas fa-clipboard-check",
         "core.LiveTestSubmission": "fas fa-pen",
         "core.StartupProjectApplication": "fas fa-rocket",
@@ -194,6 +209,10 @@ JAZZMIN_SETTINGS = {
         "core.StaffScheduleSlot": "fas fa-calendar-alt",
         "core.StaffLocationPing": "fas fa-map-marker-alt",
         "core.StaffLocationAlert": "fas fa-bell",
+        "core.TopicHandout": "fas fa-file-alt",
+        "core.TopicPresentation": "fas fa-chalkboard",
+        "core.DevicePairingSession": "fas fa-qrcode",
+        "core.StaffProfile": "fas fa-id-card",
     },
     "default_icon_parents": "fas fa-folder",
     "default_icon_children": "fas fa-circle",
@@ -206,6 +225,8 @@ JAZZMIN_SETTINGS = {
         "auth.group": "vertical_tabs",
     },
     "language_chooser": False,
+    "custom_css": None,
+    "custom_js": None,
 }
 
 JAZZMIN_UI_TWEAKS = {

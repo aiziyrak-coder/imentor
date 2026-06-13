@@ -9,6 +9,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gettext \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
@@ -16,7 +17,7 @@ RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 COPY . /app
 
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && python manage.py compilemessages
 
 EXPOSE 8000
 

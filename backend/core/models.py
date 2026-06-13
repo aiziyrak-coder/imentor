@@ -7,9 +7,9 @@ class PreparedContent(models.Model):
     KIND_CASE = 'case'
     KIND_TEST = 'test'
     KIND_CHOICES = (
-        (KIND_LECTURE, 'Lecture'),
-        (KIND_PRESENTATION, 'Presentation'),
-        (KIND_CASE, 'Case'),
+        (KIND_LECTURE, 'Ma\'ruza'),
+        (KIND_PRESENTATION, 'Taqdimot'),
+        (KIND_CASE, 'Klinik holat'),
         (KIND_TEST, 'Test'),
     )
 
@@ -21,6 +21,8 @@ class PreparedContent(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Tayyor kontent"
+        verbose_name_plural = "Tayyor kontentlar"
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['owner_key', 'kind', 'topic_norm', '-created_at']),
@@ -42,6 +44,8 @@ class SyllabusDocument(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Eski syllabus hujjati"
+        verbose_name_plural = "Eski syllabus hujjatlari"
         ordering = ['-created_at']
         constraints = [
             models.UniqueConstraint(
@@ -66,9 +70,9 @@ class CourseSyllabus(models.Model):
     LANG_EN = "en"
     LANG_RU = "ru"
     INSTRUCTION_LANGUAGE_CHOICES = (
-        (LANG_UZ, "Uzbek"),
-        (LANG_EN, "English"),
-        (LANG_RU, "Russian"),
+        (LANG_UZ, "O'zbek"),
+        (LANG_EN, "Ingliz"),
+        (LANG_RU, "Rus"),
     )
 
     subject_name = models.CharField(max_length=255, db_index=True)
@@ -90,6 +94,8 @@ class CourseSyllabus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Fan syllabus katalogi"
+        verbose_name_plural = "Fan syllabus katalogi"
         ordering = ['sort_order', 'subject_name']
         indexes = [
             models.Index(fields=['is_active', 'sort_order', 'subject_name']),
@@ -111,6 +117,8 @@ class StaffCourseSelection(models.Model):
     selected_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "O'qituvchi fan tanlovi"
+        verbose_name_plural = "O'qituvchi fan tanlovlari"
         ordering = ['-selected_at']
         constraints = [
             models.UniqueConstraint(
@@ -138,6 +146,8 @@ class LiveTestSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Jonli test sessiyasi"
+        verbose_name_plural = "Jonli test sessiyalari"
         ordering = ['-created_at']
 
     def __str__(self) -> str:
@@ -152,6 +162,8 @@ class LiveTestSubmission(models.Model):
     submitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Test javobi"
+        verbose_name_plural = "Test javoblari"
         ordering = ['-submitted_at']
 
     def __str__(self) -> str:
@@ -166,8 +178,8 @@ class StartupProjectApplication(models.Model):
     STATUS_DRAFT = "draft"
     STATUS_SUBMITTED = "submitted"
     STATUS_CHOICES = (
-        (STATUS_DRAFT, "Draft"),
-        (STATUS_SUBMITTED, "Submitted"),
+        (STATUS_DRAFT, "Qoralama"),
+        (STATUS_SUBMITTED, "Yuborilgan"),
     )
 
     PARTICIPANT_STUDENT = "student"
@@ -182,8 +194,8 @@ class StartupProjectApplication(models.Model):
     DOMAIN_STARTUP = "startup"
     DOMAIN_RESEARCH = "research"
     DOMAIN_CHOICES = (
-        (DOMAIN_STARTUP, "Startup"),
-        (DOMAIN_RESEARCH, "Research"),
+        (DOMAIN_STARTUP, "Startap"),
+        (DOMAIN_RESEARCH, "Ilmiy tadqiqot"),
     )
     project_domain = models.CharField(
         max_length=20,
@@ -201,6 +213,8 @@ class StartupProjectApplication(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Startap arizasi"
+        verbose_name_plural = "Startap arizalari"
         ordering = ["-updated_at"]
         indexes = [
             models.Index(fields=["owner_key", "-updated_at"]),
@@ -228,6 +242,8 @@ class CampusBuilding(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Kampus binosi"
+        verbose_name_plural = "Kampus binolari"
         ordering = ["sort_order", "name"]
         indexes = [
             models.Index(fields=["is_active", "sort_order", "name"]),
@@ -280,6 +296,8 @@ class StaffScheduleSlot(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Xodim jadval sloti"
+        verbose_name_plural = "Xodim jadval slotlari"
         ordering = ["owner_key", "week_phase", "weekday", "start_time"]
         indexes = [
             models.Index(fields=["owner_key", "weekday", "is_active"]),
@@ -308,6 +326,8 @@ class StaffLocationPing(models.Model):
     client_ts_ms = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
+        verbose_name = "Joylashuv pingi"
+        verbose_name_plural = "Joylashuv pinglari"
         ordering = ["-recorded_at"]
         indexes = [
             models.Index(fields=["owner_key", "-recorded_at"]),
@@ -343,6 +363,8 @@ class StaffLocationAlert(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Joylashuv ogohlantirishi"
+        verbose_name_plural = "Joylashuv ogohlantirishlari"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["owner_key", "-created_at"]),
@@ -376,7 +398,7 @@ class TopicHandout(models.Model):
     KIND_IMAGE = "image"
     KIND_CHOICES = (
         (KIND_PDF, "PDF"),
-        (KIND_IMAGE, "Image"),
+        (KIND_IMAGE, "Rasm"),
     )
 
     owner_key = models.CharField(max_length=128, db_index=True)
@@ -392,6 +414,8 @@ class TopicHandout(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Mavzu tarqatmasi"
+        verbose_name_plural = "Mavzu tarqatmalari"
         ordering = ["sort_order", "created_at"]
         indexes = [
             models.Index(fields=["topic_norm", "sort_order", "created_at"]),
@@ -434,6 +458,8 @@ class TopicPresentation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Mavzu taqdimoti"
+        verbose_name_plural = "Mavzu taqdimotlari"
         ordering = ["sort_order", "created_at"]
         indexes = [
             models.Index(fields=["topic_norm", "sort_order", "created_at"]),
@@ -454,10 +480,10 @@ class DevicePairingSession(models.Model):
     STATUS_PICKED_UP = "picked_up"
     STATUS_EXPIRED = "expired"
     STATUS_CHOICES = [
-        (STATUS_PENDING, "Pending"),
-        (STATUS_CONFIRMED, "Confirmed"),
-        (STATUS_PICKED_UP, "Picked up"),
-        (STATUS_EXPIRED, "Expired"),
+        (STATUS_PENDING, "Kutilmoqda"),
+        (STATUS_CONFIRMED, "Tasdiqlangan"),
+        (STATUS_PICKED_UP, "Ulangan"),
+        (STATUS_EXPIRED, "Muddati tugagan"),
     ]
 
     pairing_token = models.CharField(max_length=64, unique=True, db_index=True)
@@ -474,6 +500,8 @@ class DevicePairingSession(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        verbose_name = "Qurilma ulanishi"
+        verbose_name_plural = "Qurilma ulanishlari"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status", "expires_at"]),
@@ -498,6 +526,8 @@ class StaffProfile(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Xodim profili"
+        verbose_name_plural = "Xodim profillari"
         ordering = ["-updated_at"]
 
     def __str__(self) -> str:

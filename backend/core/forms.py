@@ -7,6 +7,10 @@ from .phone import normalize_uz_phone_digits
 
 
 class PhoneAdminLoginForm(AuthenticationForm):
+    error_messages = {
+        "invalid_login": "Telefon raqami yoki parol noto‘g‘ri.",
+        "inactive": "Bu hisob faol emas.",
+    }
     username = forms.CharField(
         label="Telefon raqami",
         widget=forms.TextInput(

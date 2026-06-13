@@ -10,5 +10,9 @@ class CoreConfig(AppConfig):
     def ready(self) -> None:
         from django.apps import apps
 
+        from .jazzmin_compat import patch_jazzmin_paginator_for_django6
+
+        patch_jazzmin_paginator_for_django6()
+
         auth_config = apps.get_app_config("auth")
         auth_config.verbose_name = "Foydalanuvchilar va ruxsatlar"

@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .forms import PhoneAdminLoginForm
 from .models import (
     CampusBuilding,
     LiveTestSession,
@@ -11,6 +12,8 @@ from .models import (
     StartupProjectApplication,
     SyllabusDocument,
 )
+
+admin.site.login_form = PhoneAdminLoginForm
 
 
 @admin.register(PreparedContent)

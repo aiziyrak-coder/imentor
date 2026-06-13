@@ -25,6 +25,7 @@ SECURE_PROXY_SSL_HEADER = (
 )
 
 INSTALLED_APPS = [
+    "jazzmin",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -88,8 +90,16 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 MEDIA_URL = os.getenv("DJANGO_MEDIA_URL", "/media/").strip() or "/media/"
 if not MEDIA_URL.endswith("/"):
@@ -153,3 +163,73 @@ if not DEEPSEEK_API_KEY:
     DEEPSEEK_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+JAZZMIN_SETTINGS = {
+    "site_title": "Salomatlik AI",
+    "site_header": "Salomatlik AI",
+    "site_brand": "Salomatlik AI",
+    "site_logo_classes": "img-circle",
+    "welcome_sign": "Boshqaruv paneliga xush kelibsiz",
+    "copyright": "Salomatlik AI",
+    "search_model": ["auth.User", "auth.Group"],
+    "topmenu_links": [
+        {"name": "Asosiy sayt", "url": "https://imentor.uz", "new_window": True},
+        {"name": "API hujjatlar", "url": "/api/docs/", "new_window": True},
+    ],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "hide_apps": [],
+    "hide_models": [],
+    "order_with_respect_to": ["auth", "core"],
+    "icons": {
+        "auth": "fas fa-users-cog",
+        "auth.user": "fas fa-user",
+        "auth.group": "fas fa-users",
+        "core.PreparedContent": "fas fa-book",
+        "core.SyllabusDocument": "fas fa-file-pdf",
+        "core.LiveTestSession": "fas fa-clipboard-check",
+        "core.LiveTestSubmission": "fas fa-pen",
+        "core.StartupProjectApplication": "fas fa-rocket",
+        "core.CampusBuilding": "fas fa-building",
+        "core.StaffScheduleSlot": "fas fa-calendar-alt",
+        "core.StaffLocationPing": "fas fa-map-marker-alt",
+        "core.StaffLocationAlert": "fas fa-bell",
+    },
+    "default_icon_parents": "fas fa-folder",
+    "default_icon_children": "fas fa-circle",
+    "related_modal_active": True,
+    "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
+    "changeform_format": "horizontal_tabs",
+    "changeform_format_overrides": {
+        "auth.user": "collapsible",
+        "auth.group": "vertical_tabs",
+    },
+    "language_chooser": False,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    "theme": "flatly",
+    "dark_mode_theme": "darkly",
+    "navbar": "navbar-white navbar-light",
+    "navbar_fixed": True,
+    "footer_fixed": False,
+    "sidebar_fixed": True,
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "sidebar_nav_child_indent": True,
+    "sidebar_nav_compact_style": False,
+    "sidebar_nav_legacy_style": False,
+    "sidebar_nav_flat_style": False,
+    "accent": "accent-primary",
+    "brand_colour": "navbar-primary",
+    "button_classes": {
+        "primary": "btn-primary",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success",
+    },
+}

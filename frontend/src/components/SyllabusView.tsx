@@ -188,6 +188,7 @@ export default function SyllabusView({
   const activeTopics = activeVariant?.topics ?? [];
   const activeLectures = activeTopics.filter((topic) => topic.type === 'lecture');
   const activePracticals = activeTopics.filter((topic) => topic.type === 'practical');
+  const showSplitTopics = activeLectures.length > 0 && activePracticals.length > 0;
 
   const step1Done = mySelections.length > 0;
   const step2Done = step1Done && activeSyllabus != null;
@@ -400,9 +401,10 @@ export default function SyllabusView({
                 </div>
               ) : (
                 <p className="text-[11px] text-slate-600 inline-flex items-center px-2 py-1 rounded-md bg-slate-100">
-                  {activeVariants[0]?.label ?? '—'}
+                  {activeVariants[0]?.label ?? t('syllabus.singleTrack')}
                 </p>
               )}
+              <p className="text-[10px] text-slate-500 leading-snug">{t('syllabus.step2Hint')}</p>
               {activeVariant && (
                 <p className="text-[10px] text-gray-400 truncate">PDF: {activeVariant.file_name}</p>
               )}
@@ -455,29 +457,45 @@ export default function SyllabusView({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                <TopicColumn
-                  title={t('syllabus.lectures')}
-                  icon={<BookOpen size={18} />}
-                  iconBg="bg-blue-50 text-blue-600"
-                  topics={activeLectures}
-                  selectedTopic={selectedTopic}
-                  syllabus={activeSyllabus}
-                  variantLabel={activeLabel}
-                  onPickTopic={pickTopic}
-                  accent="blue"
-                />
-                <TopicColumn
-                  title={t('syllabus.practicals')}
-                  icon={<FlaskConical size={18} />}
-                  iconBg="bg-indigo-50 text-indigo-600"
-                  topics={activePracticals}
-                  selectedTopic={selectedTopic}
-                  syllabus={activeSyllabus}
-                  variantLabel={activeLabel}
-                  onPickTopic={pickTopic}
-                  accent="indigo"
-                />
+              <div className={showSplitTopics ? 'grid grid-cols-1 xl:grid-cols-2 gap-3' : 'space-y-3'}>
+                {showSplitTopics ? (
+                  <>
+                    <TopicColumn
+                      title={t('syllabus.lectures')}
+                      icon={<BookOpen size={18} />}
+                      iconBg="bg-blue-50 text-blue-600"
+                      topics={activeLectures}
+                      selectedTopic={selectedTopic}
+                      syllabus={activeSyllabus}
+                      variantLabel={activeLabel}
+                      onPickTopic={pickTopic}
+                      accent="blue"
+                    />
+                    <TopicColumn
+                      title={t('syllabus.practicals')}
+                      icon={<FlaskConical size={18} />}
+                      iconBg="bg-indigo-50 text-indigo-600"
+                      topics={activePracticals}
+                      selectedTopic={selectedTopic}
+                      syllabus={activeSyllabus}
+                      variantLabel={activeLabel}
+                      onPickTopic={pickTopic}
+                      accent="indigo"
+                    />
+                  </>
+                ) : (
+                  <TopicColumn
+                    title={t('syllabus.allTopics')}
+                    icon={<BookOpen size={18} />}
+                    iconBg="bg-blue-50 text-blue-600"
+                    topics={activeTopics}
+                    selectedTopic={selectedTopic}
+                    syllabus={activeSyllabus}
+                    variantLabel={activeLabel}
+                    onPickTopic={pickTopic}
+                    accent="blue"
+                  />
+                )}
               </div>
             </div>
           ) : null}

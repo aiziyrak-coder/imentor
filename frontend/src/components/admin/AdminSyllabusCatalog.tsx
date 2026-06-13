@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  Plus,
   Trash2,
   FileText,
   ToggleLeft,
@@ -12,7 +11,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import { HttpError } from '../../api/httpClient';
-import { aiService } from '../../services/aiService';
+import { aiService, syllabusExtractionErrorMessage } from '../../services/aiService';
 import { clearBackendAuthTokens } from '../../utils/backendAuth';
 import {
   createAdminCourseSyllabus,
@@ -22,6 +21,7 @@ import {
   type CourseSyllabusRow,
 } from '../../utils/syllabusApi';
 import {
+  countTopicsByType,
   parseVariantLabel,
   resolveSyllabusVariants,
   totalTopicCount,
@@ -36,6 +36,9 @@ import {
   filterSyllabusUploadFiles,
   SYLLABUS_UPLOAD_ACCEPT,
 } from '../../utils/syllabusDocumentText';
+import SyllabusUploadPreview, {
+  type SyllabusUploadPreviewData,
+} from './SyllabusUploadPreview';
 
 type UploadProgress = {
   current: number;
@@ -59,7 +62,6 @@ export default function AdminSyllabusCatalog() {
   const [list, setList] = useState<CourseSyllabusRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -67,6 +69,7 @@ export default function AdminSyllabusCatalog() {
   const [description, setDescription] = useState('');
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | 'new'>('new');
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<SyllabusUploadPreviewData | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,36 +100,6 @@ export default function AdminSyllabusCatalog() {
     }
   }, [existingSubject?.id]);
 
-  const createSubjectOnly = async () => {
-    const fanName = subjectName.trim();
-    if (fanName.length < 2) {
-      setError('Fan nomini kiriting (kamida 2 harf).');
-      return;
-    }
-    setCreating(true);
-    setError(null);
-    try {
-      await createAdminCourseSyllabus({
-        subject_name: fanName,
-        description: description.trim(),
-        variants: [],
-        sort_order: list.length,
-      });
-      setSubjectName('');
-      setDescription('');
-      setSelectedSubjectId('new');
-      await load();
-    } catch (err) {
-      if (err instanceof HttpError && err.status === 403) {
-        setError('Administrator huquqi kerak. Admin bilan qayta kiring.');
-      } else {
-        setError('Fanni saqlab bo‘lmadi.');
-      }
-    } finally {
-      setCreating(false);
-    }
-  };
-
   const processFiles = async (files: FileList | File[]) => {
     const uploadFiles = filterSyllabusUploadFiles(files);
     if (!uploadFiles.length) {
@@ -142,28 +115,34 @@ export default function AdminSyllabusCatalog() {
       ? resolveSyllabusInstructionLanguage(existingSubject)
       : 'uz';
     let lastFileName = '';
+    let lastError: unknown = null;
 
     try {
       for (let i = 0; i < uploadFiles.length; i++) {
         const file = uploadFiles[i];
         lastFileName = file.name;
         setProgress({ current: i + 1, total: uploadFiles.length, fileName: file.name });
-        const extracted = await aiService.extractSyllabusFromDocument(file);
-        if (i === 0) {
-          detectedInstructionLanguage = extracted.instruction_language;
+        try {
+          const extracted = await aiService.extractSyllabusFromDocument(file);
+          if (i === 0) {
+            detectedInstructionLanguage = extracted.instruction_language;
+          }
+          if (!extracted.topics.length) {
+            throw new Error(`empty:${file.name}`);
+          }
+          if (!detectedSubjectName) {
+            detectedSubjectName = extracted.subject_name.trim();
+          }
+          const label = parseVariantLabel(file.name);
+          newVariants.push({
+            label,
+            file_name: file.name,
+            topics: extracted.topics,
+          });
+        } catch (fileErr) {
+          lastError = fileErr;
+          throw fileErr;
         }
-        if (!extracted.topics.length) {
-          throw new Error(`empty:${file.name}`);
-        }
-        if (!detectedSubjectName) {
-          detectedSubjectName = extracted.subject_name.trim();
-          setSubjectName(detectedSubjectName);
-        }
-        newVariants.push({
-          label: parseVariantLabel(file.name),
-          file_name: file.name,
-          topics: extracted.topics,
-        });
       }
 
       const fanName = subjectName.trim() || detectedSubjectName;
@@ -172,40 +151,80 @@ export default function AdminSyllabusCatalog() {
         return;
       }
 
+      setPreview({
+        subjectName: fanName,
+        description: description.trim(),
+        instructionLanguage: detectedInstructionLanguage,
+        variants: newVariants.map((v) => ({
+          ...v,
+          editableLabel: v.label,
+        })),
+      });
+    } catch (err) {
+      lastError = err;
+      if (err instanceof HttpError && err.status === 403) {
+        setError('Administrator huquqi kerak. Chiqib, admin hisob bilan qayta kiring.');
+      } else {
+        setError(syllabusExtractionErrorMessage(lastError, lastFileName || 'hujjat'));
+      }
+    } finally {
+      setUploading(false);
+      setProgress(null);
+    }
+  };
+
+  const savePreview = async () => {
+    if (!preview) return;
+    const fanName = preview.subjectName.trim();
+    if (!fanName) {
+      setError('Fan nomini kiriting.');
+      return;
+    }
+
+    const variants: SyllabusVariant[] = preview.variants.map((v) => ({
+      label: v.editableLabel.trim() || v.label,
+      file_name: v.file_name,
+      topics: v.topics,
+    }));
+
+    const labels = variants.map((v) => v.label.toLowerCase());
+    if (new Set(labels).size !== labels.length) {
+      setError('Yo‘nalish nomlari takrorlanmoqda. Har bir hujjat uchun boshqa kod kiriting (masalan PI, DI).');
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+    try {
       if (existingSubject) {
         await updateAdminCourseSyllabus(existingSubject.id, {
-          description: description.trim(),
-          instruction_language: detectedInstructionLanguage,
-          variants: newVariants,
+          description: preview.description.trim(),
+          instruction_language: preview.instructionLanguage,
+          variants,
           append_variants: true,
         });
       } else {
         await createAdminCourseSyllabus({
           subject_name: fanName,
-          description: description.trim(),
-          instruction_language: detectedInstructionLanguage,
-          variants: newVariants,
+          description: preview.description.trim(),
+          instruction_language: preview.instructionLanguage,
+          variants,
           sort_order: list.length,
         });
         setSubjectName('');
         setDescription('');
         setSelectedSubjectId('new');
       }
-
+      setPreview(null);
       await load();
     } catch (err) {
       if (err instanceof HttpError && err.status === 403) {
-        setError('Administrator huquqi kerak. Chiqib, admin hisob bilan qayta kiring.');
+        setError('Administrator huquqi kerak.');
       } else {
-        setError(
-          lastFileName
-            ? `"${lastFileName}" tahlil qilinmadi yoki saqlanmadi.`
-            : 'Hujjat tahlil qilinmadi yoki saqlanmadi.',
-        );
+        setError('Katalogga saqlab bo‘lmadi. Internetni tekshiring.');
       }
     } finally {
       setUploading(false);
-      setProgress(null);
     }
   };
 
@@ -239,7 +258,7 @@ export default function AdminSyllabusCatalog() {
   const removeVariant = async (row: CourseSyllabusRow, label: string) => {
     const variants = resolveSyllabusVariants(row).filter((v) => v.label !== label);
     if (!variants.length) {
-      setError('Oxirgi PDF ni o‘chirib bo‘lmaydi — butun fanni o‘chiring.');
+      setError('Oxirgi hujjatni o‘chirib bo‘lmaydi — butun fanni o‘chiring.');
       return;
     }
     if (!window.confirm(`"${label}" yo'nalishini o‘chirasizmi?`)) return;
@@ -251,10 +270,20 @@ export default function AdminSyllabusCatalog() {
     }
   };
 
-  const busy = uploading || creating;
+  const busy = uploading;
 
   return (
     <div className="p-3 sm:p-5 lg:p-6 h-full overflow-y-auto w-full space-y-6">
+      {preview && (
+        <SyllabusUploadPreview
+          data={preview}
+          saving={uploading}
+          onChange={setPreview}
+          onConfirm={() => void savePreview()}
+          onCancel={() => setPreview(null)}
+        />
+      )}
+
       <div className="ios-glass rounded-3xl border border-white/70 p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center">
@@ -263,11 +292,11 @@ export default function AdminSyllabusCatalog() {
           <div>
             <h2 className="text-xl font-bold text-slate-900">Fan katalogi</h2>
             <p className="text-[13px] text-slate-500 leading-relaxed">
-              <strong>1-qadam:</strong> fan nomi yoki PDF yuklang → AI mavzularni ajratadi.
+              <strong>Fan</strong> — bitta predmet (Anatomiya, Falsafa…).
               <br />
-              <strong>2-qadam:</strong> hodimlar «Mening fanlarim» bo‘limidan fan tanlaydi.
+              <strong>Yo‘nalish</strong> — dastur turi: fayl nomidagi qavs, masalan <code className="text-indigo-700">Falsafa (PI).pdf</code>.
               <br />
-              <strong>3-qadam:</strong> mavzu tanlang → ma’ruza, tarqatma, test ochiladi.
+              <strong>Mavzu</strong> — dars rejadagi bandlar: L1 ma’ruza, A1 amaliy.
             </p>
           </div>
         </div>
@@ -289,7 +318,7 @@ export default function AdminSyllabusCatalog() {
         )}
 
         <label className="space-y-1 block">
-          <span className="text-[12px] font-semibold text-slate-600">Mavjud fan (ixtiyoriy)</span>
+          <span className="text-[12px] font-semibold text-slate-600">Mavjud fanga qo‘shish (ixtiyoriy)</span>
           <select
             value={selectedSubjectId === 'new' ? 'new' : String(selectedSubjectId)}
             onChange={(e) => {
@@ -308,7 +337,7 @@ export default function AdminSyllabusCatalog() {
             <option value="new">+ Yangi fan</option>
             {list.map((row) => (
               <option key={row.id} value={row.id}>
-                {row.subject_name} ({resolveSyllabusVariants(row).length} hujjat)
+                {row.subject_name} ({resolveSyllabusVariants(row).length} yo‘nalish)
               </option>
             ))}
           </select>
@@ -320,7 +349,7 @@ export default function AdminSyllabusCatalog() {
             <input
               value={subjectName}
               onChange={(e) => setSubjectName(e.target.value)}
-              placeholder="Masalan: Normal anatomiya yoki PDF dan avtomatik"
+              placeholder="Bo‘sh qoldiring — hujjatdan avtomatik olinadi"
               disabled={busy || (selectedSubjectId !== 'new' && Boolean(existingSubject))}
               className="w-full h-11 px-3 rounded-xl border border-slate-200 disabled:bg-slate-50"
             />
@@ -337,18 +366,6 @@ export default function AdminSyllabusCatalog() {
           </label>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy || Boolean(existingSubject)}
-            onClick={() => void createSubjectOnly()}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 text-white text-[13px] font-semibold disabled:opacity-50"
-          >
-            {creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            Fan yaratish (PDFsiz — keyin PDF qo‘shing)
-          </button>
-        </div>
-
         <label
           className={`flex flex-col items-center justify-center gap-2 w-full py-6 rounded-2xl border-2 border-dashed cursor-pointer transition ${
             uploading ? 'border-slate-200 bg-slate-50' : 'border-indigo-300 bg-indigo-50/50 hover:bg-indigo-50'
@@ -362,13 +379,14 @@ export default function AdminSyllabusCatalog() {
                   ? `${progress.current}/${progress.total}: ${progress.fileName}`
                   : 'Hujjat tahlil qilinmoqda…'}
               </span>
+              <span className="text-[11px] text-indigo-600/80">Tahlil tugagach ko‘rib chiqish oynasi ochiladi</span>
             </>
           ) : (
             <>
               <FolderOpen size={28} className="text-indigo-600" />
-              <span className="font-semibold text-indigo-800">PDF / DOC / DOCX yuklash (bir yoki bir nechta)</span>
+              <span className="font-semibold text-indigo-800">PDF / DOC / DOCX yuklash</span>
               <span className="text-[11px] text-indigo-600/80 text-center px-4">
-                Fan nomi hujjat ichidan, yo'nalish fayl nomidan: Falsafa (PI).pdf → PI
+                Bir nechta yo‘nalish uchun alohida fayl yuklang: <strong>Anatomiya (PI).pdf</strong>, <strong>Anatomiya (DI).pdf</strong>
               </span>
             </>
           )}
@@ -392,15 +410,14 @@ export default function AdminSyllabusCatalog() {
       ) : list.length === 0 ? (
         <div className="text-center py-12 space-y-3">
           <p className="text-slate-500">Hali fan qo‘shilmagan.</p>
-          <p className="text-[13px] text-slate-400">
-            Yuqorida fan nomini yozib «Fan qo‘shish» bosing yoki PDF / Word hujjat yuklang.
-          </p>
+          <p className="text-[13px] text-slate-400">Yuqorida syllabus hujjatini yuklang — AI mavzularni ajratadi.</p>
         </div>
       ) : (
         <ul className="space-y-3">
           {list.map((row) => {
             const variants = resolveSyllabusVariants(row);
             const open = expandedId === row.id;
+            const topicTotal = totalTopicCount(variants);
             return (
               <li key={row.id} className="ios-glass rounded-2xl border border-white/70 overflow-hidden">
                 <div className="p-4 flex flex-wrap items-start gap-3">
@@ -413,9 +430,14 @@ export default function AdminSyllabusCatalog() {
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
                         {instructionLanguageBadge(resolveSyllabusInstructionLanguage(row))}
                       </span>
+                      {topicTotal === 0 && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                          Mavzusiz
+                        </span>
+                      )}
                     </p>
                     <p className="text-[12px] text-slate-500">
-                      {variants.length} PDF · {totalTopicCount(variants)} mavzu
+                      {variants.length} yo‘nalish · {topicTotal} mavzu
                       {row.description ? ` · ${row.description}` : ''}
                     </p>
                     <p className="text-[11px] text-slate-400 font-mono">{row.subject_code}</p>
@@ -424,7 +446,7 @@ export default function AdminSyllabusCatalog() {
                     type="button"
                     onClick={() => setExpandedId(open ? null : row.id)}
                     className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg"
-                    title="PDF ro'yxati"
+                    title="Yo'nalishlar"
                   >
                     {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                   </button>
@@ -448,34 +470,41 @@ export default function AdminSyllabusCatalog() {
                 {open && (
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
                     {variants.length === 0 ? (
-                      <p className="text-[12px] text-slate-500 py-2">PDF hali yuklanmagan.</p>
+                      <p className="text-[12px] text-amber-700 py-2">
+                        Hujjat yuklanmagan — hodimlar bu fanni ko‘rmaydi. Quyidagi tugma orqali PDF qo‘shing.
+                      </p>
                     ) : (
-                      variants.map((v) => (
-                        <div
-                          key={`${row.id}-${v.label}-${v.file_name}`}
-                          className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 px-3 py-2"
-                        >
-                          <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md shrink-0">
-                            {v.label}
-                          </span>
-                          <span className="text-[12px] text-slate-700 truncate flex-1">{v.file_name}</span>
-                          <span className="text-[11px] text-slate-400 shrink-0">{v.topics.length} mavzu</span>
-                          <button
-                            type="button"
-                            onClick={() => void removeVariant(row, v.label)}
-                            className="p-1 text-rose-400 hover:text-rose-600"
+                      variants.map((v) => {
+                        const counts = countTopicsByType(v.topics);
+                        return (
+                          <div
+                            key={`${row.id}-${v.label}-${v.file_name}`}
+                            className="flex items-center gap-3 rounded-xl bg-white border border-slate-100 px-3 py-2"
                           >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))
+                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md shrink-0">
+                              {v.label}
+                            </span>
+                            <span className="text-[12px] text-slate-700 truncate flex-1">{v.file_name}</span>
+                            <span className="text-[11px] text-slate-400 shrink-0">
+                              {v.topics.length} mavzu ({counts.lectures}M / {counts.practicals}A)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void removeVariant(row, v.label)}
+                              className="p-1 text-rose-400 hover:text-rose-600"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        );
+                      })
                     )}
                     <button
                       type="button"
                       onClick={() => setSelectedSubjectId(row.id)}
                       className="text-[12px] font-semibold text-indigo-600 hover:underline"
                     >
-                      + Bu fanga PDF qo‘shish
+                      + Bu fanga hujjat qo‘shish
                     </button>
                   </div>
                 )}

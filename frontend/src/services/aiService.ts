@@ -1,9 +1,14 @@
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
 import {
+  extractTopicsByRegex,
+  guessSubjectFromDocumentText,
+  isWeakSyllabusExtraction,
+  normalizeSyllabusTopics,
+  scoreSyllabusTopics,
+} from '../utils/syllabusTopicParse';
+import {
   extractSyllabusDocumentText,
-  readSyllabusFileBase64,
   stripSyllabusFileExtension,
-  syllabusFileExtension,
 } from '../utils/syllabusDocumentText';
 import { parseAiJson } from '../utils/parseAiJson';
 import {
@@ -13,7 +18,6 @@ import {
   deepseekJson,
   deepseekText,
   deepseekWithImage,
-  deepseekWithPdf,
 } from './deepseekClient';
 
 const SYS_MEDICAL =
@@ -106,119 +110,84 @@ function languageName(lang: AppLanguage): string {
   return 'Uzbek';
 }
 
-function normalizeSyllabusTopics(input: SyllabusTopic[]): SyllabusTopic[] {
-  const lecturePrefixes = ['M', 'L', 'Л'];
-  const practicalPrefixes = ['A', 'P', 'П'];
-  const topics = input
-    .filter((t) => t && typeof t.id === 'string' && typeof t.title === 'string')
-    .map((t) => {
-      const id = t.id.toUpperCase().replace(/\s+/g, '');
-      const first = id[0] || '';
-      const inferredType: 'lecture' | 'practical' =
-        lecturePrefixes.includes(first) ? 'lecture' : practicalPrefixes.includes(first) ? 'practical' : t.type;
-      return {
-        id,
-        title: t.title.trim(),
-        type: inferredType,
-      } as SyllabusTopic;
-    })
-    .filter((t) => /^([MALPЛП])\d+$/iu.test(t.id) && t.title.length > 2);
+const SYLLABUS_AI_JSON_HINT =
+  '{"subject_name":"...","instruction_language":"uz|en|ru","topics":[{"id":"L1","title":"...","type":"lecture|practical"}]}';
 
-  const dedup = new Map<string, SyllabusTopic>();
-  for (const t of topics) {
-    if (!dedup.has(t.id)) dedup.set(t.id, t);
-  }
-  const parseOrder = (id: string): [number, number] => {
-    const prefix = id[0] || '';
-    const num = Number((id.match(/\d+/) || ['0'])[0]);
-    const group = ['M', 'L', 'Л'].includes(prefix) ? 0 : 1;
-    return [group, Number.isFinite(num) ? num : 0];
-  };
-  return Array.from(dedup.values()).sort((a, b) => {
-    const [ga, na] = parseOrder(a.id);
-    const [gb, nb] = parseOrder(b.id);
-    if (ga !== gb) return ga - gb;
-    if (na !== nb) return na - nb;
-    return a.id.localeCompare(b.id, undefined, { numeric: true });
-  });
-}
+const SYLLABUS_NO_TRANSLATE_RULE =
+  'CRITICAL: subject_name and every topic title MUST stay in the original document language. NEVER translate.';
 
-function needsSyllabusFallback(topics: SyllabusTopic[]): boolean {
-  if (topics.length < 2) return true;
-  const hasLecture = topics.some((t) => t.type === 'lecture');
-  const hasPractical = topics.some((t) => t.type === 'practical');
-  return !hasLecture || !hasPractical;
+const SYLLABUS_AI_SYSTEM =
+  'You are an academic syllabus parser for university medical courses. Return JSON only. ' +
+  `Schema: ${SYLLABUS_AI_JSON_HINT}. ` +
+  'Rules: subject_name = ONE course/discipline (fan), NOT university or faculty name. ' +
+  'Each topic = one numbered syllabus line (mavzu) in document order. ' +
+  'Topic ids: L or M + number for lectures (ma\'ruza/лекция), A or P + number for practicals (amaliy/практика). ' +
+  'Include ALL topics; do not skip or merge. If only lectures OR only practicals exist, do NOT invent the other type. ' +
+  SYLLABUS_NO_TRANSLATE_RULE;
+
+function pickBetterExtract(a: SyllabusExtractResult, b: SyllabusExtractResult): SyllabusExtractResult {
+  const scoreA = scoreSyllabusTopics(a.topics);
+  const scoreB = scoreSyllabusTopics(b.topics);
+  if (scoreB > scoreA) return b;
+  if (scoreA > scoreB) return a;
+  if (b.subject_name.length > a.subject_name.length) return b;
+  return a;
 }
 
 async function extractSyllabusWithAi(
   file: File,
   docText: string,
 ): Promise<SyllabusExtractResult> {
-  let firstPass: SyllabusExtractResult = { subject_name: '', topics: [], instruction_language: 'uz' };
   const docLang = inferPdfLanguage(docText);
   const docLangName = languageName(docLang);
-  const ext = syllabusFileExtension(file.name);
-
-  if (ext === '.pdf') {
-    try {
-      assertDeepseekApiKey();
-      const base64Data = await readSyllabusFileBase64(file);
-      const raw = await deepseekWithPdf({
-        model: DEEPSEEK_CHAT,
-        system:
-          `Extract course name and syllabus topics as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
-          "topics id: M/L/Л+number (lecture), A/P/П+number (practical). " +
-          SYLLABUS_NO_TRANSLATE_RULE,
-        userText:
-          `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE} ` +
-          'Set instruction_language to the document language code (uz, en, or ru).',
-        pdfBase64: base64Data,
-        maxTokens: 4096,
-      });
-      firstPass = normalizeSyllabusExtract(parseJSONSafe<Partial<SyllabusExtractResult>>(raw), file.name, docText);
-      if (!needsSyllabusFallback(firstPass.topics)) {
-        return firstPass;
-      }
-    } catch (firstAiError) {
-      console.warn('Syllabus PDF vision pass failed, trying text fallback:', firstAiError);
-    }
-  }
+  let best: SyllabusExtractResult = { subject_name: '', topics: [], instruction_language: docLang };
 
   try {
-    const fallbackRaw = await deepseekJson({
-      model: DEEPSEEK_FAST,
-      system:
-        `Extract syllabus from text as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
-        SYLLABUS_NO_TRANSLATE_RULE,
+    const textRaw = await deepseekJson({
+      model: DEEPSEEK_CHAT,
+      system: SYLLABUS_AI_SYSTEM,
       user:
-        `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE}\n\n` +
-        docText.slice(0, 80000),
-      maxTokens: 4096,
+        `Document language: ${docLangName}. File: "${file.name}". ${SYLLABUS_NO_TRANSLATE_RULE}\n\n` +
+        docText.slice(0, 100000),
+      maxTokens: 6144,
       parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
     });
-    const secondPass = normalizeSyllabusExtract(fallbackRaw, file.name, docText);
-    if (secondPass.topics.length > firstPass.topics.length) {
-      return secondPass;
+    best = normalizeSyllabusExtract(textRaw, file.name, docText);
+  } catch (firstAiError) {
+    console.warn('Syllabus AI text pass failed:', firstAiError);
+  }
+
+  if (isWeakSyllabusExtraction(best.topics)) {
+    try {
+      const retryRaw = await deepseekJson({
+        model: DEEPSEEK_FAST,
+        system:
+          SYLLABUS_AI_SYSTEM +
+          ' List every numbered topic line from the syllabus table of contents or topic list.',
+        user:
+          `Document language: ${docLangName}. Extract ALL topics with correct lecture/practical type.\n\n` +
+          docText.slice(0, 100000),
+        maxTokens: 6144,
+        parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
+      });
+      best = pickBetterExtract(best, normalizeSyllabusExtract(retryRaw, file.name, docText));
+    } catch (retryError) {
+      console.warn('Syllabus AI retry failed:', retryError);
     }
-  } catch (secondAiError) {
-    console.warn('Syllabus text AI failed, trying regex-only fallback:', secondAiError);
   }
 
   const regexPass = extractTopicsByRegex(docText);
   if (regexPass.length > 0) {
-    return normalizeSyllabusExtract({ topics: regexPass }, file.name, docText);
+    const regexResult = normalizeSyllabusExtract({ topics: regexPass }, file.name, docText);
+    best = pickBetterExtract(best, regexResult);
   }
-  if (firstPass.topics.length > 0) {
-    return normalizeSyllabusExtract(firstPass, file.name, docText);
+
+  if (best.topics.length > 0) {
+    return best;
   }
+
   throw new Error("Syllabusdan fan nomi yoki mavzular ajratib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
 }
-
-const SYLLABUS_AI_JSON_HINT =
-  '{"subject_name":"...","instruction_language":"uz|en|ru","topics":[{"id":"M1","title":"...","type":"lecture|practical"}]}';
-
-const SYLLABUS_NO_TRANSLATE_RULE =
-  'CRITICAL: subject_name and every topic title MUST stay in the original PDF language. NEVER translate to another language.';
 
 function inferSyllabusInstructionLanguage(
   result: Pick<SyllabusExtractResult, 'subject_name' | 'topics'>,
@@ -259,7 +228,7 @@ function normalizeSyllabusExtract(
 
   const topics = normalizeSyllabusTopics(rawTopics);
   if (!subject_name) {
-    subject_name = guessSubjectFromPdfText(pdfText);
+    subject_name = guessSubjectFromDocumentText(pdfText);
   }
   if (!subject_name) {
     subject_name = stripSyllabusFileExtension(fileName).replace(/\s*\([^)]*\)\s*$/, '').trim();
@@ -274,58 +243,27 @@ function normalizeSyllabusExtract(
   return finalizeSyllabusExtract(base, pdfText, explicitLang);
 }
 
-function guessSubjectFromPdfText(text: string): string {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .slice(0, 50);
-
-  const labelPatterns = [
-    /^(?:fan(?:\s+nomi)?|fani|kurs(?:\s+nomi)?|predmet|subject|course|дисциплина|название\s+предмета|наименование\s+дисциплины)[:\s.\-–]+(.+)$/iu,
-    /^syllabus[:\s.\-–]+(.+)$/iu,
-    /^учебная\s+программа[:\s.\-–]+(.+)$/iu,
-  ];
-
-  for (const line of lines) {
-    for (const pattern of labelPatterns) {
-      const match = line.match(pattern);
-      const candidate = match?.[1]?.trim();
-      if (candidate && candidate.length > 2 && candidate.length < 180) {
-        return candidate;
-      }
-    }
+function syllabusExtractionErrorMessage(err: unknown, fileName: string): string {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  if (msg === 'empty-document') {
+    return `"${fileName}" bo'sh yoki matn ajratib bo'lmadi. Skanerlangan PDF bo'lsa, DOCX formatida yuklang.`;
   }
-
-  for (const line of lines) {
-    if (line.length < 4 || line.length > 120) continue;
-    if (/^([MALPЛП])\s*[-.):]?\s*\d+/iu.test(line)) continue;
-    if (/^(ma'?ruza|lecture|amaliy|practical|лекци|практик)/iu.test(line)) continue;
-    return line;
+  if (msg === 'doc-empty') {
+    return `"${fileName}" (.doc) dan matn o'qib bo'lmadi. Faylni DOCX yoki PDF qilib qayta yuklang.`;
   }
-
-  return '';
+  if (msg === 'unsupported-format') {
+    return `"${fileName}" formati qo'llab-quvvatlanmaydi. PDF, DOC yoki DOCX yuklang.`;
+  }
+  if (msg.startsWith('empty:')) {
+    return `"${fileName}" dan mavzular topilmadi. Hujjatda M1/L1 (ma'ruza) yoki A1/P1 (amaliy) formatini tekshiring.`;
+  }
+  if (/api|key|401|403/i.test(msg)) {
+    return 'AI xizmati mavjud emas. Internet yoki server sozlamalarini tekshiring.';
+  }
+  return `"${fileName}" tahlil qilinmadi. Hujjat aniq matnli ekanini va mavzular raqamlanganini tekshiring.`;
 }
 
-function extractTopicsByRegex(text: string): SyllabusTopic[] {
-  const result: SyllabusTopic[] = [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  for (const line of lines) {
-    const match = line.match(/\b([MALPЛП])\s*[-.):]?\s*(\d{1,2})\b[\s:.)-]*(.+)$/iu);
-    if (!match) continue;
-    const prefix = match[1].toUpperCase();
-    const num = match[2];
-    const title = match[3].trim();
-    if (!title || title.length < 3) continue;
-    const isLecture = ['M', 'L', 'Л'].includes(prefix);
-    result.push({
-      id: `${prefix}${num}`,
-      title,
-      type: isLecture ? 'lecture' : 'practical',
-    });
-  }
-  return normalizeSyllabusTopics(result);
-}
+export { syllabusExtractionErrorMessage };
 
 function sanitizeImagePrompt(prompt: string, maxLen: number): string {
   const compact = prompt.replace(/\s+/g, ' ').trim();

@@ -6,12 +6,19 @@ export type SyllabusVariant = {
   topics: SyllabusTopic[];
 };
 
-/** `Falsafa (PI).pdf` → `PI`; yo'q bo'lsa fayl nomi */
+/** `Falsafa (PI).pdf` → `PI`; `Anatomiya_PI.docx` → `PI`; yo'q bo'lsa qisqa nom */
 export function parseVariantLabel(fileName: string): string {
   const base = fileName.replace(/\.(pdf|docx?)$/i, '').trim();
-  const m = base.match(/\(([^)]+)\)\s*$/);
-  if (m?.[1]?.trim()) return m[1].trim();
-  return base || 'Asosiy';
+  const paren = base.match(/\(([^)]+)\)\s*$/);
+  if (paren?.[1]?.trim()) return paren[1].trim().slice(0, 32);
+
+  const suffix = base.match(/[-–_\s]+([A-Za-zА-Яа-яЁё]{2,12})\s*$/u);
+  if (suffix?.[1] && /^[A-ZА-ЯЁ]{2,8}$/iu.test(suffix[1].trim())) {
+    return suffix[1].trim().toUpperCase().slice(0, 32);
+  }
+
+  if (base.length > 48) return 'Asosiy';
+  return base.slice(0, 32) || 'Asosiy';
 }
 
 export function resolveSyllabusVariants(row: {
@@ -34,4 +41,11 @@ export function resolveSyllabusVariants(row: {
 
 export function totalTopicCount(variants: SyllabusVariant[]): number {
   return variants.reduce((n, v) => n + (v.topics?.length ?? 0), 0);
+}
+
+export function countTopicsByType(topics: SyllabusTopic[]): { lectures: number; practicals: number } {
+  return {
+    lectures: topics.filter((t) => t.type === 'lecture').length,
+    practicals: topics.filter((t) => t.type === 'practical').length,
+  };
 }

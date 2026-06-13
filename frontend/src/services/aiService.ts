@@ -1,5 +1,10 @@
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
-import { pdfjsLib } from '../utils/pdfjsSetup';
+import {
+  extractSyllabusDocumentText,
+  readSyllabusFileBase64,
+  stripSyllabusFileExtension,
+  syllabusFileExtension,
+} from '../utils/syllabusDocumentText';
 import { parseAiJson } from '../utils/parseAiJson';
 import {
   DEEPSEEK_CHAT,
@@ -145,19 +150,68 @@ function needsSyllabusFallback(topics: SyllabusTopic[]): boolean {
   return !hasLecture || !hasPractical;
 }
 
-async function extractPdfText(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const pageTexts: string[] = [];
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const line = content.items
-      .map((it) => ('str' in it ? String(it.str) : ''))
-      .join(' ');
-    pageTexts.push(line);
+async function extractSyllabusWithAi(
+  file: File,
+  docText: string,
+): Promise<SyllabusExtractResult> {
+  let firstPass: SyllabusExtractResult = { subject_name: '', topics: [], instruction_language: 'uz' };
+  const docLang = inferPdfLanguage(docText);
+  const docLangName = languageName(docLang);
+  const ext = syllabusFileExtension(file.name);
+
+  if (ext === '.pdf') {
+    try {
+      assertDeepseekApiKey();
+      const base64Data = await readSyllabusFileBase64(file);
+      const raw = await deepseekWithPdf({
+        model: DEEPSEEK_CHAT,
+        system:
+          `Extract course name and syllabus topics as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
+          "topics id: M/L/Л+number (lecture), A/P/П+number (practical). " +
+          SYLLABUS_NO_TRANSLATE_RULE,
+        userText:
+          `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE} ` +
+          'Set instruction_language to the document language code (uz, en, or ru).',
+        pdfBase64: base64Data,
+        maxTokens: 4096,
+      });
+      firstPass = normalizeSyllabusExtract(parseJSONSafe<Partial<SyllabusExtractResult>>(raw), file.name, docText);
+      if (!needsSyllabusFallback(firstPass.topics)) {
+        return firstPass;
+      }
+    } catch (firstAiError) {
+      console.warn('Syllabus PDF vision pass failed, trying text fallback:', firstAiError);
+    }
   }
-  return pageTexts.join('\n');
+
+  try {
+    const fallbackRaw = await deepseekJson({
+      model: DEEPSEEK_FAST,
+      system:
+        `Extract syllabus from text as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
+        SYLLABUS_NO_TRANSLATE_RULE,
+      user:
+        `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE}\n\n` +
+        docText.slice(0, 80000),
+      maxTokens: 4096,
+      parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
+    });
+    const secondPass = normalizeSyllabusExtract(fallbackRaw, file.name, docText);
+    if (secondPass.topics.length > firstPass.topics.length) {
+      return secondPass;
+    }
+  } catch (secondAiError) {
+    console.warn('Syllabus text AI failed, trying regex-only fallback:', secondAiError);
+  }
+
+  const regexPass = extractTopicsByRegex(docText);
+  if (regexPass.length > 0) {
+    return normalizeSyllabusExtract({ topics: regexPass }, file.name, docText);
+  }
+  if (firstPass.topics.length > 0) {
+    return normalizeSyllabusExtract(firstPass, file.name, docText);
+  }
+  throw new Error("Syllabusdan fan nomi yoki mavzular ajratib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
 }
 
 const SYLLABUS_AI_JSON_HINT =
@@ -208,10 +262,7 @@ function normalizeSyllabusExtract(
     subject_name = guessSubjectFromPdfText(pdfText);
   }
   if (!subject_name) {
-    subject_name = fileName
-      .replace(/\.pdf$/i, '')
-      .replace(/\s*\([^)]*\)\s*$/, '')
-      .trim();
+    subject_name = stripSyllabusFileExtension(fileName).replace(/\s*\([^)]*\)\s*$/, '').trim();
   }
 
   const base = {
@@ -395,84 +446,26 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
 }
 
 export const aiService = {
-  async extractSyllabusFromPdf(file: File): Promise<SyllabusExtractResult> {
-    let firstPass: SyllabusExtractResult = { subject_name: '', topics: [], instruction_language: 'uz' };
-    let pdfText = '';
-
+  async extractSyllabusFromDocument(file: File): Promise<SyllabusExtractResult> {
     try {
-      pdfText = await extractPdfText(file);
-      const docLang = inferPdfLanguage(pdfText);
-      const docLangName = languageName(docLang);
-
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const payload = (reader.result as string)?.split(',')[1];
-          if (!payload) reject(new Error('Unable to read PDF base64'));
-          else resolve(payload);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      try {
-        assertDeepseekApiKey();
-        const raw = await deepseekWithPdf({
-          model: DEEPSEEK_CHAT,
-          system:
-            `Extract course name and syllabus topics as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
-            "topics id: M/L/Л+number (lecture), A/P/П+number (practical). " +
-            SYLLABUS_NO_TRANSLATE_RULE,
-          userText:
-            `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE} ` +
-            'Set instruction_language to the PDF language code (uz, en, or ru).',
-          pdfBase64: base64Data,
-          maxTokens: 4096,
-        });
-        firstPass = normalizeSyllabusExtract(parseJSONSafe<Partial<SyllabusExtractResult>>(raw), file.name, pdfText);
-        if (!needsSyllabusFallback(firstPass.topics)) {
-          return firstPass;
-        }
-      } catch (firstAiError) {
-        console.warn('Syllabus first-pass AI failed, trying fallback:', firstAiError);
+      const docText = await extractSyllabusDocumentText(file);
+      if (!docText.trim()) {
+        throw new Error('empty-document');
       }
-
-      try {
-        const fallbackRaw = await deepseekJson({
-          model: DEEPSEEK_FAST,
-          system:
-            `Extract syllabus from text as JSON: ${SYLLABUS_AI_JSON_HINT}. ` +
-            SYLLABUS_NO_TRANSLATE_RULE,
-          user:
-            `Document language: ${docLangName}. ${SYLLABUS_NO_TRANSLATE_RULE}\n\n` +
-            pdfText.slice(0, 80000),
-          maxTokens: 4096,
-          parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
-        });
-        const secondPass = normalizeSyllabusExtract(fallbackRaw, file.name, pdfText);
-        if (secondPass.topics.length > firstPass.topics.length) {
-          return secondPass;
-        }
-      } catch (secondAiError) {
-        console.warn('Syllabus second-pass AI failed, trying regex-only fallback:', secondAiError);
-      }
-
-      const regexPass = extractTopicsByRegex(pdfText);
-      if (regexPass.length > 0) {
-        return normalizeSyllabusExtract({ topics: regexPass }, file.name, pdfText);
-      }
-      if (firstPass.topics.length > 0) {
-        return normalizeSyllabusExtract(firstPass, file.name, pdfText);
-      }
-      throw new Error("Syllabusdan fan nomi yoki mavzular ajratib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
+      return await extractSyllabusWithAi(file, docText);
     } catch (error) {
       console.error('Syllabus extraction failed:', error);
       throw error;
     }
   },
 
+  /** @deprecated use extractSyllabusFromDocument */
+  async extractSyllabusFromPdf(file: File): Promise<SyllabusExtractResult> {
+    return aiService.extractSyllabusFromDocument(file);
+  },
+
   async extractSyllabusTopics(file: File): Promise<SyllabusTopic[]> {
-    const result = await aiService.extractSyllabusFromPdf(file);
+    const result = await aiService.extractSyllabusFromDocument(file);
     return result.topics;
   },
 

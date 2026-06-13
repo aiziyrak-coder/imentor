@@ -32,6 +32,10 @@ import {
   instructionLanguageBadge,
   resolveSyllabusInstructionLanguage,
 } from '../../utils/syllabusInstructionLanguage';
+import {
+  filterSyllabusUploadFiles,
+  SYLLABUS_UPLOAD_ACCEPT,
+} from '../../utils/syllabusDocumentText';
 
 type UploadProgress = {
   current: number;
@@ -124,9 +128,9 @@ export default function AdminSyllabusCatalog() {
   };
 
   const processFiles = async (files: FileList | File[]) => {
-    const pdfFiles = Array.from(files).filter((f) => /\.pdf$/i.test(f.name));
-    if (!pdfFiles.length) {
-      setError('Kamida bitta PDF tanlang.');
+    const uploadFiles = filterSyllabusUploadFiles(files);
+    if (!uploadFiles.length) {
+      setError('Kamida bitta PDF, DOC yoki DOCX tanlang.');
       return;
     }
 
@@ -140,11 +144,11 @@ export default function AdminSyllabusCatalog() {
     let lastFileName = '';
 
     try {
-      for (let i = 0; i < pdfFiles.length; i++) {
-        const file = pdfFiles[i];
+      for (let i = 0; i < uploadFiles.length; i++) {
+        const file = uploadFiles[i];
         lastFileName = file.name;
-        setProgress({ current: i + 1, total: pdfFiles.length, fileName: file.name });
-        const extracted = await aiService.extractSyllabusFromPdf(file);
+        setProgress({ current: i + 1, total: uploadFiles.length, fileName: file.name });
+        const extracted = await aiService.extractSyllabusFromDocument(file);
         if (i === 0) {
           detectedInstructionLanguage = extracted.instruction_language;
         }
@@ -164,7 +168,7 @@ export default function AdminSyllabusCatalog() {
 
       const fanName = subjectName.trim() || detectedSubjectName;
       if (!fanName) {
-        setError('PDF dan fan nomi topilmadi. Qo‘lda kiriting yoki boshqa fayl yuklang.');
+        setError('Hujjatdan fan nomi topilmadi. Qo‘lda kiriting yoki boshqa fayl yuklang.');
         return;
       }
 
@@ -196,7 +200,7 @@ export default function AdminSyllabusCatalog() {
         setError(
           lastFileName
             ? `"${lastFileName}" tahlil qilinmadi yoki saqlanmadi.`
-            : 'PDF tahlil qilinmadi yoki saqlanmadi.',
+            : 'Hujjat tahlil qilinmadi yoki saqlanmadi.',
         );
       }
     } finally {
@@ -205,7 +209,7 @@ export default function AdminSyllabusCatalog() {
     }
   };
 
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
     await processFiles(files);
@@ -304,7 +308,7 @@ export default function AdminSyllabusCatalog() {
             <option value="new">+ Yangi fan</option>
             {list.map((row) => (
               <option key={row.id} value={row.id}>
-                {row.subject_name} ({resolveSyllabusVariants(row).length} PDF)
+                {row.subject_name} ({resolveSyllabusVariants(row).length} hujjat)
               </option>
             ))}
           </select>
@@ -356,25 +360,25 @@ export default function AdminSyllabusCatalog() {
               <span className="font-semibold text-indigo-700 text-center px-4">
                 {progress
                   ? `${progress.current}/${progress.total}: ${progress.fileName}`
-                  : 'PDF tahlil qilinmoqda…'}
+                  : 'Hujjat tahlil qilinmoqda…'}
               </span>
             </>
           ) : (
             <>
               <FolderOpen size={28} className="text-indigo-600" />
-              <span className="font-semibold text-indigo-800">PDF yuklash (bir yoki bir nechta)</span>
+              <span className="font-semibold text-indigo-800">PDF / DOC / DOCX yuklash (bir yoki bir nechta)</span>
               <span className="text-[11px] text-indigo-600/80 text-center px-4">
-                Fan nomi PDF ichidan, yo'nalish fayl nomidan: Falsafa (PI).pdf → PI
+                Fan nomi hujjat ichidan, yo'nalish fayl nomidan: Falsafa (PI).pdf → PI
               </span>
             </>
           )}
           <input
             type="file"
-            accept=".pdf"
+            accept={SYLLABUS_UPLOAD_ACCEPT}
             multiple
             className="hidden"
             disabled={busy}
-            onChange={(e) => void handlePdfUpload(e)}
+            onChange={(e) => void handleDocumentUpload(e)}
           />
         </label>
 
@@ -389,7 +393,7 @@ export default function AdminSyllabusCatalog() {
         <div className="text-center py-12 space-y-3">
           <p className="text-slate-500">Hali fan qo‘shilmagan.</p>
           <p className="text-[13px] text-slate-400">
-            Yuqorida fan nomini yozib «Fan qo‘shish» bosing yoki PDF yuklang.
+            Yuqorida fan nomini yozib «Fan qo‘shish» bosing yoki PDF / Word hujjat yuklang.
           </p>
         </div>
       ) : (

@@ -17,7 +17,7 @@ RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 COPY . /app
 
-RUN chmod +x /app/entrypoint.sh && python manage.py compilemessages
+RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
 

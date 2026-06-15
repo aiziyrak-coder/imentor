@@ -1,93 +1,56 @@
-/* Leaflet divIcon — fon va ramka yo‘q */
-.staff-leaflet-marker,
-.building-leaflet-marker {
+/* Leaflet divIcon — faqat iconAnchor orqali joylashadi (margin/transform yo‘q) */
+.staff-leaflet-marker {
   background: transparent !important;
   border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
-.staff-pin-wrap,
-.building-pin-wrap {
+.staff-pin-wrap {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 52px;
-  margin-left: -26px;
-  margin-top: -54px;
+  justify-content: flex-end;
+  width: 40px;
+  height: 50px;
   pointer-events: none;
-}
-
-.building-pin-wrap {
-  width: 120px;
-  margin-left: -60px;
-  margin-top: -44px;
+  overflow: visible;
 }
 
 .staff-pin-head {
-  width: 46px;
-  height: 46px;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 3px solid #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: staff-pin-pulse 2.4s ease-in-out infinite;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  animation: staff-pin-glow 2.4s ease-in-out infinite;
 }
 
 .staff-pin-tail {
+  box-sizing: border-box;
   width: 0;
   height: 0;
-  border-left: 9px solid transparent;
-  border-right: 9px solid transparent;
-  border-top: 11px solid #0f766e;
-  margin-top: -3px;
-  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
-}
-
-.building-pin-head {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #0369a1, #0c4a6e);
-  border: 2px solid #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(3, 105, 161, 0.45);
-}
-
-.building-pin-tail {
-  width: 0;
-  height: 0;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-top: 9px solid #0369a1;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 10px solid #0f766e;
   margin-top: -2px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.25));
 }
 
-.building-pin-label {
-  margin-top: 4px;
-  max-width: 118px;
-  padding: 2px 6px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(3, 105, 161, 0.25);
-  color: #0c4a6e;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.25;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  pointer-events: auto;
-}
-
-@keyframes staff-pin-pulse {
+/* scale() ishlatilmaydi — zoom paytida marker siljimasligi uchun */
+@keyframes staff-pin-glow {
   0%,
   100% {
-    transform: scale(1);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   }
   50% {
-    transform: scale(1.04);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.45);
   }
 }

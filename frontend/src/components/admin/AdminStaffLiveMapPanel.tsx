@@ -67,13 +67,9 @@ function initialsFromProfile(u: LocalStaffUser | undefined, fallbackKey: string)
   return fallbackKey.slice(-2);
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+/** Hodim pini: 40×50 px, uchidan (pastki markaz) GPS nuqtasiga birikadi */
+const STAFF_PIN_W = 40;
+const STAFF_PIN_H = 50;
 
 function buildStaffPinHtml(accentColor: string): string {
   return `
@@ -134,11 +130,16 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
       L.divIcon({
         className: 'staff-leaflet-marker',
         html: buildStaffPinHtml(accent),
-        iconSize: [52, 58],
-        iconAnchor: [26, 54],
-        popupAnchor: [0, -52],
+        iconSize: [STAFF_PIN_W, STAFF_PIN_H],
+        iconAnchor: [STAFF_PIN_W / 2, STAFF_PIN_H],
+        popupAnchor: [0, -STAFF_PIN_H],
       }),
     [accent],
+  );
+
+  const position = useMemo(
+    (): [number, number] => [ping.latitude, ping.longitude],
+    [ping.latitude, ping.longitude],
   );
 
   const nearest = useMemo(
@@ -150,7 +151,7 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
   const subtitle = profile?.jobTitle?.trim() || profile?.department?.trim() || '';
 
   return (
-    <Marker position={[ping.latitude, ping.longitude]} icon={icon}>
+    <Marker position={position} icon={icon} riseOnHover>
       <Popup maxWidth={340}>
         <div className="min-w-[260px] max-w-[300px] space-y-3 text-[13px] text-black/90">
           <div className="flex gap-3 border-b border-black/10 pb-3">
@@ -322,6 +323,8 @@ export default function AdminStaffLiveMapPanel({
           center={DEFAULT_CENTER}
           zoom={13}
           scrollWheelZoom
+          zoomAnimation
+          markerZoomAnimation={false}
           className="z-0 h-full w-full [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-popup-content]:m-3 [&_.leaflet-popup-content]:mr-6"
           style={{ height: '100%', width: '100%', minHeight: 420 }}
         >

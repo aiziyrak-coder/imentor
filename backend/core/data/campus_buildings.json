@@ -7,7 +7,8 @@
     "radius_m": 100,
     "sort_order": 1,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "9-O.P",
@@ -17,7 +18,8 @@
     "radius_m": 100,
     "sort_order": 2,
     "notes": "Gistologiya biologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Compassc klinika",
@@ -27,7 +29,8 @@
     "radius_m": 100,
     "sort_order": 3,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Euro med klinikasi",
@@ -37,7 +40,8 @@
     "radius_m": 100,
     "sort_order": 4,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Far.shax.sanitariya epidimiologiya osoyishtalik jamoat salomatligi bolimi",
@@ -47,7 +51,8 @@
     "radius_m": 100,
     "sort_order": 5,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Farg'ona endokrinologiya markazi",
@@ -57,7 +62,8 @@
     "radius_m": 100,
     "sort_order": 6,
     "notes": "Endokrinologiya va ftizaterapiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Farg'ona viloyati urologiya markazi",
@@ -67,7 +73,8 @@
     "radius_m": 100,
     "sort_order": 7,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Farovon klinikasi",
@@ -77,7 +84,8 @@
     "radius_m": 100,
     "sort_order": 8,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "FJSTI asosiy bino",
@@ -87,7 +95,25 @@
     "radius_m": 100,
     "sort_order": 9,
     "notes": "Normal anatomiya, patologik anatomiya, fiziologiya, o'zbek tili, lotin tili, kimyo va biologiya, gospital jarrohlik kafedralari",
-    "is_active": true
+    "is_active": true,
+    "boundary": [
+      [
+        40.37235,
+        71.81055
+      ],
+      [
+        40.3724,
+        71.81205
+      ],
+      [
+        40.37055,
+        71.81215
+      ],
+      [
+        40.3705,
+        71.81065
+      ]
+    ]
   },
   {
     "name": "Fjsti kop tarmoqli klinikasi",
@@ -97,7 +123,8 @@
     "radius_m": 100,
     "sort_order": 10,
     "notes": "Nevrologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Gofurov Klinikasi",
@@ -107,7 +134,8 @@
     "radius_m": 100,
     "sort_order": 11,
     "notes": "Nevrologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Ibrohim hakim tabobat xususiy klinikasi",
@@ -117,7 +145,8 @@
     "radius_m": 100,
     "sort_order": 12,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Innovatsion medical service",
@@ -127,7 +156,8 @@
     "radius_m": 100,
     "sort_order": 13,
     "notes": "Fakultet va gospital jarohlik kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Invivo klinikasi",
@@ -137,7 +167,8 @@
     "radius_m": 100,
     "sort_order": 14,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Kardiosenter Kardiologiya markazi",
@@ -147,7 +178,8 @@
     "radius_m": 100,
     "sort_order": 15,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Kirgili oblasnoy bolnitsa",
@@ -157,7 +189,8 @@
     "radius_m": 100,
     "sort_order": 16,
     "notes": "Stomotologiya va otoloringologiya, travmatologiya va ortopediya kafedralari",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "MDM klinika",
@@ -167,7 +200,8 @@
     "radius_m": 100,
     "sort_order": 17,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Muqaddas med service",
@@ -177,7 +211,8 @@
     "radius_m": 100,
     "sort_order": 18,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Neyro care klinikasi",
@@ -187,7 +222,8 @@
     "radius_m": 100,
     "sort_order": 19,
     "notes": "Umumiy jaroxlik kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Obi xayot",
@@ -197,7 +233,8 @@
     "radius_m": 100,
     "sort_order": 20,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Oblastnoy bolnitsa",
@@ -207,7 +244,8 @@
     "radius_m": 100,
     "sort_order": 21,
     "notes": "Nevrologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Oq uy",
@@ -217,7 +255,8 @@
     "radius_m": 100,
     "sort_order": 22,
     "notes": "Kommunal va mehnat gigiyenasi, ovqatlanish bolalar va o'smirlar gigiyenasi, preventiv tibbiyot kafedralari",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Oybek roddom",
@@ -227,7 +266,8 @@
     "radius_m": 100,
     "sort_order": 23,
     "notes": "Akusherlik ginikologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Premyum klinikasi",
@@ -237,7 +277,8 @@
     "radius_m": 100,
     "sort_order": 24,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Radeskin",
@@ -247,7 +288,8 @@
     "radius_m": 100,
     "sort_order": 25,
     "notes": "Dermatoveneralogiya va alergologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Ra'no shifo xususiy klinikasi",
@@ -257,7 +299,8 @@
     "radius_m": 100,
     "sort_order": 26,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Res.ixtisos.koz mikroxirurgiya markazi Far.fil.",
@@ -267,7 +310,8 @@
     "radius_m": 100,
     "sort_order": 27,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "RSHTTYoIM Farg'ona filiali (1)",
@@ -277,7 +321,8 @@
     "radius_m": 100,
     "sort_order": 28,
     "notes": "Fakultet va gospital jarohlik kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "RSHTTYoIM Farg'ona filiali (2)",
@@ -287,7 +332,8 @@
     "radius_m": 100,
     "sort_order": 29,
     "notes": "Gospital terapiya, ichki kasaliklar kafedralari",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Stomotologiya va otoloringologiya - joy 1",
@@ -297,7 +343,8 @@
     "radius_m": 100,
     "sort_order": 30,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Stomotologiya va otoloringologiya - joy 2",
@@ -307,7 +354,8 @@
     "radius_m": 100,
     "sort_order": 31,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Stomotologiya va otoloringologiya - joy 3",
@@ -317,7 +365,8 @@
     "radius_m": 100,
     "sort_order": 32,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Stomotologiya va otoloringologiya - joy 4",
@@ -327,7 +376,8 @@
     "radius_m": 100,
     "sort_order": 33,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Urjuza klinikasi",
@@ -337,7 +387,8 @@
     "radius_m": 100,
     "sort_order": 34,
     "notes": "Umumiy jaroxlik kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Uromed klinika",
@@ -347,7 +398,8 @@
     "radius_m": 100,
     "sort_order": 35,
     "notes": "",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   },
   {
     "name": "Viloyat ankollogiya va teri-tanosil kasaliklari shifoxonasi",
@@ -357,6 +409,7 @@
     "radius_m": 100,
     "sort_order": 36,
     "notes": "Dermatoveneralogiya va alergologiya kafedrasi",
-    "is_active": true
+    "is_active": true,
+    "boundary": []
   }
 ]

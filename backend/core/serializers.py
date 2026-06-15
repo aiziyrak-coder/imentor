@@ -348,6 +348,7 @@ class CampusBuildingSerializer(serializers.ModelSerializer):
             'latitude',
             'longitude',
             'radius_m',
+            'boundary',
             'sort_order',
             'notes',
             'is_active',
@@ -355,6 +356,14 @@ class CampusBuildingSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_boundary(self, value):
+        from .geo import normalize_boundary
+
+        ring = normalize_boundary(value)
+        if value and len(ring) < 3:
+            raise serializers.ValidationError('Chegara uchun kamida 3 nuqta kerak.')
+        return [[lat, lng] for lat, lng in ring]
 
 
 class StaffScheduleSlotSerializer(serializers.ModelSerializer):

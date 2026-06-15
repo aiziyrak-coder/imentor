@@ -1,9 +1,9 @@
 import L from 'leaflet';
 import { useEffect, useMemo, useRef } from 'react';
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LeafletAttributionStrip } from '../map/LeafletAttributionStrip';
-import { matchNearestBuilding } from '../../utils/staffLocationGeo';
+import { matchStaffBuilding, normalizeBoundary } from '../../utils/staffLocationGeo';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
 import type { LocalStaffUser } from '../../utils/localStaffAuth';
@@ -160,7 +160,7 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
   );
 
   const nearest = useMemo(
-    () => matchNearestBuilding(ping.latitude, ping.longitude, buildings),
+    () => matchStaffBuilding(ping.latitude, ping.longitude, buildings),
     [ping.latitude, ping.longitude, buildings],
   );
 
@@ -242,7 +242,10 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
   );
 }
 
-function BuildingMarker({ building }: { building: CampusBuildingDto }) {
+function BuildingLayer({ building }: { building: CampusBuildingDto }) {
+  const ring = useMemo(() => normalizeBoundary(building.boundary), [building.boundary]);
+  const hasPolygon = ring.length >= 3;
+
   const icon = useMemo(
     () =>
       L.divIcon({
@@ -255,17 +258,31 @@ function BuildingMarker({ building }: { building: CampusBuildingDto }) {
     [building.name],
   );
 
+  if (hasPolygon) {
+    return (
+      <Polygon
+        positions={ring}
+        pathOptions={{
+          color: '#0369a1',
+          fillColor: '#38bdf8',
+          fillOpacity: 0.28,
+          weight: 2,
+        }}
+      >
+        <Popup>
+          <div className="text-[13px] font-semibold text-black/90">{building.name}</div>
+          <div className="text-[11px] text-emerald-800">Chegara chizilgan ({ring.length} nuqta)</div>
+        </Popup>
+      </Polygon>
+    );
+  }
+
   return (
     <Marker position={[building.latitude, building.longitude]} icon={icon} zIndexOffset={-100}>
       <Popup>
         <div className="text-[13px] font-semibold text-black/90">{building.name}</div>
-        {building.short_code ? (
-          <div className="text-[11px] text-black/55">Kod: {building.short_code}</div>
-        ) : null}
-        <div className="mt-1 text-[11px] text-black/60">
-          {building.latitude.toFixed(5)}, {building.longitude.toFixed(5)}
-        </div>
-        <div className="text-[11px] text-black/50">Ruxsat zonasi: {building.radius_m} m</div>
+        <div className="text-[11px] text-amber-800">Chegara chizilmagan — Kampus binolari bo‘limida chizing</div>
+        <div className="mt-1 text-[11px] text-black/50">Zaxira radius: {building.radius_m} m</div>
       </Popup>
     </Marker>
   );
@@ -305,7 +322,12 @@ export default function AdminStaffLiveMapPanel({
   const points = useMemo((): [number, number][] => {
     const pts: [number, number][] = latest.map((p) => [p.latitude, p.longitude]);
     for (const b of activeBuildings) {
-      pts.push([b.latitude, b.longitude]);
+      const ring = normalizeBoundary(b.boundary);
+      if (ring.length >= 3) {
+        pts.push(...ring);
+      } else {
+        pts.push([b.latitude, b.longitude]);
+      }
     }
     return pts;
   }, [latest, activeBuildings]);
@@ -328,8 +350,8 @@ export default function AdminStaffLiveMapPanel({
       </div>
 
       <p className="text-[11px] leading-relaxed text-black/50">
-        Binolar ko‘k pin bilan belgilangan (doira yo‘q). Hodim joylashuvi zoom/pan qilganda o‘zgarmaydi; faqat GPS
-        yangilanadi. Dars vaqtida ruxsat zonasi har bino atrofida <strong>{activeBuildings[0]?.radius_m ?? 100} m</strong>.
+        Ko‘k <strong>hudud</strong> — bino chegarasi (polygon). Hodim markeri GPS bo‘yicha qat’iy turadi; zoom qilganda
+        siljimaydi. Chegara chizilmagan binolar sariq ogohlantirish bilan pin ko‘rinishida.
       </p>
 
       {filteredSelectedNoData ? (
@@ -354,7 +376,7 @@ export default function AdminStaffLiveMapPanel({
           <LeafletAttributionStrip />
           <MapViewportController points={points} viewportKey={viewportKey} />
           {activeBuildings.map((b) => (
-            <BuildingMarker key={`b-${b.id}`} building={b} />
+            <BuildingLayer key={`b-${b.id}`} building={b} />
           ))}
           {latest.map((p) => (
             <StaffMarker
@@ -373,7 +395,7 @@ export default function AdminStaffLiveMapPanel({
           {latest.map((p) => {
             const profile = findStaffProfile(p.owner_key, staffDirectory);
             const accent = hueForOwner(p.owner_key);
-            const nearest = matchNearestBuilding(p.latitude, p.longitude, activeBuildings);
+            const nearest = matchStaffBuilding(p.latitude, p.longitude, activeBuildings);
             return (
               <div
                 key={p.owner_key}

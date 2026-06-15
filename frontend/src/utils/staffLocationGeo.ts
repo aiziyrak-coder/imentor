@@ -3,6 +3,8 @@ import { postStaffLocationPing } from './staffLocationApi';
 /** Hodim joylashuvi yangilanganda (xarita va UI uchun) */
 export const STAFF_GEO_UPDATE_EVENT = 'app:staff-geo-update';
 
+export type LatLngTuple = [number, number];
+
 export type StaffGeoDetail = {
   latitude: number;
   longitude: number;
@@ -28,30 +30,127 @@ export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: 
 }
 
 export type NearestBuildingMatch = {
-  building: { id: number; name: string; latitude: number; longitude: number; radius_m: number };
+  building: {
+    id: number;
+    name: string;
+    latitude: number;
+    longitude: number;
+    radius_m: number;
+    boundary?: LatLngTuple[];
+  };
   distance_m: number;
   inside: boolean;
 };
 
-/** Eng yaqin kampus binosi (ichida/yo'q). */
-export function matchNearestBuilding(
+export type BuildingGeoInput = {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  boundary?: LatLngTuple[] | null;
+  is_active?: boolean;
+};
+
+/** Ray-casting: nuqta koordinata halqasi ichidami. */
+export function pointInPolygon(lat: number, lng: number, ring: LatLngTuple[]): boolean {
+  if (ring.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [yi, xi] = ring[i];
+    const [yj, xj] = ring[j];
+    const intersects =
+      yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi + 1e-15) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+export function normalizeBoundary(raw: unknown): LatLngTuple[] {
+  if (!Array.isArray(raw)) return [];
+  const out: LatLngTuple[] = [];
+  for (const pt of raw) {
+    if (!Array.isArray(pt) || pt.length < 2) continue;
+    const lat = Number(pt[0]);
+    const lng = Number(pt[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
+  }
+  return out;
+}
+
+/** Markaz atrofida taxminiy to'rtburchak chegara (metr). */
+export function defaultRectBoundary(
   lat: number,
   lng: number,
-  buildings: Array<{ id: number; name: string; latitude: number; longitude: number; radius_m: number; is_active?: boolean }>,
+  halfWidthM = 45,
+  halfHeightM = 35,
+): LatLngTuple[] {
+  const dLat = halfHeightM / 111_320;
+  const dLng = halfWidthM / (111_320 * Math.cos((lat * Math.PI) / 180));
+  return [
+    [lat + dLat, lng - dLng],
+    [lat + dLat, lng + dLng],
+    [lat - dLat, lng + dLng],
+    [lat - dLat, lng - dLng],
+  ];
+}
+
+export function buildingContainsPoint(lat: number, lng: number, b: BuildingGeoInput): boolean {
+  const ring = normalizeBoundary(b.boundary);
+  if (ring.length >= 3) return pointInPolygon(lat, lng, ring);
+  return haversineMeters(lat, lng, b.latitude, b.longitude) <= b.radius_m;
+}
+
+/** Hodim qaysi bino hududida (polygon ustunlik, keyin radius). */
+export function matchStaffBuilding(
+  lat: number,
+  lng: number,
+  buildings: BuildingGeoInput[],
 ): NearestBuildingMatch | null {
+  const active = buildings.filter((b) => b.is_active !== false);
+  const insideList = active.filter((b) => buildingContainsPoint(lat, lng, b));
+  if (insideList.length === 1) {
+    const b = insideList[0];
+    return {
+      building: { ...b, boundary: normalizeBoundary(b.boundary) },
+      distance_m: haversineMeters(lat, lng, b.latitude, b.longitude),
+      inside: true,
+    };
+  }
+  if (insideList.length > 1) {
+    const b = insideList.reduce((best, cur) => {
+      const dBest = haversineMeters(lat, lng, best.latitude, best.longitude);
+      const dCur = haversineMeters(lat, lng, cur.latitude, cur.longitude);
+      return dCur < dBest ? cur : best;
+    });
+    return {
+      building: { ...b, boundary: normalizeBoundary(b.boundary) },
+      distance_m: haversineMeters(lat, lng, b.latitude, b.longitude),
+      inside: true,
+    };
+  }
+
   let best: NearestBuildingMatch | null = null;
-  for (const b of buildings) {
-    if (b.is_active === false) continue;
+  for (const b of active) {
     const distance_m = haversineMeters(lat, lng, b.latitude, b.longitude);
     if (!best || distance_m < best.distance_m) {
       best = {
-        building: b,
+        building: { ...b, boundary: normalizeBoundary(b.boundary) },
         distance_m,
-        inside: distance_m <= b.radius_m,
+        inside: false,
       };
     }
   }
   return best;
+}
+
+/** @deprecated matchStaffBuilding ishlating */
+export function matchNearestBuilding(
+  lat: number,
+  lng: number,
+  buildings: BuildingGeoInput[],
+): NearestBuildingMatch | null {
+  return matchStaffBuilding(lat, lng, buildings);
 }
 
 /**

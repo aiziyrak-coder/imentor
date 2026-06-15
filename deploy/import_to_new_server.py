@@ -57,6 +57,7 @@ for row in data.get("campus_buildings", []):
             "latitude": row["latitude"],
             "longitude": row["longitude"],
             "radius_m": row.get("radius_m", 1000),
+            "boundary": row.get("boundary") or [],
             "sort_order": row.get("sort_order", 0),
             "notes": row.get("notes", ""),
             "is_active": row.get("is_active", True),

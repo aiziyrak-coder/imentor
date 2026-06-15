@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Building2, Loader2, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import { AlertCircle, Building2, Loader2, MapPin, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import CampusBuildingBoundaryEditor from './CampusBuildingBoundaryEditor';
 import {
   createAdminCampusBuilding,
   deleteAdminCampusBuilding,
@@ -7,6 +8,7 @@ import {
   patchAdminCampusBuilding,
   type CampusBuildingDto,
 } from '../../utils/staffLocationApi';
+import { normalizeBoundary } from '../../utils/staffLocationGeo';
 
 const emptyForm = {
   name: '',
@@ -25,6 +27,7 @@ export default function AdminCampusBuildingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [boundaryEditId, setBoundaryEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<typeof emptyForm & { is_active: boolean }>({ ...emptyForm, is_active: true });
 
   const load = useCallback(async () => {
@@ -44,6 +47,7 @@ export default function AdminCampusBuildingsPage() {
   }, [load]);
 
   const startEdit = (r: CampusBuildingDto) => {
+    setBoundaryEditId(null);
     setEditingId(r.id);
     setEditForm({
       name: r.name,
@@ -128,6 +132,22 @@ export default function AdminCampusBuildingsPage() {
     }
   };
 
+  const saveBoundary = async (id: number, boundary: [number, number][]) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await patchAdminCampusBuilding(id, { boundary });
+      setBoundaryEditId(null);
+      await load();
+    } catch {
+      setError('Chegara saqlashda xato.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const boundaryRow = boundaryEditId != null ? rows.find((r) => r.id === boundaryEditId) : null;
+
   return (
     <div className="w-full space-y-6 px-3 sm:px-5 lg:px-6 pb-24 py-4">
       <div className="flex items-center gap-3">
@@ -136,7 +156,7 @@ export default function AdminCampusBuildingsPage() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-black/90">Kampus binolari</h1>
-          <p className="text-[12px] text-black/50">Oldindan kiritiladi; jadvalda shu ro‘yxatdan tanlanadi (GPS bino bo‘yicha)</p>
+          <p className="text-[12px] text-black/50">Bino chegarasini xaritada chizing; hodim shu hududdami-yo‘qmi shu bilan tekshiriladi</p>
         </div>
       </div>
 
@@ -161,6 +181,7 @@ export default function AdminCampusBuildingsPage() {
                 <th className="px-3 py-2">Bino</th>
                 <th className="px-3 py-2">Kod</th>
                 <th className="px-3 py-2">lat / lng</th>
+                <th className="px-3 py-2">Chegara</th>
                 <th className="px-3 py-2">R (m)</th>
                 <th className="px-3 py-2">Holat</th>
                 <th className="px-3 py-2" />
@@ -205,6 +226,7 @@ export default function AdminCampusBuildingsPage() {
                           onChange={(e) => setEditForm((f) => ({ ...f, longitude: e.target.value }))}
                         />
                       </td>
+                      <td className="px-3 py-2 text-[11px] text-black/45">—</td>
                       <td className="px-3 py-2">
                         <input
                           type="number"
@@ -246,9 +268,30 @@ export default function AdminCampusBuildingsPage() {
                       <td className="px-3 py-2 font-mono text-[11px]">
                         {r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}
                       </td>
+                      <td className="px-3 py-2">
+                        {normalizeBoundary(r.boundary).length >= 3 ? (
+                          <span className="text-emerald-700 font-semibold text-[11px]">
+                            {normalizeBoundary(r.boundary).length} nuqta
+                          </span>
+                        ) : (
+                          <span className="text-amber-700 text-[11px]">Chizilmagan</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2">{r.radius_m}</td>
                       <td className="px-3 py-2">{r.is_active ? 'Faol' : 'O‘chirilgan'}</td>
                       <td className="px-3 py-2 text-right space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingId(null);
+                            setBoundaryEditId(r.id);
+                          }}
+                          className="inline-flex p-1.5 rounded-lg text-sky-700 hover:bg-sky-50"
+                          aria-label="Chegara chizish"
+                          title="Chegara chizish"
+                        >
+                          <MapPin size={16} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => startEdit(r)}
@@ -277,6 +320,15 @@ export default function AdminCampusBuildingsPage() {
           )}
         </div>
       )}
+
+      {boundaryRow ? (
+        <CampusBuildingBoundaryEditor
+          building={boundaryRow}
+          saving={saving}
+          onSave={(boundary) => saveBoundary(boundaryRow.id, boundary)}
+          onCancel={() => setBoundaryEditId(null)}
+        />
+      ) : null}
 
       <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-3">
         <h2 className="text-[14px] font-bold text-black/85 flex items-center gap-2">
@@ -319,7 +371,7 @@ export default function AdminCampusBuildingsPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Radius (m)
+            Radius (m) — chegara bo‘lmasa zaxira
             <input
               type="number"
               value={form.radius_m}

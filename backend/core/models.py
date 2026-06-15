@@ -235,6 +235,11 @@ class CampusBuilding(models.Model):
     latitude = models.FloatField()
     longitude = models.FloatField()
     radius_m = models.PositiveIntegerField(default=100)
+    boundary = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Bino chegarasi: [[lat, lng], ...] kamida 3 nuqta.",
+    )
     sort_order = models.PositiveSmallIntegerField(default=0)
     notes = models.CharField(max_length=512, blank=True)
     is_active = models.BooleanField(default=True)
@@ -251,6 +256,19 @@ class CampusBuilding(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def boundary_ring(self) -> list[tuple[float, float]]:
+        from .geo import normalize_boundary
+
+        return normalize_boundary(self.boundary)
+
+    def contains_point(self, lat: float, lng: float) -> bool:
+        from .geo import haversine_m, point_in_polygon
+
+        ring = self.boundary_ring()
+        if len(ring) >= 3:
+            return point_in_polygon(lat, lng, ring)
+        return haversine_m(lat, lng, self.latitude, self.longitude) <= float(self.radius_m)
 
 
 class StaffScheduleSlot(models.Model):

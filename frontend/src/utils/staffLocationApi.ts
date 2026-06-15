@@ -10,6 +10,7 @@ export type CampusBuildingDto = {
   latitude: number;
   longitude: number;
   radius_m: number;
+  boundary: [number, number][];
   sort_order: number;
   notes: string;
   is_active: boolean;
@@ -130,7 +131,7 @@ export async function listAdminCampusBuildings(): Promise<CampusBuildingDto[]> {
 }
 
 export async function createAdminCampusBuilding(
-  body: Partial<Pick<CampusBuildingDto, 'name' | 'short_code' | 'latitude' | 'longitude' | 'radius_m' | 'sort_order' | 'notes' | 'is_active'>>
+  body: Partial<Pick<CampusBuildingDto, 'name' | 'short_code' | 'latitude' | 'longitude' | 'radius_m' | 'boundary' | 'sort_order' | 'notes' | 'is_active'>>
 ): Promise<CampusBuildingDto> {
   return httpJson(`${apiBaseUrl()}/v1/admin/campus-buildings/`, {
     method: 'POST',
@@ -142,7 +143,7 @@ export async function createAdminCampusBuilding(
 
 export async function patchAdminCampusBuilding(
   id: number,
-  body: Partial<Pick<CampusBuildingDto, 'name' | 'short_code' | 'latitude' | 'longitude' | 'radius_m' | 'sort_order' | 'notes' | 'is_active'>>
+  body: Partial<Pick<CampusBuildingDto, 'name' | 'short_code' | 'latitude' | 'longitude' | 'radius_m' | 'boundary' | 'sort_order' | 'notes' | 'is_active'>>
 ): Promise<CampusBuildingDto> {
   return httpJson(`${apiBaseUrl()}/v1/admin/campus-buildings/${id}/`, {
     method: 'PATCH',

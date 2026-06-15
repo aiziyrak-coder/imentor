@@ -263,11 +263,8 @@ class CampusBuilding(models.Model):
         return normalize_boundary(self.boundary)
 
     def contains_point(self, lat: float, lng: float) -> bool:
-        from .geo import haversine_m, point_in_polygon
+        from .geo import haversine_m
 
-        ring = self.boundary_ring()
-        if len(ring) >= 3:
-            return point_in_polygon(lat, lng, ring)
         return haversine_m(lat, lng, self.latitude, self.longitude) <= float(self.radius_m)
 
 

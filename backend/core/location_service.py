@@ -60,10 +60,7 @@ def record_ping_and_evaluate(
             inside = _slot_contains_point(slot, latitude, longitude)
             if not inside:
                 dist = haversine_m(latitude, longitude, elat, elng)
-                has_polygon = bool(
-                    slot.building_id and len(slot.building.boundary_ring()) >= 3
-                )
-                zone_label = 'hudud' if has_polygon else f'radius {slot.building.radius_m if slot.building_id else slot.radius_m} m'
+                er = int(slot.building.radius_m if slot.building_id else slot.radius_m)
                 date_key = now_local.date()
                 exists = StaffLocationAlert.objects.filter(
                     owner_key=owner_key,
@@ -81,12 +78,12 @@ def record_ping_and_evaluate(
                             actual_lat=latitude,
                             actual_lng=longitude,
                             distance_m=round(dist, 2),
-                            radius_m=int(slot.building.radius_m if slot.building_id else slot.radius_m),
+                            radius_m=er,
                             slot_start=slot.start_time,
                             slot_end=slot.end_time,
                             message=(
-                                f"Dars vaqtida {bname} {zone_label}idan tashqarida "
-                                f"({dist:.0f} m uzoqda)."
+                                f"Dars vaqtida {bname} dan {dist:.0f} m uzoqda "
+                                f"(ruxsat radiusi {er} m)."
                             ),
                         )
                     )

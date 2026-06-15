@@ -96,8 +96,6 @@ export function defaultRectBoundary(
 }
 
 export function buildingContainsPoint(lat: number, lng: number, b: BuildingGeoInput): boolean {
-  const ring = normalizeBoundary(b.boundary);
-  if (ring.length >= 3) return pointInPolygon(lat, lng, ring);
   return haversineMeters(lat, lng, b.latitude, b.longitude) <= b.radius_m;
 }
 

@@ -754,8 +754,7 @@ export default function AdminStaffLocationConsole() {
             <h2 className="text-[15px] font-bold text-black/90">Haftalik jadval</h2>
             <p className="text-[12px] text-black/55 leading-relaxed">
               Har bir kun uchun bir nechta vaqt oralig‘i qo‘shing (turli binolar). GPS nazorati slot tugash vaqtigacha
-              Har qator uchun <strong>bino</strong> tanlang — dars vaqtida hodim shu bino <strong>hududi</strong> (polygon) ichida bo‘lishi kerak.
-              Chegara «Kampus binolari» bo‘limida chiziladi. Bir kunda vaqtlar ustma-ust tushmasligi kerak.
+              Har qator uchun <strong>bino</strong> tanlang — dars vaqtida hodim shu bino markazidan <strong>100 m</strong> ichida bo‘lishi kerak.
             </p>
 
             <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-2 text-[12px] text-black/70">

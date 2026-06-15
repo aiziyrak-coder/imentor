@@ -96,24 +96,7 @@
     "sort_order": 9,
     "notes": "Normal anatomiya, patologik anatomiya, fiziologiya, o'zbek tili, lotin tili, kimyo va biologiya, gospital jarrohlik kafedralari",
     "is_active": true,
-    "boundary": [
-      [
-        40.37235,
-        71.81055
-      ],
-      [
-        40.3724,
-        71.81205
-      ],
-      [
-        40.37055,
-        71.81215
-      ],
-      [
-        40.3705,
-        71.81065
-      ]
-    ]
+    "boundary": []
   },
   {
     "name": "Fjsti kop tarmoqli klinikasi",

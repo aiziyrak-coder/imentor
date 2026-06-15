@@ -1,21 +1,15 @@
 import L from 'leaflet';
 import { useEffect, useMemo, useRef } from 'react';
-import { MapContainer, Marker, Polygon, Popup, TileLayer, useMap } from 'react-leaflet';
+import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LeafletAttributionStrip } from '../map/LeafletAttributionStrip';
-import { matchStaffBuilding, normalizeBoundary } from '../../utils/staffLocationGeo';
+import { matchStaffBuilding } from '../../utils/staffLocationGeo';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
 import type { LocalStaffUser } from '../../utils/localStaffAuth';
 
 /** Fargʻona viloyati — kampus binolari markazi */
 const DEFAULT_CENTER: [number, number] = [40.386, 71.786];
-
-const BUILDING_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-  <path fill="white" d="M4 21V9l8-5 8 5v12h-5v-7H9v7H4z"/>
-</svg>
-`.trim();
 
 const PERSON_SVG = `
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
@@ -88,18 +82,6 @@ function buildStaffPinHtml(accentColor: string): string {
     ${PERSON_SVG}
   </div>
   <div class="staff-pin-tail" style="border-top-color:${accentColor};"></div>
-</div>`.trim();
-}
-
-function buildBuildingPinHtml(name: string): string {
-  const label = name.length > 34 ? `${name.slice(0, 32)}…` : name;
-  return `
-<div class="building-pin-wrap">
-  <div class="building-pin-head">
-    ${BUILDING_SVG}
-  </div>
-  <div class="building-pin-tail"></div>
-  <div class="building-pin-label">${escapeHtml(label)}</div>
 </div>`.trim();
 }
 
@@ -242,49 +224,28 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
   );
 }
 
-function BuildingLayer({ building }: { building: CampusBuildingDto }) {
-  const ring = useMemo(() => normalizeBoundary(building.boundary), [building.boundary]);
-  const hasPolygon = ring.length >= 3;
-
-  const icon = useMemo(
-    () =>
-      L.divIcon({
-        className: 'building-leaflet-marker',
-        html: buildBuildingPinHtml(building.name),
-        iconSize: [120, 72],
-        iconAnchor: [60, 44],
-        popupAnchor: [0, -40],
-      }),
-    [building.name],
-  );
-
-  if (hasPolygon) {
-    return (
-      <Polygon
-        positions={ring}
-        pathOptions={{
-          color: '#0369a1',
-          fillColor: '#38bdf8',
-          fillOpacity: 0.28,
-          weight: 2,
-        }}
-      >
-        <Popup>
-          <div className="text-[13px] font-semibold text-black/90">{building.name}</div>
-          <div className="text-[11px] text-emerald-800">Chegara chizilgan ({ring.length} nuqta)</div>
-        </Popup>
-      </Polygon>
-    );
-  }
+function BuildingZone({ building }: { building: CampusBuildingDto }) {
+  const radius = building.radius_m > 0 ? building.radius_m : 100;
 
   return (
-    <Marker position={[building.latitude, building.longitude]} icon={icon} zIndexOffset={-100}>
+    <Circle
+      center={[building.latitude, building.longitude]}
+      radius={radius}
+      pathOptions={{
+        color: '#0369a1',
+        fillColor: '#38bdf8',
+        fillOpacity: 0.15,
+        weight: 2,
+      }}
+    >
       <Popup>
         <div className="text-[13px] font-semibold text-black/90">{building.name}</div>
-        <div className="text-[11px] text-amber-800">Chegara chizilmagan — Kampus binolari bo‘limida chizing</div>
-        <div className="mt-1 text-[11px] text-black/50">Zaxira radius: {building.radius_m} m</div>
+        {building.short_code ? (
+          <div className="text-[11px] text-black/55">Kod: {building.short_code}</div>
+        ) : null}
+        <div className="text-[11px] text-black/60">Ruxsat radiusi: {radius} m</div>
       </Popup>
-    </Marker>
+    </Circle>
   );
 }
 
@@ -298,7 +259,7 @@ export type AdminStaffLiveMapPanelProps = {
 };
 
 /**
- * OpenStreetMap: hodimlar GPS pinglari + kampus binolari (pin, doirasiz).
+ * OpenStreetMap: hodimlar GPS pinglari + bino radiuslari (100 m doira).
  */
 export default function AdminStaffLiveMapPanel({
   pings,
@@ -322,12 +283,7 @@ export default function AdminStaffLiveMapPanel({
   const points = useMemo((): [number, number][] => {
     const pts: [number, number][] = latest.map((p) => [p.latitude, p.longitude]);
     for (const b of activeBuildings) {
-      const ring = normalizeBoundary(b.boundary);
-      if (ring.length >= 3) {
-        pts.push(...ring);
-      } else {
-        pts.push([b.latitude, b.longitude]);
-      }
+      pts.push([b.latitude, b.longitude]);
     }
     return pts;
   }, [latest, activeBuildings]);
@@ -350,8 +306,8 @@ export default function AdminStaffLiveMapPanel({
       </div>
 
       <p className="text-[11px] leading-relaxed text-black/50">
-        Ko‘k <strong>hudud</strong> — bino chegarasi (polygon). Hodim markeri GPS bo‘yicha qat’iy turadi; zoom qilganda
-        siljimaydi. Chegara chizilmagan binolar sariq ogohlantirish bilan pin ko‘rinishida.
+        Har bino atrofida <strong>100 m radius</strong> doira — hodim shu ichida bo‘lsa «joyida». Hodim markeri zoom
+        qilganda siljimaydi, faqat GPS yangilanadi.
       </p>
 
       {filteredSelectedNoData ? (
@@ -376,7 +332,7 @@ export default function AdminStaffLiveMapPanel({
           <LeafletAttributionStrip />
           <MapViewportController points={points} viewportKey={viewportKey} />
           {activeBuildings.map((b) => (
-            <BuildingLayer key={`b-${b.id}`} building={b} />
+            <BuildingZone key={`b-${b.id}`} building={b} />
           ))}
           {latest.map((p) => (
             <StaffMarker

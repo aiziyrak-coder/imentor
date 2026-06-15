@@ -2,25 +2,30 @@ import { useEffect, useRef } from 'react';
 import { postStaffLocationPing } from '../utils/staffLocationApi';
 import {
   dispatchStaffGeoUpdate,
+  MAX_CLIENT_ACCURACY_M,
   type StaffGeoDetail,
 } from '../utils/staffLocationGeo';
 import { isLikelyPhoneOrSmallTablet } from '../utils/deviceDetection';
 
-/** Telefon: tezroq yangilanish; kompyuter: biroz sekinroq (batareya) */
 function minSendIntervalMs(): number {
-  return isLikelyPhoneOrSmallTablet() ? 18_000 : 42_000;
+  return isLikelyPhoneOrSmallTablet() ? 20_000 : 45_000;
 }
 
 function watchOptions(): PositionOptions {
   const mobile = isLikelyPhoneOrSmallTablet();
   return {
     enableHighAccuracy: true,
-    maximumAge: mobile ? 0 : 25_000,
-    timeout: mobile ? 22_000 : 28_000,
+    maximumAge: mobile ? 5_000 : 20_000,
+    timeout: mobile ? 25_000 : 30_000,
   };
 }
 
-/** Hodim sessiyasida fon jarayoni (ichki eventlar). Brauzer cheklovlari mavjud. */
+function accuracyOk(accuracy_m: number | null): boolean {
+  if (accuracy_m == null || !Number.isFinite(accuracy_m)) return true;
+  return accuracy_m <= MAX_CLIENT_ACCURACY_M;
+}
+
+/** Hodim telefonida fon GPS kuzatuvi. */
 export function useStaffLocationTracking(
   enabled: boolean,
   options?: { silent?: boolean },
@@ -60,15 +65,18 @@ export function useStaffLocationTracking(
           client_ts_ms: detail.recordedAt,
         });
       } catch {
-        /* tarmoq xatosi — keyingi pingda uriniladi */
+        /* keyingi pingda uriniladi */
       }
     };
 
     const send = (pos: GeolocationPosition, force: boolean) => {
       const now = Date.now();
       if (!force && now - lastSentAt.current < minMs) return;
-      lastSentAt.current = now;
+
       const accuracy_m = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
+      if (!accuracyOk(accuracy_m)) return;
+
+      lastSentAt.current = now;
       void emitAndPost({
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
@@ -84,8 +92,8 @@ export function useStaffLocationTracking(
         window.dispatchEvent(
           new CustomEvent('app:notify', {
             detail: {
-              title: 'Ruxsat kerak',
-              body: 'Ayrim funksiyalar uchun brauzer sozlamalarida ruxsatni yoqing (Safari / Chrome — sayt sozlamalari).',
+              title: 'Joylashuv ruxsati kerak',
+              body: 'Telefon sozlamalarida brauzer uchun joylashuvni yoqing (Safari / Chrome).',
               level: 'warning' as const,
             },
           }),
@@ -93,7 +101,6 @@ export function useStaffLocationTracking(
       }
     };
 
-    /** Dastlabki so‘rov — baʼzi Android’larda dialog shu yerda chiqadi */
     navigator.geolocation.getCurrentPosition(
       (pos) => send(pos, true),
       onErr,
@@ -111,7 +118,7 @@ export function useStaffLocationTracking(
       navigator.geolocation.getCurrentPosition(
         (pos) => send(pos, true),
         () => {},
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 22_000 },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 25_000 },
       );
     };
     document.addEventListener('visibilitychange', onVisibility);

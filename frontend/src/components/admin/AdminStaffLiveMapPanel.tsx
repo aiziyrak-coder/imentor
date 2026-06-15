@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LeafletAttributionStrip } from '../map/LeafletAttributionStrip';
-import { matchStaffBuilding } from '../../utils/staffLocationGeo';
+import { matchStaffBuilding, isPingStale } from '../../utils/staffLocationGeo';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
 import type { LocalStaffUser } from '../../utils/localStaffAuth';
@@ -71,9 +71,10 @@ function initialsFromProfile(u: LocalStaffUser | undefined, fallbackKey: string)
 const STAFF_PIN_W = 40;
 const STAFF_PIN_H = 50;
 
-function buildStaffPinHtml(accentColor: string): string {
+function buildStaffPinHtml(accentColor: string, stale = false): string {
+  const fade = stale ? 'opacity:0.45;filter:grayscale(0.35);' : '';
   return `
-<div class="staff-pin-wrap">
+<div class="staff-pin-wrap" style="${fade}">
   <div class="staff-pin-head" style="background:${accentColor};">
     ${PERSON_SVG}
   </div>
@@ -125,16 +126,17 @@ type StaffMarkerProps = {
 
 function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
   const accent = hueForOwner(ping.owner_key);
+  const stale = isPingStale(ping.recorded_at);
   const icon = useMemo(
     () =>
       L.divIcon({
         className: 'staff-leaflet-marker',
-        html: buildStaffPinHtml(accent),
+        html: buildStaffPinHtml(accent, stale),
         iconSize: [STAFF_PIN_W, STAFF_PIN_H],
         iconAnchor: [STAFF_PIN_W / 2, STAFF_PIN_H],
         popupAnchor: [0, -STAFF_PIN_H],
       }),
-    [accent],
+    [accent, stale],
   );
 
   const position = useMemo(
@@ -172,12 +174,18 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
           {nearest ? (
             <div
               className={`rounded-xl px-3 py-2 text-[12px] ${
-                nearest.inside
-                  ? 'border border-emerald-200 bg-emerald-50 text-emerald-950'
-                  : 'border border-amber-200 bg-amber-50 text-amber-950'
+                stale
+                  ? 'border border-slate-200 bg-slate-50 text-slate-700'
+                  : nearest.inside
+                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-950'
+                    : 'border border-amber-200 bg-amber-50 text-amber-950'
               }`}
             >
-              {nearest.inside ? (
+              {stale ? (
+                <>
+                  <strong>Eski GPS</strong> (20+ daqiqa) — hodim hozir joyida emasligi mumkin
+                </>
+              ) : nearest.inside ? (
                 <>
                   <strong>Joylashuv:</strong> {nearest.building.name} ichida
                 </>
@@ -307,8 +315,8 @@ export default function AdminStaffLiveMapPanel({
       </div>
 
       <p className="text-[11px] leading-relaxed text-black/50">
-        Har bino atrofida <strong>100 m radius</strong> doira — hodim shu ichida bo‘lsa «joyida». Hodim markeri zoom
-        qilganda siljimaydi, faqat GPS yangilanadi.
+        Har bino atrofida <strong>radius doira</strong> (odatda 100 m). Kulrang marker — 20+ daqiqalik eski GPS.
+        Hodim belgisi zoomda siljimaydi.
       </p>
 
       {filteredSelectedNoData ? (
@@ -355,10 +363,13 @@ export default function AdminStaffLiveMapPanel({
             const profile = findStaffProfile(p.owner_key, staffDirectory);
             const accent = hueForOwner(p.owner_key);
             const nearest = matchStaffBuilding(p.latitude, p.longitude, activeBuildings);
+            const stale = isPingStale(p.recorded_at);
             return (
               <div
                 key={p.owner_key}
-                className="flex items-start gap-3 rounded-xl border border-black/10 bg-white/95 px-3 py-2.5 text-[12px] shadow-sm"
+                className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 text-[12px] shadow-sm ${
+                  stale ? 'border-black/10 bg-black/[0.03] opacity-75' : 'border-black/10 bg-white/95'
+                }`}
               >
                 <div
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold text-white shadow"
@@ -370,9 +381,15 @@ export default function AdminStaffLiveMapPanel({
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-semibold text-black/90">{profile?.displayName ?? p.owner_key}</div>
                   {nearest ? (
-                    <div className={`truncate text-[11px] ${nearest.inside ? 'text-emerald-700' : 'text-amber-800'}`}>
-                      {nearest.inside ? nearest.building.name : `${nearest.building.name} (${Math.round(nearest.distance_m)} m)`}
+                    <div className={`truncate text-[11px] ${stale ? 'text-slate-600' : nearest.inside ? 'text-emerald-700' : 'text-amber-800'}`}>
+                      {stale
+                        ? 'Eski GPS (20+ daq)'
+                        : nearest.inside
+                          ? nearest.building.name
+                          : `${nearest.building.name} (${Math.round(nearest.distance_m)} m)`}
                     </div>
+                  ) : stale ? (
+                    <div className="truncate text-[11px] text-slate-600">Eski GPS (20+ daq)</div>
                   ) : null}
                   <div className="text-black/55">{formatAgeUz(p.recorded_at)}</div>
                 </div>

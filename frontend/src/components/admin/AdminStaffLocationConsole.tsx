@@ -262,7 +262,7 @@ export default function AdminStaffLocationConsole() {
         setBuildings(b);
       } else if (tab === 'livemap') {
         const [p, b] = await Promise.all([
-          listAdminStaffPings(o),
+          listAdminStaffPings(o, { mode: 'live' }),
           listCampusBuildings().catch(() => []),
         ]);
         setPings(p);
@@ -288,7 +288,7 @@ export default function AdminStaffLocationConsole() {
     if (tab !== 'livemap') return;
     try {
       const o = ownerFilterApplied.length >= 12 ? ownerFilterApplied : undefined;
-      setPings(await listAdminStaffPings(o));
+      setPings(await listAdminStaffPings(o, { mode: 'live' }));
       setLiveMapUpdated(new Date());
     } catch {
       /* sessiya yoki tarmoq — jim yangilash */
@@ -753,8 +753,9 @@ export default function AdminStaffLocationConsole() {
           <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-4">
             <h2 className="text-[15px] font-bold text-black/90">Haftalik jadval</h2>
             <p className="text-[12px] text-black/55 leading-relaxed">
-              Har bir kun uchun bir nechta vaqt oralig‘i qo‘shing (turli binolar). GPS nazorati slot tugash vaqtigacha
-              Har qator uchun <strong>bino</strong> tanlang — dars vaqtida hodim shu bino markazidan <strong>100 m</strong> ichida bo‘lishi kerak.
+              Har bir kun uchun bir nechta vaqt oralig‘i qo‘shing. Dars vaqtida hodim tanlangan bino markazidan
+              uning <strong>radius_m</strong> masofasi ichida bo‘lishi kerak (odatda 100 m). GPS noaniq bo‘lsa
+              (±150 m dan yomon) ogohlantirish yuborilmaydi.
             </p>
 
             <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-2 text-[12px] text-black/70">

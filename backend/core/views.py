@@ -661,13 +661,30 @@ class StaffLocationPingView(APIView):
                 {"detail": "Joylashuv faqat telefon (mobil) qurilmadan qabul qilinadi."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        _ping, alerts = record_ping_and_evaluate(
-            request.user.username,
-            d['latitude'],
-            d['longitude'],
-            d.get('accuracy_m'),
-            d.get('client_ts_ms'),
-        )
+        try:
+            _ping, alerts = record_ping_and_evaluate(
+                request.user.username,
+                d['latitude'],
+                d['longitude'],
+                d.get('accuracy_m'),
+                d.get('client_ts_ms'),
+            )
+        except ValueError:
+            return Response(
+                {"detail": "Koordinata noto‘g‘ri."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if _ping is None:
+            return Response(
+                {
+                    "ok": True,
+                    "skipped": True,
+                    "reason": "accuracy_too_low",
+                    "alerts_created": 0,
+                    "alert_ids": [],
+                },
+                status=status.HTTP_201_CREATED,
+            )
         return Response(
             {
                 'ok': True,
@@ -882,10 +899,26 @@ class AdminStaffLocationPingsView(APIView):
     permission_classes = [IsAuthenticated, IsAdminRole]
 
     def get(self, request):
+        from datetime import timedelta
+
+        from .location_policy import LIVE_PING_MAX_AGE_HOURS
+
         owner = request.query_params.get('owner_key', '').strip()
+        mode = (request.query_params.get('mode') or '').strip().lower()
         qs = StaffLocationPing.objects.all().order_by('-recorded_at')
         if owner:
             qs = qs.filter(owner_key=owner)
+
+        if mode == 'live':
+            since = timezone.now() - timedelta(hours=LIVE_PING_MAX_AGE_HOURS)
+            qs = qs.filter(recorded_at__gte=since)
+            latest: dict[str, StaffLocationPing] = {}
+            for ping in qs.iterator(chunk_size=500):
+                if ping.owner_key not in latest:
+                    latest[ping.owner_key] = ping
+            rows = sorted(latest.values(), key=lambda p: p.owner_key)
+            return Response(StaffLocationPingSerializer(rows, many=True).data)
+
         return Response(StaffLocationPingSerializer(qs[:2000], many=True).data)
 
 

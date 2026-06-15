@@ -375,6 +375,7 @@ class StaffLocationAlert(models.Model):
     slot_start = models.TimeField(null=True, blank=True)
     slot_end = models.TimeField(null=True, blank=True)
     message = models.CharField(max_length=512, blank=True)
+    alert_date = models.DateField(db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -383,6 +384,12 @@ class StaffLocationAlert(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["owner_key", "-created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner_key", "slot", "alert_date"],
+                name="core_stafflocationalert_owner_slot_day_uniq",
+            ),
         ]
 
     def __str__(self) -> str:

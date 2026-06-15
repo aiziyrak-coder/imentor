@@ -3,6 +3,18 @@ import { postStaffLocationPing } from './staffLocationApi';
 /** Hodim joylashuvi yangilanganda (xarita va UI uchun) */
 export const STAFF_GEO_UPDATE_EVENT = 'app:staff-geo-update';
 
+/** Jonli xaritada «eski» ping (ms). */
+export const STALE_PING_MS = 20 * 60 * 1000;
+
+/** Klient yubormaydigan juda yomon GPS (metr). */
+export const MAX_CLIENT_ACCURACY_M = 200;
+
+export function isPingStale(recordedAt: string | number | Date, nowMs = Date.now()): boolean {
+  const t = new Date(recordedAt).getTime();
+  if (!Number.isFinite(t)) return true;
+  return nowMs - t > STALE_PING_MS;
+}
+
 export type LatLngTuple = [number, number];
 
 export type StaffGeoDetail = {

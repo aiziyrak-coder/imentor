@@ -9,6 +9,7 @@ import { getCurrentLocalUser, logoutLocalStaff } from '../../utils/localStaffAut
 import { clearBackendAuthTokens } from '../../utils/backendAuth';
 import { clearDesktopPairedSession } from '../../utils/deviceSession';
 import { useStaffLocationTracking } from '../../hooks/useStaffLocationTracking';
+import HodimGpsStatusBar from './HodimGpsStatusBar';
 
 const SCANNER_ID = 'hodim-qr-scanner-region';
 
@@ -24,7 +25,7 @@ export default function HodimMobileCompanion() {
   const [busy, setBusy] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  useStaffLocationTracking(true, { silent: true });
+  useStaffLocationTracking(true, { silent: false });
 
   const stopScanner = useCallback(async () => {
     const s = scannerRef.current;
@@ -115,15 +116,18 @@ export default function HodimMobileCompanion() {
       </header>
 
       {phase === 'linked' ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-6">
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-5">
           <div className="w-24 h-24 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30">
             <Check size={52} strokeWidth={2.5} />
           </div>
           <div className="space-y-2">
             <h2 className="text-xl font-bold">Kompyuter ulandi</h2>
             <p className="text-[15px] text-white/70 leading-relaxed">
-              Endi kompyuterda taqdimot, test va boshqa modullardan foydalaning. Telefonni yonida qoldiring — u orqali tizim ishlaydi.
+              Kompyuterda ishlashingiz mumkin. Telefonni yonida qoldiring — joylashuv shu orqali yuboriladi.
             </p>
+          </div>
+          <div className="w-full max-w-md">
+            <HodimGpsStatusBar />
           </div>
         </div>
       ) : (
@@ -166,6 +170,7 @@ export default function HodimMobileCompanion() {
           </div>
 
           <div className="px-4 shrink-0 space-y-2">
+            <HodimGpsStatusBar compact />
             {phase === 'error' && (
               <p className="text-center text-[14px] text-amber-300 font-medium">
                 Kamera ochilmadi. Ruxsat bering va qayta urinib ko&apos;ring.

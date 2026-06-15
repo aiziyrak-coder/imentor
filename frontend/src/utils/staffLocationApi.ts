@@ -229,8 +229,14 @@ export async function bulkReplaceAdminStaffSchedule(body: {
 
 export { HttpError };
 
-export async function listAdminStaffPings(ownerKey?: string): Promise<StaffLocationPingDto[]> {
-  const q = ownerKey?.trim() ? `?owner_key=${encodeURIComponent(ownerKey.trim())}` : '';
+export async function listAdminStaffPings(
+  ownerKey?: string,
+  options?: { mode?: 'live' | 'history' },
+): Promise<StaffLocationPingDto[]> {
+  const params = new URLSearchParams();
+  if (ownerKey?.trim()) params.set('owner_key', ownerKey.trim());
+  if (options?.mode === 'live') params.set('mode', 'live');
+  const q = params.toString() ? `?${params.toString()}` : '';
   const rows = await httpJson<StaffLocationPingDto[]>(`${apiBaseUrl()}/v1/admin/staff-location-pings/${q}`, {
     headers: await authHeaders(),
     timeoutMs: 30000,

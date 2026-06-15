@@ -529,11 +529,18 @@ class StaffLocationPingSerializer(serializers.ModelSerializer):
 
 
 class StaffLocationPingCreateSerializer(serializers.Serializer):
-    latitude = serializers.FloatField()
-    longitude = serializers.FloatField()
-    accuracy_m = serializers.FloatField(required=False, allow_null=True)
+    latitude = serializers.FloatField(min_value=-90, max_value=90)
+    longitude = serializers.FloatField(min_value=-180, max_value=180)
+    accuracy_m = serializers.FloatField(required=False, allow_null=True, min_value=0)
     client_ts_ms = serializers.IntegerField(required=False, allow_null=True)
     client_kind = serializers.CharField(required=False, allow_blank=True, max_length=16)
+
+    def validate(self, attrs):
+        lat = attrs["latitude"]
+        lng = attrs["longitude"]
+        if abs(lat) < 1e-6 and abs(lng) < 1e-6:
+            raise serializers.ValidationError("Koordinata noto‘g‘ri (0,0).")
+        return attrs
 
 
 class StaffLocationAlertSerializer(serializers.ModelSerializer):
@@ -553,6 +560,7 @@ class StaffLocationAlertSerializer(serializers.ModelSerializer):
             'slot_start',
             'slot_end',
             'message',
+            'alert_date',
             'created_at',
         ]
         read_only_fields = fields

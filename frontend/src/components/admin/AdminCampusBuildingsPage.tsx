@@ -11,8 +11,8 @@ import {
 const emptyForm = {
   name: '',
   short_code: '',
-  latitude: '41.311151',
-  longitude: '69.279737',
+  latitude: '40.386',
+  longitude: '71.786',
   radius_m: 100,
   sort_order: 0,
   notes: '',

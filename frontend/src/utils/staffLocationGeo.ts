@@ -15,6 +15,45 @@ export function dispatchStaffGeoUpdate(detail: StaffGeoDetail): void {
   window.dispatchEvent(new CustomEvent(STAFF_GEO_UPDATE_EVENT, { detail }));
 }
 
+/** WGS84 — masofa metrlarda (backend haversine bilan mos). */
+export function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6_371_000;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+}
+
+export type NearestBuildingMatch = {
+  building: { id: number; name: string; latitude: number; longitude: number; radius_m: number };
+  distance_m: number;
+  inside: boolean;
+};
+
+/** Eng yaqin kampus binosi (ichida/yo'q). */
+export function matchNearestBuilding(
+  lat: number,
+  lng: number,
+  buildings: Array<{ id: number; name: string; latitude: number; longitude: number; radius_m: number; is_active?: boolean }>,
+): NearestBuildingMatch | null {
+  let best: NearestBuildingMatch | null = null;
+  for (const b of buildings) {
+    if (b.is_active === false) continue;
+    const distance_m = haversineMeters(lat, lng, b.latitude, b.longitude);
+    if (!best || distance_m < best.distance_m) {
+      best = {
+        building: b,
+        distance_m,
+        inside: distance_m <= b.radius_m,
+      };
+    }
+  }
+  return best;
+}
+
 /**
  * Foydalanuvchi bosishi bilan chaqiring — iOS Safari va baʼzi Android brauzerlarida
  * geolocation dialog faqat user gesture dan keyin chiqishi uchun.

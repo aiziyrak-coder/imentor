@@ -1,15 +1,22 @@
 import L from 'leaflet';
-import { useEffect, useMemo } from 'react';
-import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
+import { useEffect, useMemo, useRef } from 'react';
+import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LeafletAttributionStrip } from '../map/LeafletAttributionStrip';
+import { matchNearestBuilding } from '../../utils/staffLocationGeo';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
 import type { LocalStaffUser } from '../../utils/localStaffAuth';
 
-const DEFAULT_CENTER: [number, number] = [41.3111, 69.2797];
+/** Fargʻona viloyati — kampus binolari markazi */
+const DEFAULT_CENTER: [number, number] = [40.386, 71.786];
 
-/** Oddiy odam silueti (SVG) */
+const BUILDING_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+  <path fill="white" d="M4 21V9l8-5 8 5v12h-5v-7H9v7H4z"/>
+</svg>
+`.trim();
+
 const PERSON_SVG = `
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
   <path fill="white" d="M12 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>
@@ -66,25 +73,59 @@ function initialsFromProfile(u: LocalStaffUser | undefined, fallbackKey: string)
   return fallbackKey.slice(-2);
 }
 
-/**
- * Pin: dumaloq ichida odam ikonkasi + kichik uchburchak.
- */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function buildStaffPinHtml(accentColor: string): string {
   return `
-<div style="display:flex;flex-direction:column;align-items:center;width:52px;margin-left:-26px;margin-top:-56px;">
-  <div class="staff-pin-head" style="width:46px;height:46px;border-radius:50%;background:${accentColor};border:3px solid #fff;display:flex;align-items:center;justify-content:center;">
+<div class="staff-pin-wrap">
+  <div class="staff-pin-head" style="background:${accentColor};">
     ${PERSON_SVG}
   </div>
-  <div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-top:11px solid ${accentColor};margin-top:-3px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.3));"></div>
+  <div class="staff-pin-tail" style="border-top-color:${accentColor};"></div>
 </div>`.trim();
 }
 
-function MapFitBounds({ points }: { points: [number, number][] }) {
+function buildBuildingPinHtml(name: string): string {
+  const label = name.length > 34 ? `${name.slice(0, 32)}…` : name;
+  return `
+<div class="building-pin-wrap">
+  <div class="building-pin-head">
+    ${BUILDING_SVG}
+  </div>
+  <div class="building-pin-tail"></div>
+  <div class="building-pin-label">${escapeHtml(label)}</div>
+</div>`.trim();
+}
+
+/**
+ * Xarita ko‘rinishini faqat filtr o‘zgarganda moslaydi.
+ * GPS yangilanishida (har 5 s) zoom/pan qayta o‘rnatilmaydi — marker siljib ketmaydi.
+ */
+function MapViewportController({
+  points,
+  viewportKey,
+}: {
+  points: [number, number][];
+  viewportKey: string;
+}) {
   const map = useMap();
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
+  const lastKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const valid = points.filter(([a, b]) => isValidLatLng(a, b));
+    if (lastKeyRef.current === viewportKey) return;
+    lastKeyRef.current = viewportKey;
+
+    const valid = pointsRef.current.filter(([a, b]) => isValidLatLng(a, b));
     if (valid.length === 0) {
-      map.setView(DEFAULT_CENTER, 12);
+      map.setView(DEFAULT_CENTER, 13);
       return;
     }
     if (valid.length === 1) {
@@ -92,28 +133,35 @@ function MapFitBounds({ points }: { points: [number, number][] }) {
       return;
     }
     const bounds = L.latLngBounds(valid);
-    map.fitBounds(bounds, { padding: [56, 56], maxZoom: 17 });
-  }, [map, points]);
+    map.fitBounds(bounds, { padding: [56, 56], maxZoom: 16 });
+  }, [map, viewportKey]);
+
   return null;
 }
 
 type StaffMarkerProps = {
   ping: StaffLocationPingDto;
   profile?: LocalStaffUser;
+  buildings: CampusBuildingDto[];
 };
 
-function StaffMarker({ ping, profile }: StaffMarkerProps) {
+function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
   const accent = hueForOwner(ping.owner_key);
   const icon = useMemo(
     () =>
       L.divIcon({
         className: 'staff-leaflet-marker',
         html: buildStaffPinHtml(accent),
-        iconSize: [52, 56],
-        iconAnchor: [26, 56],
-        popupAnchor: [0, -54],
+        iconSize: [52, 58],
+        iconAnchor: [26, 54],
+        popupAnchor: [0, -52],
       }),
     [accent],
+  );
+
+  const nearest = useMemo(
+    () => matchNearestBuilding(ping.latitude, ping.longitude, buildings),
+    [ping.latitude, ping.longitude, buildings],
   );
 
   const title = profile?.displayName?.trim() || 'Hodim';
@@ -137,6 +185,26 @@ function StaffMarker({ ping, profile }: StaffMarkerProps) {
               <div className="mt-1 font-mono text-[12px] text-sky-700">{profile?.phoneDisplay ?? ping.owner_key}</div>
             </div>
           </div>
+
+          {nearest ? (
+            <div
+              className={`rounded-xl px-3 py-2 text-[12px] ${
+                nearest.inside
+                  ? 'border border-emerald-200 bg-emerald-50 text-emerald-950'
+                  : 'border border-amber-200 bg-amber-50 text-amber-950'
+              }`}
+            >
+              {nearest.inside ? (
+                <>
+                  <strong>Joylashuv:</strong> {nearest.building.name} ichida
+                </>
+              ) : (
+                <>
+                  <strong>Eng yaqin bino:</strong> {nearest.building.name} ({Math.round(nearest.distance_m)} m)
+                </>
+              )}
+            </div>
+          ) : null}
 
           <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1.5 text-[12px]">
             {profile?.faculty ? (
@@ -167,10 +235,37 @@ function StaffMarker({ ping, profile }: StaffMarkerProps) {
             <dd className="text-black/80">
               {ping.accuracy_m != null ? `±${Math.round(ping.accuracy_m)} m` : '—'}
             </dd>
-            <dt className="text-black/45">Backend ID</dt>
-            <dd className="font-mono text-[11px] text-black/55">{ping.owner_key}</dd>
           </dl>
         </div>
+      </Popup>
+    </Marker>
+  );
+}
+
+function BuildingMarker({ building }: { building: CampusBuildingDto }) {
+  const icon = useMemo(
+    () =>
+      L.divIcon({
+        className: 'building-leaflet-marker',
+        html: buildBuildingPinHtml(building.name),
+        iconSize: [120, 72],
+        iconAnchor: [60, 44],
+        popupAnchor: [0, -40],
+      }),
+    [building.name],
+  );
+
+  return (
+    <Marker position={[building.latitude, building.longitude]} icon={icon} zIndexOffset={-100}>
+      <Popup>
+        <div className="text-[13px] font-semibold text-black/90">{building.name}</div>
+        {building.short_code ? (
+          <div className="text-[11px] text-black/55">Kod: {building.short_code}</div>
+        ) : null}
+        <div className="mt-1 text-[11px] text-black/60">
+          {building.latitude.toFixed(5)}, {building.longitude.toFixed(5)}
+        </div>
+        <div className="text-[11px] text-black/50">Ruxsat zonasi: {building.radius_m} m</div>
       </Popup>
     </Marker>
   );
@@ -181,14 +276,12 @@ export type AdminStaffLiveMapPanelProps = {
   buildings: CampusBuildingDto[];
   lastUpdated: Date | null;
   pollIntervalSec: number;
-  /** Mahalliy hodim roʻyxati — popup va pastki kartochkalarda F.I.O. */
   staffDirectory: LocalStaffUser[];
-  /** Tanlangan filtr (12 raqam) — bo‘sh ping uchun aniqroq xabar */
   filterOwnerDigits?: string;
 };
 
 /**
- * OpenStreetMap + hodimlar oxirgi GPS pinglari (har hodimda bittadan) + kampus binolari radiuslari.
+ * OpenStreetMap: hodimlar GPS pinglari + kampus binolari (pin, doirasiz).
  */
 export default function AdminStaffLiveMapPanel({
   pings,
@@ -204,23 +297,20 @@ export default function AdminStaffLiveMapPanel({
       .sort((a, b) => a.owner_key.localeCompare(b.owner_key));
   }, [pings]);
 
-  const points = useMemo((): [number, number][] => {
-    const pts: [number, number][] = latest.map((p) => [p.latitude, p.longitude]);
-    for (const b of buildings) {
-      if (b.is_active && isValidLatLng(b.latitude, b.longitude)) {
-        pts.push([b.latitude, b.longitude]);
-      }
-    }
-    return pts;
-  }, [latest, buildings]);
-
-  const center = useMemo((): [number, number] => (points.length > 0 ? points[0] : DEFAULT_CENTER), [points]);
-
   const activeBuildings = useMemo(
     () => buildings.filter((b) => b.is_active && isValidLatLng(b.latitude, b.longitude)),
     [buildings],
   );
 
+  const points = useMemo((): [number, number][] => {
+    const pts: [number, number][] = latest.map((p) => [p.latitude, p.longitude]);
+    for (const b of activeBuildings) {
+      pts.push([b.latitude, b.longitude]);
+    }
+    return pts;
+  }, [latest, activeBuildings]);
+
+  const viewportKey = filterOwnerDigits.replace(/\D/g, '') || '__all__';
   const filterDigits = filterOwnerDigits.replace(/\D/g, '');
   const filteredSelectedNoData = filterDigits.length >= 12 && latest.length === 0;
 
@@ -228,25 +318,30 @@ export default function AdminStaffLiveMapPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-[12px] text-black/65">
         <p>
-          <strong className="text-black/90">{latest.length}</strong> hodimning oxirgi nuqtasi xaritada
+          <strong className="text-black/90">{latest.length}</strong> hodim ·{' '}
+          <strong className="text-black/90">{activeBuildings.length}</strong> bino xaritada
           {lastUpdated ? (
             <span className="ml-2 text-black/55">· Maʼlumot: {lastUpdated.toLocaleTimeString('uz-UZ')}</span>
           ) : null}
         </p>
-        <p className="text-emerald-800 font-semibold">Avto-yangilanish: {pollIntervalSec}s</p>
+        <p className="font-semibold text-emerald-800">Avto-yangilanish: {pollIntervalSec}s</p>
       </div>
+
+      <p className="text-[11px] leading-relaxed text-black/50">
+        Binolar ko‘k pin bilan belgilangan (doira yo‘q). Hodim joylashuvi zoom/pan qilganda o‘zgarmaydi; faqat GPS
+        yangilanadi. Dars vaqtida ruxsat zonasi har bino atrofida <strong>{activeBuildings[0]?.radius_m ?? 100} m</strong>.
+      </p>
 
       {filteredSelectedNoData ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-          <strong>Tanlangan hodim</strong> uchun hali GPS kelmayapti. Hodim{' '}
-          <strong>telefonda ilovani ochib</strong>, joylashuv ruxsatini berishi va (mavjud bo‘lsa) hodim kabinetida GPS
-          kuzatuvi yoqilgan bo‘lishi kerak; birinchi pingdan keyin xaritada odam belgisi paydo bo‘ladi.
+          <strong>Tanlangan hodim</strong> uchun hali GPS kelmayapti. Hodim telefonda ilovani ochib, joylashuv
+          ruxsatini berishi kerak.
         </div>
       ) : null}
 
-      <div className="relative z-0 w-full overflow-hidden rounded-2xl border border-black/10 bg-sky-50/30 shadow-md h-[min(70vh,640px)] min-h-[420px]">
+      <div className="relative z-0 h-[min(70vh,640px)] min-h-[420px] w-full overflow-hidden rounded-2xl border border-black/10 bg-sky-50/30 shadow-md">
         <MapContainer
-          center={center}
+          center={DEFAULT_CENTER}
           zoom={13}
           scrollWheelZoom
           className="z-0 h-full w-full [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-popup-content]:m-3 [&_.leaflet-popup-content]:mr-6"
@@ -257,33 +352,16 @@ export default function AdminStaffLiveMapPanel({
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <LeafletAttributionStrip />
-          <MapFitBounds points={points} />
+          <MapViewportController points={points} viewportKey={viewportKey} />
           {activeBuildings.map((b) => (
-            <Circle
-              key={`b-${b.id}`}
-              center={[b.latitude, b.longitude]}
-              radius={b.radius_m}
-              pathOptions={{
-                color: '#0369a1',
-                fillColor: '#7dd3fc',
-                fillOpacity: 0.1,
-                weight: 2,
-              }}
-            >
-              <Popup>
-                <div className="text-[13px] font-medium">
-                  {b.name}
-                  {b.short_code ? ` (${b.short_code})` : ''}
-                </div>
-                <div className="text-[11px] text-black/60">Ruxsat radiusi ≈ {b.radius_m} m</div>
-              </Popup>
-            </Circle>
+            <BuildingMarker key={`b-${b.id}`} building={b} />
           ))}
           {latest.map((p) => (
             <StaffMarker
               key={p.owner_key}
               ping={p}
               profile={findStaffProfile(p.owner_key, staffDirectory)}
+              buildings={activeBuildings}
             />
           ))}
         </MapContainer>
@@ -295,6 +373,7 @@ export default function AdminStaffLiveMapPanel({
           {latest.map((p) => {
             const profile = findStaffProfile(p.owner_key, staffDirectory);
             const accent = hueForOwner(p.owner_key);
+            const nearest = matchNearestBuilding(p.latitude, p.longitude, activeBuildings);
             return (
               <div
                 key={p.owner_key}
@@ -302,18 +381,18 @@ export default function AdminStaffLiveMapPanel({
               >
                 <div
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold text-white shadow"
-                  style={{
-                    background: `linear-gradient(145deg, ${accent}, #0f172a)`,
-                  }}
+                  style={{ background: `linear-gradient(145deg, ${accent}, #0f172a)` }}
                   aria-hidden
                 >
                   {initialsFromProfile(profile, p.owner_key)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold text-black/90">
-                    {profile?.displayName ?? p.owner_key}
-                  </div>
-                  <div className="font-mono text-[11px] text-black/45">{p.owner_key}</div>
+                  <div className="truncate font-semibold text-black/90">{profile?.displayName ?? p.owner_key}</div>
+                  {nearest ? (
+                    <div className={`truncate text-[11px] ${nearest.inside ? 'text-emerald-700' : 'text-amber-800'}`}>
+                      {nearest.inside ? nearest.building.name : `${nearest.building.name} (${Math.round(nearest.distance_m)} m)`}
+                    </div>
+                  ) : null}
                   <div className="text-black/55">{formatAgeUz(p.recorded_at)}</div>
                 </div>
               </div>
@@ -323,11 +402,7 @@ export default function AdminStaffLiveMapPanel({
         {latest.length === 0 ? (
           <div className="space-y-2 rounded-xl border border-dashed border-black/15 bg-black/[0.02] px-4 py-6 text-center text-[13px] text-black/50">
             <p>
-              Hozircha xaritada <strong className="text-black/70">GPS ping yoʻq</strong> — markerlar paydo boʻlishi uchun
-              hodimlar ilovadan joylashuv yuborishi kerak.
-            </p>
-            <p className="text-[12px] text-black/40">
-              Masalan, hodim brauzerda tizimga kirgan boʻlsa, joylashuv kuzatuvi yoqilgan paytda ping ketadi.
+              Hozircha xaritada <strong className="text-black/70">GPS ping yoʻq</strong>.
             </p>
           </div>
         ) : null}

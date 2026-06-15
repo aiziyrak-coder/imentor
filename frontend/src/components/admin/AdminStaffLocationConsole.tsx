@@ -192,7 +192,7 @@ export default function AdminStaffLocationConsole() {
 
   const [weekInfo, setWeekInfo] = useState<ScheduleWeekInfoDto | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>('single');
-  const [legacyRadius, setLegacyRadius] = useState(1000);
+  const [legacyRadius, setLegacyRadius] = useState(100);
   const [intervalsEvery, setIntervalsEvery] = useState<IntervalsByWeekday>(() => emptyIntervals());
   const [intervalsUpper, setIntervalsUpper] = useState<IntervalsByWeekday>(() => emptyIntervals());
   const [intervalsLower, setIntervalsLower] = useState<IntervalsByWeekday>(() => emptyIntervals());
@@ -754,7 +754,8 @@ export default function AdminStaffLocationConsole() {
             <h2 className="text-[15px] font-bold text-black/90">Haftalik jadval</h2>
             <p className="text-[12px] text-black/55 leading-relaxed">
               Har bir kun uchun bir nechta vaqt oralig‘i qo‘shing (turli binolar). GPS nazorati slot tugash vaqtigacha
-              shu binoning radiusida bo‘lishni kutadi. Bir kunda vaqtlar ustma-ust tushmasligi kerak.
+              Har qator uchun <strong>bino</strong> tanlang — dars vaqtida hodim shu bino atrofida (100 m) bo‘lishi kerak.
+              Bir kunda vaqtlar ustma-ust tushmasligi kerak.
             </p>
 
             <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-2 text-[12px] text-black/70">

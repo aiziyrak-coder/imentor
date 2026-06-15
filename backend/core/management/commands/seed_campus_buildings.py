@@ -36,22 +36,24 @@ class Command(BaseCommand):
             raise CommandError("JSON root must be an array.")
 
         dry_run = bool(options["dry_run"])
-        created = updated = 0
+        created = updated = deactivated = 0
+        seeded_names: set[str] = set()
 
         @transaction.atomic
         def _run():
-            nonlocal created, updated
+            nonlocal created, updated, deactivated
             for row in rows:
                 if not isinstance(row, dict):
                     continue
                 name = (row.get("name") or "").strip()
                 if not name:
                     continue
+                seeded_names.add(name)
                 defaults = {
                     "short_code": row.get("short_code", ""),
                     "latitude": row["latitude"],
                     "longitude": row["longitude"],
-                    "radius_m": row.get("radius_m", 1000),
+                    "radius_m": row.get("radius_m", 100),
                     "sort_order": row.get("sort_order", 0),
                     "notes": row.get("notes", ""),
                     "is_active": row.get("is_active", True),
@@ -70,13 +72,19 @@ class Command(BaseCommand):
                 else:
                     updated += 1
 
+            if not dry_run and seeded_names:
+                deactivated = CampusBuilding.objects.filter(is_active=True).exclude(
+                    name__in=seeded_names
+                ).update(is_active=False)
+
         _run()
         if dry_run:
             self.stdout.write(self.style.SUCCESS(f"Dry run: {len(rows)} rows processed."))
         else:
-            total = CampusBuilding.objects.count()
+            total = CampusBuilding.objects.filter(is_active=True).count()
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Done: {created} created, {updated} updated. Total buildings: {total}."
+                    f"Done: {created} created, {updated} updated, {deactivated} deactivated. "
+                    f"Active buildings: {total}."
                 )
             )

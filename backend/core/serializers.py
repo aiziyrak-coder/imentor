@@ -445,7 +445,7 @@ class StaffScheduleBulkRowSerializer(serializers.Serializer):
     building_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     latitude = serializers.FloatField(required=False, allow_null=True)
     longitude = serializers.FloatField(required=False, allow_null=True)
-    radius_m = serializers.IntegerField(min_value=30, max_value=50_000, default=1000)
+    radius_m = serializers.IntegerField(min_value=30, max_value=50_000, default=100)
     title = serializers.CharField(max_length=255, allow_blank=True, default='')
 
     def validate(self, attrs):

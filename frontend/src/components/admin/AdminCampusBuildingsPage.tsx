@@ -13,7 +13,7 @@ const emptyForm = {
   short_code: '',
   latitude: '41.311151',
   longitude: '69.279737',
-  radius_m: 1000,
+  radius_m: 100,
   sort_order: 0,
   notes: '',
 };
@@ -210,7 +210,7 @@ export default function AdminCampusBuildingsPage() {
                           type="number"
                           className="w-20 rounded border border-black/10 px-1 py-1"
                           value={editForm.radius_m}
-                          onChange={(e) => setEditForm((f) => ({ ...f, radius_m: Number(e.target.value) || 1000 }))}
+                          onChange={(e) => setEditForm((f) => ({ ...f, radius_m: Number(e.target.value) || 100 }))}
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -323,7 +323,7 @@ export default function AdminCampusBuildingsPage() {
             <input
               type="number"
               value={form.radius_m}
-              onChange={(e) => setForm((f) => ({ ...f, radius_m: Number(e.target.value) || 1000 }))}
+              onChange={(e) => setForm((f) => ({ ...f, radius_m: Number(e.target.value) || 100 }))}
               className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
             />
           </label>

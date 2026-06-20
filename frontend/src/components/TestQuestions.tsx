@@ -5,11 +5,14 @@ import {
   Loader2,
   CheckCircle2,
   Brain,
-  QrCode,
   Copy,
   Users,
   Send,
   BarChart3,
+  Download,
+  FileText,
+  KeyRound,
+  Lock,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { aiService, TestSession, TestQuestion } from '../services/aiService';
@@ -25,6 +28,7 @@ import {
   normTopicKey,
   type PreparedContentSummary,
 } from '../utils/preparedContentStore';
+import { buildPreparedContentMeta } from '../utils/preparedContentMeta';
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
 import { messageFromAiError } from '../utils/aiErrors';
 import {
@@ -32,8 +36,17 @@ import {
   fetchLiveTestSessionFromServer,
   submitLiveTestOnServer,
   fetchLiveTestSubmissionsFromServer,
+  finalizeLiveTestSessionOnServer,
+  upsertLiveTestDraftOnServer,
+  getLiveTestParticipantKey,
 } from '../utils/liveTestApi';
 import MedicalReferencesList from './staff/MedicalReferencesList';
+import {
+  downloadTestAnswerKeyPdf,
+  downloadTestQuestionsPdf,
+  downloadTestResultsPdf,
+} from '../utils/buildTestPdf';
+import { gradeBadgeClass, scoreToGrade } from '../utils/testGrading';
 
 interface LiveTestSessionDoc {
   topic: string;
@@ -155,6 +168,7 @@ export default function TestQuestions() {
     saveLocalSession(sid, doc);
     saveLocalSubmissions(sid, []);
     setTeacherSessionId(sid);
+    setSessionClosed(false);
     setJoinUrl(
       `${window.location.origin}${window.location.pathname}?mode=student&sid=${encodeURIComponent(sid)}`
     );
@@ -174,6 +188,11 @@ export default function TestQuestions() {
   const [joinUrl, setJoinUrl] = useState('');
   const [submissions, setSubmissions] = useState<TestSubmissionDoc[]>([]);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [downloadingTestPdf, setDownloadingTestPdf] = useState(false);
+  const [downloadingKeyPdf, setDownloadingKeyPdf] = useState(false);
+  const [downloadingResultsPdf, setDownloadingResultsPdf] = useState(false);
+  const [sessionClosed, setSessionClosed] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
 
   const [studentFirstName, setStudentFirstName] = useState('');
   const [studentLastName, setStudentLastName] = useState('');
@@ -184,6 +203,29 @@ export default function TestQuestions() {
 
   const [sessionLoading, setSessionLoading] = useState(isStudentMode && !!studentSessionId);
   const serverSessionSyncedRef = useRef<string | null>(null);
+  const participantKeyRef = useRef('');
+
+  const mapServerSubmissions = React.useCallback(
+    (rows: Array<{ firstName: string; lastName: string; answers: number[]; submittedAt: number }>) =>
+      rows.map((r) => ({
+        sessionId: teacherSessionId,
+        firstName: r.firstName,
+        lastName: r.lastName,
+        answers: r.answers,
+        submittedAt: r.submittedAt,
+      })),
+    [teacherSessionId]
+  );
+
+  const refreshSessionClosedFromServer = React.useCallback(async (sessionKey: string) => {
+    if (!sessionKey) return;
+    try {
+      const remote = await fetchLiveTestSessionFromServer(sessionKey);
+      if (remote) setSessionClosed(Boolean(remote.isClosed));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (!isStudentMode || !studentSessionId) {
@@ -195,37 +237,66 @@ export default function TestQuestions() {
     setError(null);
 
     (async () => {
-      const local = loadLocalSession(studentSessionId);
-      if (local) {
-        if (!cancelled) {
-          setStudentTest(local);
-          setStudentAnswers(new Array(local.questions.length).fill(-1));
-          setSessionLoading(false);
+      participantKeyRef.current = getLiveTestParticipantKey(studentSessionId);
+
+      const applyClosed = (closed: boolean) => {
+        if (closed) {
+          setSessionClosed(true);
+          setError("Test yakunlangan. O'qituvchi natijalarni ko'rdi — yangi test uchun o'qituvchidan so'rang.");
         }
-        return;
-      }
+      };
+
       try {
         const remote = await fetchLiveTestSessionFromServer(studentSessionId);
         if (cancelled) return;
+        if (remote?.isClosed) {
+          applyClosed(true);
+          setSessionLoading(false);
+          return;
+        }
         if (remote && remote.questions.length > 0) {
           const doc: LiveTestSessionDoc = {
             topic: remote.topic,
             questions: remote.questions,
             createdAt: remote.createdAt,
           };
+          saveLocalSession(studentSessionId, doc);
           setStudentTest(doc);
           setStudentAnswers(new Array(doc.questions.length).fill(-1));
-        } else {
-          setError(
-            "Test sessiyasi topilmadi. O'qituvchi testni yaratgan va QR yangilanganligini tekshiring."
-          );
+          setSessionLoading(false);
+          void upsertLiveTestDraftOnServer(studentSessionId, {
+            participantKey: participantKeyRef.current,
+            firstName: '',
+            lastName: '',
+            answers: new Array(doc.questions.length).fill(-1),
+          }).catch(() => {});
+          return;
         }
       } catch {
+        /* serverdan o'qib bo'lmasa local fallback */
+      }
+
+      const local = loadLocalSession(studentSessionId);
+      if (local) {
         if (!cancelled) {
-          setError("Serverga ulanib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
+          setStudentTest(local);
+          setStudentAnswers(new Array(local.questions.length).fill(-1));
+          setSessionLoading(false);
+          void upsertLiveTestDraftOnServer(studentSessionId, {
+            participantKey: participantKeyRef.current,
+            firstName: '',
+            lastName: '',
+            answers: new Array(local.questions.length).fill(-1),
+          }).catch(() => {});
         }
-      } finally {
-        if (!cancelled) setSessionLoading(false);
+        return;
+      }
+
+      if (!cancelled) {
+        setError(
+          "Test sessiyasi topilmadi. O'qituvchi testni yaratgan va QR yangilanganligini tekshiring."
+        );
+        setSessionLoading(false);
       }
     })();
 
@@ -233,6 +304,33 @@ export default function TestQuestions() {
       cancelled = true;
     };
   }, [isStudentMode, studentSessionId]);
+
+  useEffect(() => {
+    if (isStudentMode || !studentSessionId || !studentTest || studentSubmitted || sessionClosed) return;
+    const timer = window.setTimeout(() => {
+      void upsertLiveTestDraftOnServer(studentSessionId, {
+        participantKey: participantKeyRef.current,
+        firstName: studentFirstName,
+        lastName: studentLastName,
+        answers: studentAnswers,
+      }).catch(() => {});
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    isStudentMode,
+    studentSessionId,
+    studentTest,
+    studentSubmitted,
+    sessionClosed,
+    studentFirstName,
+    studentLastName,
+    studentAnswers,
+  ]);
+
+  useEffect(() => {
+    if (isStudentMode || !teacherSessionId) return;
+    void refreshSessionClosedFromServer(teacherSessionId);
+  }, [isStudentMode, teacherSessionId, refreshSessionClosedFromServer]);
 
   useEffect(() => {
     refreshVersions();
@@ -264,7 +362,7 @@ export default function TestQuestions() {
   }, [isStudentMode, topic, refreshVersions]);
 
   useEffect(() => {
-    if (isStudentMode || !teacherSessionId) return;
+    if (isStudentMode || !teacherSessionId || sessionClosed) return;
 
     const loadLocalNow = () => {
       const list = loadLocalSubmissions(teacherSessionId);
@@ -318,7 +416,40 @@ export default function TestQuestions() {
       window.clearInterval(intervalId);
       window.removeEventListener('storage', onStorage);
     };
-  }, [isStudentMode, teacherSessionId]);
+  }, [isStudentMode, teacherSessionId, sessionClosed]);
+
+  const handleFinalizeSession = async (): Promise<boolean> => {
+    if (!teacherSessionId || !testSession || sessionClosed) return Boolean(sessionClosed);
+    setFinalizing(true);
+    setError(null);
+    try {
+      const result = await finalizeLiveTestSessionOnServer(teacherSessionId);
+      setSessionClosed(result.isClosed);
+      setSubmissions(mapServerSubmissions(result.submissions));
+      return true;
+    } catch (err) {
+      console.error('Finalize error:', err);
+      setError(t('test.errorFinalize'));
+      return false;
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
+  const handleViewAnalysis = async () => {
+    if (!sessionClosed) {
+      const ok = await handleFinalizeSession();
+      if (!ok) return;
+    }
+    setShowAnalysis(true);
+  };
+
+  const handleViewResults = async () => {
+    if (!sessionClosed) {
+      await handleFinalizeSession();
+    }
+    setShowAnalysis(false);
+  };
 
   useEffect(() => {
     serverSessionSyncedRef.current = null;
@@ -348,7 +479,7 @@ export default function TestQuestions() {
     setError(null);
     try {
       const data = await aiService.generateTests(topic, 10, language);
-      await savePreparedContent('test', topic, data);
+      await savePreparedContent('test', topic, data, buildPreparedContentMeta(globalTopic));
       refreshVersions();
       const list = listPreparedForTopic('test', topic);
       const sid = setupTeacherLiveSession(data);
@@ -386,6 +517,53 @@ export default function TestQuestions() {
     return answers.filter((a, i) => a === questions[i].correctOptionIndex).length;
   };
 
+  const handleDownloadTestPdf = async () => {
+    if (!testSession) return;
+    setDownloadingTestPdf(true);
+    try {
+      await downloadTestQuestionsPdf(testSession);
+    } catch (err) {
+      console.error('Test PDF error:', err);
+      setError(t('test.errorPdf'));
+    } finally {
+      setDownloadingTestPdf(false);
+    }
+  };
+
+  const handleDownloadKeyPdf = async () => {
+    if (!testSession) return;
+    setDownloadingKeyPdf(true);
+    try {
+      await downloadTestAnswerKeyPdf(testSession);
+    } catch (err) {
+      console.error('Answer key PDF error:', err);
+      setError(t('test.errorPdf'));
+    } finally {
+      setDownloadingKeyPdf(false);
+    }
+  };
+
+  const handleDownloadResultsPdf = async () => {
+    if (!testSession || submissions.length === 0) return;
+    setDownloadingResultsPdf(true);
+    try {
+      await downloadTestResultsPdf(
+        testSession,
+        submissions.map((s) => ({
+          firstName: s.firstName,
+          lastName: s.lastName,
+          answers: s.answers,
+          submittedAt: s.submittedAt,
+        }))
+      );
+    } catch (err) {
+      console.error('Results PDF error:', err);
+      setError(t('test.errorPdf'));
+    } finally {
+      setDownloadingResultsPdf(false);
+    }
+  };
+
   const handleStudentSubmit = async () => {
     if (!studentTest || !studentSessionId) return;
     if (!studentFirstName.trim() || !studentLastName.trim()) {
@@ -400,6 +578,7 @@ export default function TestQuestions() {
     setError(null);
     try {
       await submitLiveTestOnServer(studentSessionId, {
+        participantKey: participantKeyRef.current,
         firstName: studentFirstName.trim(),
         lastName: studentLastName.trim(),
         answers: studentAnswers,
@@ -440,6 +619,12 @@ export default function TestQuestions() {
             <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-3xl p-6 text-center font-medium">
               {error}
             </div>
+          ) : sessionClosed ? (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-3xl p-8 text-center space-y-3">
+              <Lock size={32} className="mx-auto text-amber-700" />
+              <p className="font-bold text-lg">{t('test.sessionClosedStudent')}</p>
+              <p className="text-sm text-amber-800/80">{t('test.sessionClosedStudentHint')}</p>
+            </div>
           ) : studentTest ? (
             <>
               <div className="bg-white rounded-3xl p-6 border border-gray-100">
@@ -449,14 +634,14 @@ export default function TestQuestions() {
                     value={studentFirstName}
                     onChange={(e) => setStudentFirstName(e.target.value)}
                     placeholder="Ism"
-                    disabled={studentSubmitted}
+                    disabled={studentSubmitted || sessionClosed}
                     className="px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                   <input
                     value={studentLastName}
                     onChange={(e) => setStudentLastName(e.target.value)}
                     placeholder="Familiya"
-                    disabled={studentSubmitted}
+                    disabled={studentSubmitted || sessionClosed}
                     className="px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                 </div>
@@ -471,7 +656,7 @@ export default function TestQuestions() {
                         <button
                           key={optIdx}
                           onClick={() => handleStudentAnswer(i, optIdx)}
-                          disabled={studentSubmitted}
+                          disabled={studentSubmitted || sessionClosed}
                           className={`w-full text-left p-3 rounded-xl border ${
                             studentAnswers[i] === optIdx ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'
                           }`}
@@ -484,7 +669,7 @@ export default function TestQuestions() {
                 ))}
               </div>
 
-              {!studentSubmitted ? (
+              {!studentSubmitted && !sessionClosed ? (
                 <button
                   onClick={handleStudentSubmit}
                   disabled={studentLoading}
@@ -493,11 +678,11 @@ export default function TestQuestions() {
                   {studentLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                   Yuborish
                 </button>
-              ) : (
+              ) : studentSubmitted ? (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-xl font-semibold">
                   Javoblaringiz muvaffaqiyatli yuborildi. Rahmat!
                 </div>
-              )}
+              ) : null}
             </>
           ) : null}
           {error && studentTest && (
@@ -573,11 +758,54 @@ export default function TestQuestions() {
             className="space-y-6"
           >
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-              <h2 className="text-2xl font-bold text-gray-800">{testSession.topic}</h2>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <h2 className="text-2xl font-bold text-gray-800">{testSession.topic}</h2>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadTestPdf()}
+                    disabled={downloadingTestPdf}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50"
+                  >
+                    {downloadingTestPdf ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                    {t('test.downloadTestPdf')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadKeyPdf()}
+                    disabled={downloadingKeyPdf}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    {downloadingKeyPdf ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                    {t('test.downloadKeyPdf')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadResultsPdf()}
+                    disabled={downloadingResultsPdf || submissions.length === 0}
+                    title={submissions.length === 0 ? t('test.noResultsYet') : undefined}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {downloadingResultsPdf ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                    {t('test.downloadResultsPdf')} ({submissions.length})
+                  </button>
+                </div>
+              </div>
               {testSession.references && testSession.references.length > 0 && (
                 <MedicalReferencesList references={testSession.references} />
               )}
-              {joinUrl && (
+
+              {sessionClosed && (
+                <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+                  <Lock size={18} className="shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">{t('test.sessionClosedTeacher')}</p>
+                    <p className="text-sm text-amber-800/85 mt-1">{t('test.sessionClosedTeacherHint')}</p>
+                  </div>
+                </div>
+              )}
+
+              {joinUrl && !sessionClosed && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
                   <div className="lg:col-span-1 flex justify-center">
                     <div className="bg-white border-4 border-indigo-200 rounded-2xl p-4 shadow-md">
@@ -609,17 +837,33 @@ export default function TestQuestions() {
                     </div>
                     <div className="flex gap-2 flex-wrap">
                       <button
-                        onClick={() => setShowAnalysis(false)}
+                        type="button"
+                        onClick={() => void handleViewResults()}
+                        disabled={finalizing}
                         className={`px-4 py-2 rounded-xl font-semibold ${!showAnalysis ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                       >
-                        <Users size={16} className="inline mr-1" /> Realtime javoblar
+                        {finalizing ? <Loader2 size={16} className="inline mr-1 animate-spin" /> : <Users size={16} className="inline mr-1" />}
+                        {t('test.viewResults')}
                       </button>
                       <button
-                        onClick={() => setShowAnalysis(true)}
+                        type="button"
+                        onClick={() => void handleViewAnalysis()}
+                        disabled={finalizing}
                         className={`px-4 py-2 rounded-xl font-semibold ${showAnalysis ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                       >
-                        <BarChart3 size={16} className="inline mr-1" /> Testni tahlil qilish
+                        <BarChart3 size={16} className="inline mr-1" /> {t('test.viewAnalysis')}
                       </button>
+                      {!sessionClosed && (
+                        <button
+                          type="button"
+                          onClick={() => void handleFinalizeSession()}
+                          disabled={finalizing}
+                          className="px-4 py-2 rounded-xl font-semibold bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50"
+                        >
+                          {finalizing ? <Loader2 size={16} className="inline mr-1 animate-spin" /> : <Lock size={16} className="inline mr-1" />}
+                          {t('test.finalizeSession')}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -628,8 +872,13 @@ export default function TestQuestions() {
 
             {!showAnalysis ? (
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-                <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-gray-700">
-                  Realtime topshirgan talabalar ({submissions.length})
+                <div className="px-4 py-3 border-b bg-gray-50 font-semibold text-gray-700 flex items-center justify-between gap-3 flex-wrap">
+                  <span>{t('test.resultsTitle')} ({submissions.length})</span>
+                  {sessionClosed && (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                      {t('test.sessionFinalized')}
+                    </span>
+                  )}
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -637,24 +886,35 @@ export default function TestQuestions() {
                       <tr className="text-left text-gray-500 border-b">
                         <th className="px-4 py-3">Talaba</th>
                         <th className="px-4 py-3">Ball</th>
+                        <th className="px-4 py-3">{t('test.gradeColumn')}</th>
                         <th className="px-4 py-3">Vaqt</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {submissions.map((s, idx) => (
+                      {submissions.map((s, idx) => {
+                        const score = calculateScore(s.answers, testSession.questions);
+                        const total = testSession.questions.length;
+                        const grade = scoreToGrade(score, total);
+                        return (
                         <tr key={idx} className="border-b last:border-b-0">
                           <td className="px-4 py-3 font-medium">{s.firstName} {s.lastName}</td>
                           <td className="px-4 py-3">
-                            {calculateScore(s.answers, testSession.questions)} / {testSession.questions.length}
+                            {score} / {total}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center justify-center min-w-[2rem] px-2.5 py-1 rounded-lg border text-sm font-bold ${gradeBadgeClass(grade)}`}>
+                              {grade}
+                            </span>
                           </td>
                           <td className="px-4 py-3 text-gray-500">
                             {new Date(s.submittedAt).toLocaleString('uz-UZ')}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                       {submissions.length === 0 && (
                         <tr>
-                          <td colSpan={3} className="px-4 py-8 text-center text-gray-400">
+                          <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
                             Hali hech kim yubormadi...
                           </td>
                         </tr>
@@ -711,15 +971,27 @@ export default function TestQuestions() {
             )}
 
             <div className="flex flex-wrap justify-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => void handleGenerate()}
-                disabled={loading}
-                className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                Yana yangi test (yangi QR)
-              </button>
+              {sessionClosed ? (
+                <button
+                  type="button"
+                  onClick={() => void handleGenerate()}
+                  disabled={loading}
+                  className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                  {t('test.createNewAfterClose')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleGenerate()}
+                  disabled={loading}
+                  className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                  Yana yangi test (yangi QR)
+                </button>
+              )}
             </div>
           </motion.div>
         )}

@@ -172,7 +172,7 @@ export default function SyllabusView({
     const instructionLanguage = resolveSyllabusInstructionLanguage(syllabus);
     applyInstructionLanguage(instructionLanguage, setLanguage);
     onSelectTopic(
-      buildTopicContext(topic, syllabus.id, syllabus.subject_name, variantLabel, instructionLanguage),
+      buildTopicContext(topic, syllabus.id, syllabus.subject_name, syllabus.subject_code, variantLabel, instructionLanguage),
     );
   };
 
@@ -585,7 +585,7 @@ function TopicColumn({
     const idx = topics.findIndex((topic) =>
       topicsMatch(
         selectedTopic,
-        buildTopicContext(topic, syllabus.id, syllabus.subject_name, variantLabel, instructionLanguage),
+        buildTopicContext(topic, syllabus.id, syllabus.subject_name, syllabus.subject_code, variantLabel, instructionLanguage),
       ),
     );
     if (idx >= 0) setPage(Math.floor(idx / TOPICS_PER_PAGE));
@@ -627,6 +627,7 @@ function TopicColumn({
               topic,
               syllabus.id,
               syllabus.subject_name,
+              syllabus.subject_code,
               variantLabel,
               resolveSyllabusInstructionLanguage(syllabus),
             );

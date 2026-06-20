@@ -17,6 +17,9 @@ class PreparedContent(models.Model):
     kind = models.CharField(max_length=32, db_index=True, choices=KIND_CHOICES)
     topic = models.CharField(max_length=255)
     topic_norm = models.CharField(max_length=255, db_index=True)
+    author_display_name = models.CharField(max_length=128, blank=True, default='')
+    subject_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    subject_code = models.CharField(max_length=64, blank=True, default='', db_index=True)
     payload = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -143,6 +146,8 @@ class LiveTestSession(models.Model):
     session_key = models.CharField(max_length=160, unique=True, db_index=True)
     owner_key = models.CharField(max_length=128, db_index=True)
     payload = models.JSONField()
+    is_closed = models.BooleanField(default=False, db_index=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -156,6 +161,7 @@ class LiveTestSession(models.Model):
 
 class LiveTestSubmission(models.Model):
     session = models.ForeignKey(LiveTestSession, on_delete=models.CASCADE, related_name='submissions')
+    participant_key = models.CharField(max_length=64, blank=True, default='', db_index=True)
     first_name = models.CharField(max_length=128)
     last_name = models.CharField(max_length=128)
     answers = models.JSONField()
@@ -168,6 +174,31 @@ class LiveTestSubmission(models.Model):
 
     def __str__(self) -> str:
         return f"{self.session.session_key}:{self.last_name}"
+
+
+class LiveTestDraft(models.Model):
+    """Talaba QR orqali test ochganda va yuborishdan oldin draft javoblarni saqlaydi."""
+
+    session = models.ForeignKey(LiveTestSession, on_delete=models.CASCADE, related_name='drafts')
+    participant_key = models.CharField(max_length=64, db_index=True)
+    first_name = models.CharField(max_length=128, blank=True, default='')
+    last_name = models.CharField(max_length=128, blank=True, default='')
+    answers = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Test draft"
+        verbose_name_plural = "Test draftlari"
+        constraints = [
+            models.UniqueConstraint(
+                fields=['session', 'participant_key'],
+                name='uniq_live_test_draft_participant',
+            ),
+        ]
+        ordering = ['-updated_at']
+
+    def __str__(self) -> str:
+        return f"{self.session.session_key}:{self.participant_key}"
 
 
 class StartupProjectApplication(models.Model):
@@ -554,3 +585,129 @@ class StaffProfile(models.Model):
 
     def __str__(self) -> str:
         return self.owner_key
+
+
+class ClinicalGroup(models.Model):
+    """Klinika / tibbiyot guruhi — alohida tenant."""
+
+    PLAN_BASIC = "basic"
+    PLAN_STANDARD = "standard"
+    PLAN_PREMIUM = "premium"
+    PLAN_CHOICES = [
+        (PLAN_BASIC, "Basic"),
+        (PLAN_STANDARD, "Standard"),
+        (PLAN_PREMIUM, "Premium"),
+    ]
+
+    STATUS_ACTIVE = "active"
+    STATUS_TRIAL = "trial"
+    STATUS_SUSPENDED = "suspended"
+    STATUS_EXPIRED = "expired"
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_TRIAL, "Trial"),
+        (STATUS_SUSPENDED, "Suspended"),
+        (STATUS_EXPIRED, "Expired"),
+    ]
+
+    name = models.CharField(max_length=255)
+    code = models.SlugField(max_length=64, unique=True, blank=True)
+    address = models.CharField(max_length=512, blank=True)
+    phone = models.CharField(max_length=32, blank=True)
+    contact_person = models.CharField(max_length=255, blank=True)
+    subscription_plan = models.CharField(
+        max_length=32, choices=PLAN_CHOICES, default=PLAN_STANDARD
+    )
+    subscription_status = models.CharField(
+        max_length=32, choices=STATUS_CHOICES, default=STATUS_ACTIVE
+    )
+    subscription_until = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Klinika guruhi"
+        verbose_name_plural = "Klinika guruhlari"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ClinicalGroupMember(models.Model):
+    """Klinika guruhidagi foydalanuvchi."""
+
+    clinic = models.ForeignKey(
+        ClinicalGroup, on_delete=models.CASCADE, related_name="members"
+    )
+    owner_key = models.CharField(max_length=128, db_index=True)
+    app_role = models.CharField(max_length=16, default="hodim")
+    is_clinic_admin = models.BooleanField(default=False)
+    first_name = models.CharField(max_length=128, blank=True)
+    last_name = models.CharField(max_length=128, blank=True)
+    faculty = models.CharField(max_length=255, blank=True)
+    department = models.CharField(max_length=255, blank=True)
+    direction = models.CharField(max_length=255, blank=True)
+    job_title = models.CharField(max_length=255, blank=True)
+    study_group = models.CharField(max_length=128, blank=True)
+    participant_kind = models.CharField(max_length=16, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Klinika aʼzosi"
+        verbose_name_plural = "Klinika aʼzolari"
+        ordering = ["-is_clinic_admin", "last_name", "first_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["clinic", "owner_key"],
+                name="core_clinicalgroupmember_clinic_owner_uniq",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_key} @ {self.clinic.name}"
+
+
+class ClinicalGroupPayment(models.Model):
+    """Klinika to‘lovlari."""
+
+    STATUS_PENDING = "pending"
+    STATUS_PAID = "paid"
+    STATUS_OVERDUE = "overdue"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Kutilmoqda"),
+        (STATUS_PAID, "To‘langan"),
+        (STATUS_OVERDUE, "Muddati o‘tgan"),
+        (STATUS_CANCELLED, "Bekor qilingan"),
+    ]
+
+    clinic = models.ForeignKey(
+        ClinicalGroup, on_delete=models.CASCADE, related_name="payments"
+    )
+    amount_uzs = models.DecimalField(max_digits=14, decimal_places=2)
+    period_label = models.CharField(max_length=128)
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING
+    )
+    paid_at = models.DateTimeField(null=True, blank=True)
+    payment_method = models.CharField(max_length=64, blank=True)
+    reference = models.CharField(max_length=128, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.CharField(max_length=128, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Klinika to‘lovi"
+        verbose_name_plural = "Klinika to‘lovlari"
+        ordering = ["-period_start", "-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.clinic.name} — {self.period_label} ({self.amount_uzs} UZS)"

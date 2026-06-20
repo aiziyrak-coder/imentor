@@ -5,6 +5,7 @@ import type { AppLanguage } from '../i18n/language';
 export interface SyllabusTopicContext extends SyllabusTopic {
   syllabusId: number;
   subjectName: string;
+  subjectCode: string;
   variantLabel: string;
   /** Fan o'qitilish tili — platforma va AI shu tilga o'tadi */
   instructionLanguage: AppLanguage;
@@ -17,6 +18,7 @@ export function buildTopicContext(
   topic: SyllabusTopic,
   syllabusId: number,
   subjectName: string,
+  subjectCode: string,
   variantLabel: string,
   instructionLanguage: AppLanguage,
 ): SyllabusTopicContext {
@@ -24,6 +26,7 @@ export function buildTopicContext(
     ...topic,
     syllabusId,
     subjectName,
+    subjectCode,
     variantLabel,
     instructionLanguage,
   };
@@ -148,6 +151,9 @@ export function loadPersistedSelectedTopic(): SyllabusTopicContext | null {
     if (!parsed?.id || !parsed?.title || parsed.syllabusId == null || !parsed.variantLabel) return null;
     if (!parsed.instructionLanguage) {
       parsed.instructionLanguage = 'uz';
+    }
+    if (!parsed.subjectCode) {
+      parsed.subjectCode = '';
     }
     return parsed;
   } catch {

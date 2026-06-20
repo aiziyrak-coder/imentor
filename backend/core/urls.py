@@ -25,6 +25,11 @@ from .syllabus_catalog_views import (
     StaffCourseSelectionDetailView,
     StaffCourseSelectionListView,
 )
+from .content_catalog_views import (
+    ContentCatalogDetailView,
+    ContentCatalogListView,
+    ContentCatalogSubjectsView,
+)
 from .migrate_views import MigrateFullExportView
 from .staff_profile_views import StaffAvatarView
 from .views import (
@@ -38,6 +43,8 @@ from .views import (
     AuthMeView,
     HealthView,
     LiveTestPublicRetrieveView,
+    LiveTestDraftUpsertView,
+    LiveTestFinalizeView,
     LiveTestSubmissionView,
     LiveTestUpsertView,
     AdminDeprovisionStaffView,
@@ -60,6 +67,9 @@ from .views import (
 )
 
 urlpatterns = [
+    path('v1/content-catalog/', ContentCatalogListView.as_view(), name='content-catalog-list'),
+    path('v1/content-catalog/subjects/', ContentCatalogSubjectsView.as_view(), name='content-catalog-subjects'),
+    path('v1/content-catalog/<int:pk>/', ContentCatalogDetailView.as_view(), name='content-catalog-detail'),
     path('v1/migrate/full-export/', MigrateFullExportView.as_view(), name='migrate-full-export'),
     path('health/', HealthView.as_view(), name='health'),
     path('prepared-content/', PreparedContentView.as_view(), name='prepared-content'),
@@ -74,6 +84,8 @@ urlpatterns = [
     path('v1/course-syllabuses/my/<int:syllabus_id>/', StaffCourseSelectionDetailView.as_view(), name='staff-course-selection-detail'),
     path('v1/live-tests/', LiveTestUpsertView.as_view(), name='live-tests-upsert'),
     path('v1/live-tests/<str:session_key>/', LiveTestPublicRetrieveView.as_view(), name='live-tests-public'),
+    path('v1/live-tests/<str:session_key>/drafts/', LiveTestDraftUpsertView.as_view(), name='live-tests-drafts'),
+    path('v1/live-tests/<str:session_key>/finalize/', LiveTestFinalizeView.as_view(), name='live-tests-finalize'),
     path('v1/live-tests/<str:session_key>/submissions/', LiveTestSubmissionView.as_view(), name='live-tests-submissions'),
     path('v1/auth/me/', AuthMeView.as_view(), name='auth-me'),
     path('v1/auth/me/avatar/', StaffAvatarView.as_view(), name='auth-me-avatar'),

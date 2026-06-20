@@ -56,10 +56,17 @@ function writeLocal(owner: string, kind: PreparedContentKind, rows: PreparedCont
   localStorage.setItem(localKey(owner, kind), JSON.stringify(rows.slice(0, MAX_LOCAL_PER_KIND)));
 }
 
+export type PreparedContentMeta = {
+  authorDisplayName?: string;
+  subjectName?: string;
+  subjectCode?: string;
+};
+
 export async function savePreparedContent(
   kind: PreparedContentKind,
   topic: string,
-  payload: unknown
+  payload: unknown,
+  meta?: PreparedContentMeta
 ): Promise<void> {
   const owner = ownerKey();
   if (!owner) return;
@@ -90,6 +97,9 @@ export async function savePreparedContent(
         kind: rec.kind,
         topic: rec.topic,
         topic_norm: rec.topicNorm,
+        author_display_name: meta?.authorDisplayName?.trim() || '',
+        subject_name: meta?.subjectName?.trim() || '',
+        subject_code: meta?.subjectCode?.trim() || '',
         payload: rec.payload,
       },
     });

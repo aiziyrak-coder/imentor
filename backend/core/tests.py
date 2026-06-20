@@ -1,5 +1,6 @@
 from django.contrib.auth.models import Group, User
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 
@@ -209,6 +210,133 @@ class PreparedContentApiTests(TestCase):
         self.assertEqual(lst.status_code, 200)
         self.assertEqual(len(lst.json()), 1)
         self.assertEqual(lst.json()[0]['last_name'], 'Valiyev')
+
+    def test_live_test_finalize_auto_submits_drafts(self):
+        Group.objects.get_or_create(name='hodim')
+        access = self._register_user(
+            '998901112244',
+            'StrongPass123',
+            first_name='Demo',
+            last_name='Teacher',
+        )['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+
+        q = {
+            'question': 'Clinical vignette text here.',
+            'options': ['A opt', 'B opt', 'C opt', 'D opt', 'E opt'],
+            'correctOptionIndex': 2,
+            'explanation': 'Because clinical reasoning.',
+        }
+        self.client.post(
+            '/api/v1/live-tests/',
+            {
+                'session_key': 'lts_finalize_demo',
+                'topic': 'Finalize mavzu',
+                'questions': [q],
+            },
+            format='json',
+        )
+
+        self.client.credentials()
+        self.client.post(
+            '/api/v1/live-tests/lts_finalize_demo/drafts/',
+            {
+                'participant_key': 'part_complete',
+                'first_name': 'Ali',
+                'last_name': 'Complete',
+                'answers': [2],
+            },
+            format='json',
+        )
+        self.client.post(
+            '/api/v1/live-tests/lts_finalize_demo/drafts/',
+            {
+                'participant_key': 'part_incomplete',
+                'first_name': 'Vali',
+                'last_name': 'Incomplete',
+                'answers': [-1],
+            },
+            format='json',
+        )
+
+        pub = self.client.get('/api/v1/live-tests/lts_finalize_demo/')
+        self.assertFalse(pub.json()['is_closed'])
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        fin = self.client.post('/api/v1/live-tests/lts_finalize_demo/finalize/')
+        self.assertEqual(fin.status_code, 200)
+        body = fin.json()
+        self.assertTrue(body['is_closed'])
+        self.assertEqual(body['auto_submitted'], 2)
+        self.assertEqual(len(body['submissions']), 2)
+
+        self.client.credentials()
+        closed = self.client.get('/api/v1/live-tests/lts_finalize_demo/')
+        self.assertTrue(closed.json()['is_closed'])
+        blocked = self.client.post(
+            '/api/v1/live-tests/lts_finalize_demo/submissions/',
+            {
+                'first_name': 'Late',
+                'last_name': 'Student',
+                'answers': [2],
+            },
+            format='json',
+        )
+        self.assertEqual(blocked.status_code, 403)
+
+    def test_content_catalog_one_hour_delay(self):
+        from datetime import timedelta
+
+        from core.models import PreparedContent
+
+        Group.objects.get_or_create(name='hodim')
+        access = self._register_user(
+            '998901113355',
+            'StrongPass123',
+            first_name='Catalog',
+            last_name='Teacher',
+        )['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+
+        recent = PreparedContent.objects.create(
+            owner_key='998901113355',
+            kind=PreparedContent.KIND_CASE,
+            topic='Yangi keys',
+            topic_norm='yangi keys',
+            author_display_name='Catalog Teacher',
+            subject_name='Anatomiya',
+            subject_code='ANAT',
+            payload={'topic': 'Yangi keys', 'questions': [{'scenario': 's', 'answer': 'a'}]},
+        )
+        old = PreparedContent.objects.create(
+            owner_key='998901113355',
+            kind=PreparedContent.KIND_TEST,
+            topic='Eski test',
+            topic_norm='eski test',
+            author_display_name='Catalog Teacher',
+            subject_name='Anatomiya',
+            subject_code='ANAT',
+            payload={'topic': 'Eski test', 'questions': [{'question': 'q', 'options': ['a'], 'correctOptionIndex': 0, 'explanation': 'e'}]},
+        )
+        PreparedContent.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(hours=2)
+        )
+
+        lst = self.client.get('/api/v1/content-catalog/')
+        self.assertEqual(lst.status_code, 200)
+        self.assertEqual(len(lst.json()), 1)
+        self.assertEqual(lst.json()[0]['topic'], 'Eski test')
+
+        detail = self.client.get(f'/api/v1/content-catalog/{old.pk}/')
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn('payload', detail.json())
+
+        blocked = self.client.get(f'/api/v1/content-catalog/{recent.pk}/')
+        self.assertEqual(blocked.status_code, 404)
+
+        subjects = self.client.get('/api/v1/content-catalog/subjects/')
+        self.assertEqual(subjects.status_code, 200)
+        self.assertEqual(subjects.json()[0]['subject_name'], 'Anatomiya')
 
     def test_login_preserves_server_role_from_db(self):
         Group.objects.get_or_create(name='hodim')

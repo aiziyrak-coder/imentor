@@ -81,6 +81,9 @@ class PreparedContentSerializer(serializers.ModelSerializer):
             'kind',
             'topic',
             'topic_norm',
+            'author_display_name',
+            'subject_name',
+            'subject_code',
             'payload',
             'created_at',
         ]
@@ -295,9 +298,17 @@ class LiveTestUpsertSerializer(serializers.Serializer):
 
 
 class LiveTestSubmissionCreateSerializer(serializers.Serializer):
+    participant_key = serializers.CharField(max_length=64, required=False, allow_blank=True, default='')
     first_name = serializers.CharField(max_length=128)
     last_name = serializers.CharField(max_length=128)
     answers = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+
+
+class LiveTestDraftUpsertSerializer(serializers.Serializer):
+    participant_key = serializers.CharField(max_length=64)
+    first_name = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
+    last_name = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
+    answers = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
 
 
 class StartupProjectApplicationSerializer(serializers.ModelSerializer):

@@ -22,8 +22,15 @@ from .permissions import (
     IsStartuperOrAdmin,
     resolve_user_role,
 )
+from .clinical_group_service import (
+    can_provision_role,
+    clinic_auth_payload,
+    upsert_clinic_member,
+)
 from .models import (
     CampusBuilding,
+    ClinicalGroup,
+    LiveTestDraft,
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
@@ -34,6 +41,7 @@ from .models import (
     SyllabusDocument,
 )
 from .location_service import record_ping_and_evaluate
+from .live_test_service import finalize_live_test_session
 from .staff_profile_views import delete_staff_profile_for_owner, staff_photo_url_for_user
 from .week_schedule import current_week_phase_code, iso_week_number, week_phase_label_uz
 from .serializers import (
@@ -42,6 +50,7 @@ from .serializers import (
     ChangePasswordSerializer,
     LocalLoginSerializer,
     LiveTestSubmissionCreateSerializer,
+    LiveTestDraftUpsertSerializer,
     LiveTestUpsertSerializer,
     PreparedContentSerializer,
     StaffLocationAlertSerializer,
@@ -67,6 +76,9 @@ class AuthMeResponseSerializer(serializers.Serializer):
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     photo_url = serializers.CharField(required=False, allow_blank=True)
+    clinic_id = serializers.IntegerField(required=False, allow_null=True)
+    clinic_name = serializers.CharField(required=False, allow_blank=True)
+    clinic_code = serializers.CharField(required=False, allow_blank=True)
 
 
 class LocalLoginResponseSerializer(serializers.Serializer):
@@ -77,6 +89,9 @@ class LocalLoginResponseSerializer(serializers.Serializer):
     first_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
     photo_url = serializers.CharField(required=False, allow_blank=True)
+    clinic_id = serializers.IntegerField(required=False, allow_null=True)
+    clinic_name = serializers.CharField(required=False, allow_blank=True)
+    clinic_code = serializers.CharField(required=False, allow_blank=True)
 
 
 class PreparedContentEmptyResponseSerializer(serializers.Serializer):
@@ -476,11 +491,27 @@ class LiveTestUpsertView(APIView):
             'questions': d['questions'],
             'createdAt': created_ms,
         }
+        defaults = {'owner_key': owner, 'payload': payload}
+        if existing is None:
+            defaults['is_closed'] = False
+            defaults['closed_at'] = None
         LiveTestSession.objects.update_or_create(
             session_key=key,
-            defaults={'owner_key': owner, 'payload': payload},
+            defaults=defaults,
         )
         return Response({'ok': True}, status=status.HTTP_200_OK)
+
+
+def _live_test_submissions_payload(session: LiveTestSession) -> list[dict]:
+    return [
+        {
+            'first_name': s.first_name,
+            'last_name': s.last_name,
+            'answers': s.answers,
+            'submitted_at': s.submitted_at.isoformat(),
+        }
+        for s in session.submissions.all()
+    ]
 
 
 class LiveTestPublicRetrieveView(APIView):
@@ -500,6 +531,7 @@ class LiveTestPublicRetrieveView(APIView):
                 'topic': p.get('topic', ''),
                 'questions': p.get('questions', []),
                 'created_at_ms': created_ms,
+                'is_closed': bool(obj.is_closed),
             }
         )
 
@@ -528,31 +560,87 @@ class LiveTestSubmissionView(APIView):
         ).first()
         if not obj:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        data = [
-            {
-                'first_name': s.first_name,
-                'last_name': s.last_name,
-                'answers': s.answers,
-                'submitted_at': s.submitted_at.isoformat(),
-            }
-            for s in obj.submissions.all()
-        ]
+        data = _live_test_submissions_payload(obj)
         return Response(data)
 
     def post(self, request, session_key: str):
         obj = LiveTestSession.objects.filter(session_key=session_key.strip()).first()
         if not obj:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if obj.is_closed:
+            return Response({'detail': 'Test sessiyasi yakunlangan.'}, status=status.HTTP_403_FORBIDDEN)
         serializer = LiveTestSubmissionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
+        participant_key = (d.get('participant_key') or '').strip()
         LiveTestSubmission.objects.create(
             session=obj,
+            participant_key=participant_key,
             first_name=d['first_name'].strip(),
             last_name=d['last_name'].strip(),
             answers=list(d['answers']),
         )
+        if participant_key:
+            obj.drafts.filter(participant_key=participant_key).delete()
         return Response({'ok': True}, status=status.HTTP_201_CREATED)
+
+
+class LiveTestDraftUpsertView(APIView):
+    """Talaba: QR test ochganda draft javoblarni saqlaydi (yuborishdan oldin)."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, session_key: str):
+        obj = LiveTestSession.objects.filter(session_key=session_key.strip()).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if obj.is_closed:
+            return Response({'detail': 'Test sessiyasi yakunlangan.'}, status=status.HTTP_403_FORBIDDEN)
+        serializer = LiveTestDraftUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        participant_key = d['participant_key'].strip()
+        if not participant_key:
+            return Response({'detail': 'participant_key required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if obj.submissions.filter(participant_key=participant_key).exists():
+            return Response({'ok': True, 'already_submitted': True}, status=status.HTTP_200_OK)
+        LiveTestDraft.objects.update_or_create(
+            session=obj,
+            participant_key=participant_key,
+            defaults={
+                'first_name': (d.get('first_name') or '').strip(),
+                'last_name': (d.get('last_name') or '').strip(),
+                'answers': list(d.get('answers') or []),
+            },
+        )
+        return Response({'ok': True}, status=status.HTTP_200_OK)
+
+
+class LiveTestFinalizeView(APIView):
+    """O'qituvchi: draftlarni avtomatik topshirish va sessiyani yopish."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+
+    def post(self, request, session_key: str):
+        obj = LiveTestSession.objects.filter(
+            session_key=session_key.strip(),
+            owner_key=request.user.username,
+        ).first()
+        if not obj:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        auto_count = finalize_live_test_session(obj)
+        obj.refresh_from_db()
+        return Response(
+            {
+                'ok': True,
+                'is_closed': obj.is_closed,
+                'auto_submitted': auto_count,
+                'submissions': _live_test_submissions_payload(obj),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class StartupApplicationListCreateView(APIView):

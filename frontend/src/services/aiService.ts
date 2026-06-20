@@ -1,4 +1,4 @@
-import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
+import { type AppLanguage, aiLanguageName, inferPdfLanguage } from '../i18n/language';
 import {
   extractTopicsByRegex,
   guessSubjectFromDocumentText,
@@ -24,6 +24,17 @@ const SYS_MEDICAL =
   'Siz FJSTI tibbiyot professori va klinik ta\'lim metodistisiz. Javoblar ilmiy, aniq, darsga tayyor.';
 
 import {
+  buildAvoidRepeatsBlock,
+  buildCaseStructurePrompt,
+  buildCaseKeywordsFocusPrompt,
+  buildTestVarietyPrompt,
+  GENERATION_UNIQUENESS_RULE,
+  summarizeCaseForAvoid,
+  summarizeTestForAvoid,
+} from '../utils/generationVariety';
+import { listPreparedForTopic, loadPreparedById } from '../utils/preparedContentStore';
+import { normalizeCaseFocus } from '../utils/caseFocusLabels';
+import {
   LECTURE_REFERENCES_AI_RULES,
   MEDICAL_REFERENCES_AI_RULES,
   mergeReferences,
@@ -31,11 +42,30 @@ import {
   type MedicalReference,
 } from '../utils/medicalReferences';
 
+function previousCaseAvoidBlock(topic: string): string {
+  const summaries = listPreparedForTopic('case', topic)
+    .slice(0, 6)
+    .map((v) => loadPreparedById<CaseStudySession>('case', v.id))
+    .filter((s): s is CaseStudySession => Boolean(s?.questions?.length))
+    .map(summarizeCaseForAvoid);
+  return buildAvoidRepeatsBlock(summaries);
+}
+
+function previousTestAvoidBlock(topic: string): string {
+  const summaries = listPreparedForTopic('test', topic)
+    .slice(0, 6)
+    .map((v) => loadPreparedById<TestSession>('test', v.id))
+    .filter((s): s is TestSession => Boolean(s?.questions?.length))
+    .map(summarizeTestForAvoid);
+  return buildAvoidRepeatsBlock(summaries);
+}
+
 export type { MedicalReference };
 
 export interface CaseStudyQuestion {
   scenario: string;
   answer: string;
+  focus?: 'profilaktika' | 'davolash' | 'tashxis';
   options?: string[];
   correctOptionIndex?: number;
   explanation?: string;
@@ -46,6 +76,7 @@ export interface CaseStudySession {
   topic: string;
   questions: CaseStudyQuestion[];
   references?: MedicalReference[];
+  keywords?: string[];
 }
 
 export interface TestQuestion {
@@ -326,9 +357,11 @@ function normalizeCaseSession(topic: string, data: CaseStudySession): CaseStudyS
         "(5) bemor xavfsizligi hamda keyingi kuzatuv rejasi.",
       ].join(' ');
       const refs = normalizeMedicalReferences(q.references, topic);
+      const focus = normalizeCaseFocus((q as CaseStudyQuestion).focus, i);
       return {
         scenario: scenario.length >= 120 ? scenario : fallbackScenario,
         answer: answer.length >= 120 ? answer : fallbackAnswer,
+        focus,
         ...(refs.length ? { references: refs } : {}),
       };
     });
@@ -407,31 +440,39 @@ export const aiService = {
     return result.topics;
   },
 
-  async generateCaseStudy(topic: string, language: AppLanguage = 'uz'): Promise<CaseStudySession> {
+  async generateCaseStudy(
+    topic: string,
+    language: AppLanguage = 'uz',
+    keywords: string[] = []
+  ): Promise<CaseStudySession> {
     try {
       assertDeepseekApiKey();
       const outLang = languageName(language);
-      const requestCases = async (strict: boolean): Promise<CaseStudySession> =>
-        deepseekJson({
+      const avoid = previousCaseAvoidBlock(topic);
+      const keywordFocus = buildCaseKeywordsFocusPrompt(keywords);
+      const requestCases = async (strict: boolean): Promise<CaseStudySession> => {
+        const structure = buildCaseStructurePrompt(topic);
+        return deepseekJson({
           model: DEEPSEEK_CHAT,
-          system: `${SYS_MEDICAL} 3 ta klinik case JSON: {topic, references:[{title,authors,year,publisher,url}], questions:[{scenario, answer, references:[...]}]}. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
-          user: `Mavzu: "${topic}". Har scenario 3-5 paragraf (anamnez, ko'rik, lab). Har answer: differensial, tashxis, davolash — javob oxirida [1][2] iqtiboslar. ${strict ? 'Maksimal sifat.' : ''}`,
+          system: `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} 3 ta klinik case JSON: {topic, references:[...], questions:[{focus:"profilaktika"|"davolash"|"tashxis", scenario, answer, references:[...]}]}. Aynan 3 ta: 1-profilaktika, 2-davolash, 3-tashxis. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
+          user: `${structure}${keywordFocus}${avoid}\n\nHar scenario 3-5 paragraf. Har answer fokusga mos: profilaktika keysida profilaktik choralar, davolash keysida davolash rejasi, tashxis keysida differensial tashxis va asoslash. Javob oxirida [1][2] iqtiboslar. ${strict ? 'Maksimal sifat, faqat valid JSON.' : ''}`,
           maxTokens: 8192,
-          temperature: strict ? 0.28 : 0.38,
+          temperature: strict ? 0.48 : 0.72,
           parse: (t) => parseJSONSafe<CaseStudySession>(t),
         });
+      };
 
       let data: CaseStudySession;
       try {
         data = await requestCases(false);
       } catch {
-        // First attempt might fail when JSON is truncated by token limits or noisy output.
         data = await requestCases(true);
       }
       if (isWeakCaseSession(data)) {
         data = await requestCases(true);
       }
-      return normalizeCaseSession(topic, data);
+      const normalized = normalizeCaseSession(topic, data);
+      return keywords.length ? { ...normalized, keywords } : normalized;
     } catch (error) {
       console.error("Case study generation failed:", error);
       throw error;
@@ -441,13 +482,15 @@ export const aiService = {
   async generateTests(topic: string, count: number = 10, language: AppLanguage = 'uz'): Promise<TestSession> {
     assertDeepseekApiKey();
     const outLang = languageName(language);
+    const avoid = previousTestAvoidBlock(topic);
     const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
+      const variety = buildTestVarietyPrompt(topic, requestedCount);
       const parsed = await deepseekJson({
         model: DEEPSEEK_CHAT,
-        system: `${SYS_MEDICAL} ${requestedCount} ta test JSON: {topic, references:[{title,authors,year,publisher,url}], questions:[{question, options[5], correctOptionIndex, explanation, references:[...]}]}. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
-        user: `Mavzu: "${topic}". Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap — oxirida [1][2] iqtiboslar. ${strict ? 'Faqat valid JSON.' : ''}`,
+        system: `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} ${requestedCount} ta test JSON: {topic, references:[{title,authors,year,publisher,url}], questions:[{question, options[5], correctOptionIndex, explanation, references:[...]}]}. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
+        user: `${variety}${avoid}\n\n${requestedCount} ta NOYOB savol. Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap — oxirida [1][2] iqtiboslar. ${strict ? 'Faqat valid JSON.' : ''}`,
         maxTokens: 4096,
-        temperature: strict ? 0.3 : 0.4,
+        temperature: strict ? 0.42 : 0.68,
         parse: (t) => parseJSONSafe<TestSession>(t),
       });
       return normalizeTestSession(topic, parsed, requestedCount);
@@ -529,35 +572,52 @@ export const aiService = {
     }
   },
 
-  async translatePageVisual(imageBase64: string, targetLang: string = 'Uzbek'): Promise<any[]> {
+  async translatePageVisual(imageBase64: string, targetLang: AppLanguage = 'uz'): Promise<any[]> {
     try {
       assertDeepseekApiKey();
+      const targetName = aiLanguageName(targetLang);
       const raw = await deepseekWithImage({
         model: DEEPSEEK_CHAT,
-        system: 'OCR + translate. JSON array: [{"box":[ymin,xmin,ymax,xmax],"text":"..."}] coords 0-1000.',
-        userText: `Translate text blocks to ${targetLang}.`,
+        system:
+          'You are a professional medical/scientific document OCR and translator. ' +
+          'Detect EVERY visible text block: titles, paragraphs, captions, footnotes, table cells, figure labels, headers, page numbers with text. ' +
+          `Translate ALL text into ${targetName} using correct medical terminology. ` +
+          'Rules: output ONLY a valid JSON array (no markdown fences). ' +
+          'Each item: {"box":[ymin,xmin,ymax,xmax],"text":"translated text"}. ' +
+          'Coordinates normalized 0-1000 (ymin,xmin,ymax,xmax). ' +
+          'Do NOT leave source-language words except universal abbreviations (DNA, MRI, ECG, etc.). ' +
+          'Merge lines that belong to the same paragraph into one block. Preserve numbers, doses, and units.',
+        userText: `Extract and fully translate every text block on this page into ${targetName}. Return JSON array only.`,
         imageBase64,
         mimeType: 'image/jpeg',
-        maxTokens: 4096,
+        maxTokens: 8192,
       });
-      return JSON.parse(raw.trim());
+      const parsed = parseAiJson<unknown>(raw);
+      if (!Array.isArray(parsed)) {
+        throw new Error('Visual translation response is not a JSON array');
+      }
+      return parsed;
     } catch (error) {
       console.error("Visual translation failed:", error);
       throw error;
     }
   },
 
-  async translateText(text: string, targetLang: string = 'Uzbek', customDictionary?: Record<string, string>): Promise<string> {
+  async translateText(text: string, targetLang: AppLanguage = 'uz', customDictionary?: Record<string, string>): Promise<string> {
     try {
+      const targetName = aiLanguageName(targetLang);
       let dictInstruction = '';
       if (customDictionary && Object.keys(customDictionary).length > 0) {
         const dictEntries = Object.entries(customDictionary).map(([k, v]) => `- ${k} -> ${v}`).join('\n');
-        dictInstruction = `\n\nPlease use the following custom dictionary for terminology:\n${dictEntries}`;
+        dictInstruction = `\n\nUse this custom terminology dictionary:\n${dictEntries}`;
       }
 
       return deepseekText({
         model: DEEPSEEK_FAST,
-        system: `Professional medical translator. Target: ${targetLang}.${dictInstruction}`,
+        system:
+          `Professional medical translator. Translate the entire input into ${targetName}. ` +
+          'Translate every word and sentence; do not mix languages. Use standard clinical terminology.' +
+          dictInstruction,
         user: text,
         maxTokens: 4096,
         temperature: 0.2,

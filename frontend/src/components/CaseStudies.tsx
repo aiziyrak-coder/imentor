@@ -1,12 +1,12 @@
-import React, { useState, useRef, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import {
   Stethoscope,
-  ArrowLeft,
   Loader2,
   AlertCircle,
   FileText,
-  Download,
   RefreshCw,
+  KeyRound,
+  Tags,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { aiService, CaseStudySession } from '../services/aiService';
@@ -21,26 +21,28 @@ import {
   savePreparedContent,
   type PreparedContentSummary,
 } from '../utils/preparedContentStore';
+import { buildPreparedContentMeta } from '../utils/preparedContentMeta';
 import ContentTopicToolbar from './staff/ContentTopicToolbar';
 import { messageFromAiError } from '../utils/aiErrors';
 import MedicalReferencesList from './staff/MedicalReferencesList';
-
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { parseKeywordsInput } from '../utils/generationVariety';
+import { downloadCaseAnswerKeyPdf, downloadCaseScenariosPdf } from '../utils/buildCasePdf';
+import { caseFocusBadgeClass, caseFocusLabel } from '../utils/caseFocusLabels';
 
 export default function CaseStudies() {
   const globalTopic = useContext(GlobalTopicContext);
   const { language } = useContext(AppLanguageContext);
   const { t } = useUiText();
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
+  const [keywords, setKeywords] = useState('');
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingCasesPdf, setDownloadingCasesPdf] = useState(false);
+  const [downloadingKeyPdf, setDownloadingKeyPdf] = useState(false);
   const [caseSession, setCaseSession] = useState<CaseStudySession | null>(null);
   const [revealedAnswers, setRevealedAnswers] = useState<boolean[]>([]);
   const [versions, setVersions] = useState<PreparedContentSummary[]>([]);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const printRef = useRef<HTMLDivElement>(null);
 
   const refreshVersions = useCallback(() => {
     if (!topic.trim()) {
@@ -54,6 +56,9 @@ export default function CaseStudies() {
     setCaseSession(data);
     setRevealedAnswers(new Array(data.questions.length).fill(false));
     setActiveVersionId(versionId);
+    if (data.keywords?.length) {
+      setKeywords(data.keywords.join(', '));
+    }
   }, []);
 
   useEffect(() => {
@@ -96,14 +101,16 @@ export default function CaseStudies() {
     if (data) applySession(data, id);
   };
 
+  const parsedKeywords = useMemo(() => parseKeywordsInput(keywords), [keywords]);
+
   const handleGenerate = async (currentTopic: string = topic) => {
     if (!currentTopic.trim()) return;
 
     setLoading(true);
     setError(null);
     try {
-      const data = await aiService.generateCaseStudy(currentTopic, language);
-      await savePreparedContent('case', currentTopic, data);
+      const data = await aiService.generateCaseStudy(currentTopic, language, parsedKeywords);
+      await savePreparedContent('case', currentTopic, data, buildPreparedContentMeta(globalTopic));
       refreshVersions();
       const list = listPreparedForTopic('case', currentTopic);
       applySession(data, list[0]?.id ?? null);
@@ -135,37 +142,29 @@ export default function CaseStudies() {
     });
   };
 
-  const handleDownloadPDF = async () => {
-    if (!printRef.current) return;
-    setDownloading(true);
+  const handleDownloadCasesPdf = async () => {
+    if (!caseSession) return;
+    setDownloadingCasesPdf(true);
     try {
-      const element = printRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-      });
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      let position = 0;
-      let heightLeft = pdfHeight;
-
-      pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position = position - pageHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight);
-        heightLeft -= pageHeight;
-      }
-      pdf.save(`Keys_Savollar_${caseSession?.topic.replace(/\s+/g, '_') || 'Hujjat'}.pdf`);
+      await downloadCaseScenariosPdf(caseSession);
     } catch (err) {
-      console.error('PDF generation error:', err);
+      console.error('Case PDF error:', err);
+      setError(t('case.errorPdf'));
     } finally {
-      setDownloading(false);
+      setDownloadingCasesPdf(false);
+    }
+  };
+
+  const handleDownloadKeyPdf = async () => {
+    if (!caseSession) return;
+    setDownloadingKeyPdf(true);
+    try {
+      await downloadCaseAnswerKeyPdf(caseSession);
+    } catch (err) {
+      console.error('Case key PDF error:', err);
+      setError(t('case.errorPdf'));
+    } finally {
+      setDownloadingKeyPdf(false);
     }
   };
 
@@ -185,6 +184,22 @@ export default function CaseStudies() {
         onSelectVersion={(id) => void handleSelectVersion(id)}
         versionsTitle={t('case.savedVersions')}
       />
+
+      <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-2 print:hidden">
+        <label className="flex items-center gap-2 text-[13px] font-semibold text-black/70">
+          <Tags size={16} className="text-emerald-600" />
+          {t('case.keywordsLabel')}
+          <span className="text-[11px] font-medium text-black/40">({t('case.keywordsOptional')})</span>
+        </label>
+        <input
+          value={keywords}
+          onChange={(e) => setKeywords(e.target.value)}
+          placeholder={t('case.keywordsPlaceholder')}
+          disabled={loading}
+          className="w-full px-4 py-3 rounded-xl border border-black/10 bg-white/80 text-[14px] outline-none focus:ring-2 focus:ring-emerald-400/40"
+        />
+        <p className="text-[11px] text-black/45">{t('case.keywordsHint')}</p>
+      </div>
 
       {error && (
         <div className="flex items-center gap-2 text-rose-600 text-[12px] font-semibold bg-rose-500/10 px-4 py-3 rounded-xl border border-rose-500/20 print:hidden">
@@ -221,7 +236,7 @@ export default function CaseStudies() {
             <div className="flex items-center gap-2 font-mono text-[12px] font-medium text-black/40">
               {t('case.viewLabel')}: <span className="font-bold text-black/70">{caseSession.topic}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => void handleGenerate(topic)}
@@ -229,22 +244,43 @@ export default function CaseStudies() {
                 className="px-4 py-2 flex items-center gap-2 text-[13px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200"
               >
                 <RefreshCw size={16} />
-                Yana yangi keys
+                {t('case.regenerate')}
               </button>
               <button
                 type="button"
-                onClick={handleDownloadPDF}
-                disabled={downloading}
-                className="ios-glass-btn flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold text-black/70 disabled:opacity-50"
+                onClick={() => void handleDownloadCasesPdf()}
+                disabled={downloadingCasesPdf}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-[13px] font-semibold hover:bg-emerald-100 disabled:opacity-50"
               >
-                {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                PDF
+                {downloadingCasesPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                {t('case.downloadCasesPdf')}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDownloadKeyPdf()}
+                disabled={downloadingKeyPdf}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-[13px] font-semibold hover:bg-blue-100 disabled:opacity-50"
+              >
+                {downloadingKeyPdf ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                {t('case.downloadKeyPdf')}
               </button>
             </div>
           </div>
 
+          {caseSession.keywords && caseSession.keywords.length > 0 && (
+            <div className="flex flex-wrap gap-2 print:hidden">
+              {caseSession.keywords.map((kw) => (
+                <span
+                  key={kw}
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-800 text-[12px] font-semibold border border-emerald-500/20"
+                >
+                  <Tags size={12} /> {kw}
+                </span>
+              ))}
+            </div>
+          )}
+
           <div
-            ref={printRef}
             className="ios-glass rounded-[2rem] overflow-hidden shadow-lg border border-white/60 print:shadow-none print:border-none print:bg-transparent"
           >
             <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/5 p-8 border-b border-white/40 relative overflow-hidden print:bg-none print:border-b-2 print:border-black/10">
@@ -269,9 +305,18 @@ export default function CaseStudies() {
                 {caseSession.questions.map((q, i) => (
                   <div key={i} className="space-y-5 print:break-inside-avoid">
                     <div className="flex gap-4">
-                      <span className="flex-shrink-0 w-8 h-8 rounded-[10px] bg-emerald-500/10 flex items-center justify-center text-emerald-700 text-[13px] font-bold border border-emerald-500/20">
-                        {i + 1}
-                      </span>
+                      <div className="flex flex-col items-center gap-2 shrink-0">
+                        <span className="w-8 h-8 rounded-[10px] bg-emerald-500/10 flex items-center justify-center text-emerald-700 text-[13px] font-bold border border-emerald-500/20">
+                          {i + 1}
+                        </span>
+                        {q.focus && (
+                          <span
+                            className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold uppercase tracking-wide ${caseFocusBadgeClass(q.focus)}`}
+                          >
+                            {caseFocusLabel(q.focus, language)}
+                          </span>
+                        )}
+                      </div>
                       <div className="space-y-4 flex-1">
                         <p className="font-medium text-black/90 text-[15px] leading-relaxed pt-1 whitespace-pre-wrap">
                           {q.scenario}

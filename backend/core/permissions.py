@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from rest_framework.permissions import BasePermission
 
-ALLOWED_ROLES = ("admin", "hodim", "tarjimon", "startuper")
+ALLOWED_ROLES = ("admin", "klinika_admin", "hodim", "tarjimon", "startuper")
 
 
 def _jwt_role_claim(request) -> str | None:
@@ -66,6 +66,20 @@ class IsAdminRole(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         return resolve_user_role(request.user, request) == "admin"
+
+
+class IsKlinikaAdminRole(BasePermission):
+    message = "Klinika administratori huquqi kerak."
+
+    def has_permission(self, request, view) -> bool:
+        return resolve_user_role(request.user, request) == "klinika_admin"
+
+
+class IsAdminOrKlinikaAdmin(BasePermission):
+    message = "Administrator yoki klinika administratori huquqi kerak."
+
+    def has_permission(self, request, view) -> bool:
+        return resolve_user_role(request.user, request) in ("admin", "klinika_admin")
 
 
 class IsStartuperOrAdmin(BasePermission):

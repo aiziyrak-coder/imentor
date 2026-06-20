@@ -28,6 +28,7 @@ import {
   MapPin,
   Building2,
   Files,
+  Library,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -86,6 +87,7 @@ import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
 import HandoutTopicBanner from './components/staff/HandoutTopicBanner';
 import HandoutMaterials from './components/HandoutMaterials';
+import ContentCatalogPage from './components/catalog/ContentCatalogPage';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 import type { SyllabusTopic } from './services/aiService';
 import {
@@ -114,6 +116,7 @@ type View =
   | 'translator'
   | 'lectures'
   | 'handouts'
+  | 'content-catalog'
   | 'startup'
   | 'startup-dossier';
 
@@ -132,6 +135,7 @@ const NAV_ICONS: Record<View, LucideIcon> = {
   lectures: FileText,
   presentation: Presentation,
   handouts: Files,
+  'content-catalog': Library,
   cases: BriefcaseMedical,
   tests: ClipboardList,
   profile: UserCircle,
@@ -140,9 +144,10 @@ const NAV_ICONS: Record<View, LucideIcon> = {
   'startup-dossier': FolderOpen,
 };
 
-const HODIM_NAV_IDS: View[] = ['syllabus', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
+const HODIM_NAV_IDS: View[] = ['syllabus', 'content-catalog', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
 const ADMIN_NAV_IDS: View[] = [
   'admin-dashboard',
+  'content-catalog',
   'admin-staff',
   'admin-staff-location',
   'admin-campus-buildings',
@@ -152,7 +157,7 @@ const ADMIN_NAV_IDS: View[] = [
   'admin-tests',
   'profile',
 ];
-const TARJIMON_NAV_IDS: View[] = ['translator', 'profile'];
+const TARJIMON_NAV_IDS: View[] = ['content-catalog', 'translator', 'profile'];
 const STARTUPER_NAV_IDS: View[] = ['startup', 'startup-dossier', 'profile'];
 
 function navItemsForRole(role: UserRole, lang: AppLanguage): NavItemDef[] {
@@ -481,6 +486,8 @@ export default function App() {
         );
       case 'handouts':
         return <HandoutMaterials />;
+      case 'content-catalog':
+        return <ContentCatalogPage />;
       case 'lectures':
         return <LectureNotes />;
       case 'profile':

@@ -79,3 +79,10 @@ export function languageLabel(lang: AppLanguage): string {
   if (lang === 'en') return 'English';
   return 'O\'zbek';
 }
+
+/** Full language name for AI translation prompts. */
+export function aiLanguageName(lang: AppLanguage): string {
+  if (lang === 'ru') return 'Russian';
+  if (lang === 'en') return 'English';
+  return 'Uzbek';
+}

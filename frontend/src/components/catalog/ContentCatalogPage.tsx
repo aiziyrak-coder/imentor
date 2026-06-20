@@ -11,8 +11,8 @@ import {
   ChevronUp,
   Clock,
 } from 'lucide-react';
-import { AppLanguageContext } from '../App';
-import { useUiText } from '../i18n/useUiText';
+import { AppLanguageContext } from '../../App';
+import { useUiText } from '../../i18n/useUiText';
 import {
   fetchCatalogItemDetail,
   fetchCatalogItems,
@@ -21,10 +21,10 @@ import {
   type CatalogItemDetail,
   type CatalogItemSummary,
   type CatalogKind,
-} from '../utils/contentCatalogApi';
-import type { CaseStudySession, TestQuestion, TestSession } from '../services/aiService';
-import { caseFocusBadgeClass, caseFocusLabel } from '../utils/caseFocusLabels';
-import MedicalReferencesList from './staff/MedicalReferencesList';
+} from '../../utils/contentCatalogApi';
+import type { CaseStudySession, TestQuestion, TestSession } from '../../services/aiService';
+import { caseFocusBadgeClass, caseFocusLabel } from '../../utils/caseFocusLabels';
+import MedicalReferencesList from '../staff/MedicalReferencesList';
 
 type KindFilter = '' | CatalogKind;
 

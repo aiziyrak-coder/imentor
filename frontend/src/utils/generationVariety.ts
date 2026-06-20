@@ -4,17 +4,6 @@ type TestLike = { questions: Array<{ question?: string }> };
 export type CaseStudyFocus = 'profilaktika' | 'davolash' | 'tashxis';
 
 export const CASE_STUDY_FOCUS_ORDER: readonly CaseStudyFocus[] = ['profilaktika', 'davolash', 'tashxis'] as const;
-  'diagnostika va differensial tashxis',
-  'davolash strategiyasi tanlash',
-  'laboratoriya va vizualizatsiya talqin qilish',
-  'dori-darmonlar va kontrendikatsiyalar',
-  'klinik yo\'riqnoma va protokol qo\'llash',
-  'favqulodda yordam va triyaj',
-  'prognostik omillar va asoratlar',
-  'profilaktika va skrining',
-  'patiens xavfsizligi va xatolarni oldini olish',
-  'etika va bemor huquqlari',
-];
 
 function pickRandom<T>(items: readonly T[], count: number): T[] {
   const pool = [...items];

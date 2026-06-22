@@ -535,6 +535,12 @@ export default function App() {
             <span className="font-medium text-violet-700">{translate(language, 'footer.patent')}</span>
             <span className="font-medium text-slate-700">{translate(language, 'footer.license')}</span>
             <span className="font-medium text-cyan-700">{translate(language, 'footer.certified')}</span>
+            <a
+              href="/?library=1#public-catalog"
+              className="font-semibold text-teal-700 hover:text-teal-600 underline decoration-teal-300"
+            >
+              {translate(language, 'publicLanding.openCatalog')}
+            </a>
           </div>
         </div>
       </div>
@@ -547,10 +553,7 @@ export default function App() {
     return params.get('library') === '1' || window.location.hash === '#public-catalog';
   }, []);
 
-  const wantsPublicLibrary = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).get('library') === '1';
-  }, []);
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>

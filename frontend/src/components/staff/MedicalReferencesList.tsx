@@ -1,6 +1,7 @@
 import React from 'react';
 import { BookOpen, ExternalLink } from 'lucide-react';
 import type { MedicalReference } from '../../utils/medicalReferences';
+import { useUiText } from '../../i18n/useUiText';
 
 type Props = {
   references: MedicalReference[];
@@ -11,11 +12,14 @@ type Props = {
 
 export default function MedicalReferencesList({
   references,
-  title = "Foydalanilgan adabiyotlar",
+  title,
   compact = false,
   className = '',
 }: Props) {
+  const { t } = useUiText();
   if (!references?.length) return null;
+  
+  const displayTitle = title ?? t('staff.medical.referencesTitle');
 
   return (
     <div
@@ -25,7 +29,7 @@ export default function MedicalReferencesList({
         className={`font-bold text-amber-900 flex items-center gap-2 ${compact ? 'text-[11px] mb-2' : 'text-[13px] mb-3'}`}
       >
         <BookOpen size={compact ? 14 : 16} />
-        {title}
+        {displayTitle}
       </h4>
       <ol className={`space-y-2 list-decimal list-inside ${compact ? 'text-[11px]' : 'text-[13px]'}`}>
         {references.map((ref, idx) => (

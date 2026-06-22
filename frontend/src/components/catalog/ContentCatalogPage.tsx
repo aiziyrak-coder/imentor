@@ -171,7 +171,7 @@ export default function ContentCatalogPage() {
     void load();
   }, [load]);
 
-  const grouped = useMemo(() => groupCatalogBySubject(items), [items]);
+  const grouped = useMemo(() => groupCatalogBySubject(items, language), [items, language]);
 
   const openDetail = async (id: number) => {
     setDetailLoading(true);

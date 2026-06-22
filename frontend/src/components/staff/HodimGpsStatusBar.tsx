@@ -5,15 +5,16 @@ import {
   subscribeStaffGeoUpdate,
   type StaffGeoDetail,
 } from '../../utils/staffLocationGeo';
+import { useUiText } from '../../i18n/useUiText';
 
-function formatAge(ms: number): string {
-  if (ms < 60_000) return 'hozirgina';
-  if (ms < 3600_000) return `${Math.floor(ms / 60_000)} daq oldin`;
-  return `${Math.floor(ms / 3600_000)} soat oldin`;
+function formatAge(ms: number, t: (key: string, params?: Record<string, string | number>) => string): string {
+  if (ms < 60_000) return t('staff.gps.ageNow');
+  if (ms < 3600_000) return t('staff.gps.ageMinutes', { n: Math.floor(ms / 60_000) });
+  return t('staff.gps.ageHours', { n: Math.floor(ms / 3600_000) });
 }
 
-/** Hodim telefonida GPS holati (companion va asosiy ilova). */
 export default function HodimGpsStatusBar({ compact = false }: { compact?: boolean }) {
+  const { t } = useUiText();
   const [last, setLast] = useState<StaffGeoDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,16 +32,16 @@ export default function HodimGpsStatusBar({ compact = false }: { compact?: boole
     } catch (e) {
       const err = e as GeolocationPositionError & { message?: string };
       if (err?.code === 1) {
-        setError('Joylashuv ruxsati berilmagan');
+        setError(t('staff.gps.errorRefreshDenied'));
       } else {
-        setError('GPS olinmadi — qayta urinib ko‘ring');
+        setError(t('staff.gps.errorRefreshGeneric'));
       }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
-  const age = last ? formatAge(Date.now() - last.recordedAt) : null;
+  const age = last ? formatAge(Date.now() - last.recordedAt, t) : null;
   const ok = last && Date.now() - last.recordedAt < 5 * 60_000;
 
   return (
@@ -57,16 +58,16 @@ export default function HodimGpsStatusBar({ compact = false }: { compact?: boole
       <div className="min-w-0 flex-1">
         {last ? (
           <p className="text-white/90 font-medium leading-snug">
-            GPS: {age}
-            {last.accuracy_m != null ? ` · ±${Math.round(last.accuracy_m)} m` : ''}
+            {t('staff.gps.statusLabel', { age })}
+            {last.accuracy_m != null ? ` · ${t('staff.gps.statusAccuracy', { meters: Math.round(last.accuracy_m) })}` : ''}
           </p>
         ) : (
-          <p className="text-white/80 leading-snug">GPS hali yuborilmagan</p>
+          <p className="text-white/80 leading-snug">{t('staff.gps.statusNotSent')}</p>
         )}
         {error ? <p className="text-amber-200 text-[11px] mt-0.5">{error}</p> : null}
         {!compact ? (
           <p className="text-white/50 text-[11px] mt-0.5 leading-snug">
-            Telefon yonida turing — dars vaqtida joylashuv tekshiriladi.
+            {t('staff.gps.statusHint')}
           </p>
         ) : null}
       </div>
@@ -77,7 +78,7 @@ export default function HodimGpsStatusBar({ compact = false }: { compact?: boole
         className="shrink-0 rounded-xl bg-white/15 px-3 py-1.5 text-[11px] font-semibold text-white active:scale-[0.98] disabled:opacity-60 flex items-center gap-1"
       >
         {loading ? <Loader2 size={14} className="animate-spin" /> : null}
-        Yangilash
+        {t('staff.gps.refresh')}
       </button>
     </div>
   );

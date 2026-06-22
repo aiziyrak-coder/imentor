@@ -7,6 +7,8 @@ import {
   type LocalStaffUser,
 } from '../../utils/localStaffAuth';
 import AdminStaffLiveMapPanel from './AdminStaffLiveMapPanel';
+import { useUiText } from '../../i18n/useUiText';
+import type { UiTextKey } from '../../i18n/translations';
 import {
   bulkReplaceAdminStaffSchedule,
   deleteAdminStaffSchedule,
@@ -27,7 +29,7 @@ import {
 } from '../../utils/staffLocationApi';
 
 // formatApiError - local if not exported; define here
-function formatApiErrorLocal(err: unknown): string {
+function formatApiErrorLocal(err: unknown, t: (key: UiTextKey) => string): string {
   if (err instanceof HttpError && err.body && typeof err.body === 'object') {
     const b = err.body as { [key: string]: unknown };
     if (typeof b.detail === 'string') return b.detail;
@@ -39,25 +41,10 @@ function formatApiErrorLocal(err: unknown): string {
     if (parts.length) return parts.join('; ');
   }
   if (err instanceof Error) return err.message;
-  return "So'rovda xato.";
+  return t('admin.error.apiGeneric');
 }
 
-const WEEKDAYS: { v: number; l: string }[] = [
-  { v: 0, l: 'Dushanba' },
-  { v: 1, l: 'Seshanba' },
-  { v: 2, l: 'Chorshanba' },
-  { v: 3, l: 'Payshanba' },
-  { v: 4, l: 'Juma' },
-  { v: 5, l: 'Shanba' },
-  { v: 6, l: 'Yakshanba' },
-];
-
 const PHASE_ORDER: WeekPhase[] = ['every', 'upper', 'lower'];
-const PHASE_LABEL: { [K in WeekPhase]: string } = {
-  every: 'Har hafta',
-  upper: 'Yuqori hafta (ISO toq)',
-  lower: 'Pastki hafta (ISO juft)',
-};
 
 type Tab = 'schedule' | 'livemap' | 'pings' | 'alerts';
 type EditorMode = 'single' | 'alternating';
@@ -127,21 +114,24 @@ function toHms(t: string): string {
   return t.split(':').length === 2 ? `${t}:00` : t;
 }
 
-function validateOwnerKey(v: string): string | null {
+function validateOwnerKey(v: string, t: (key: UiTextKey) => string): string | null {
   const d = v.replace(/\D/g, '');
-  if (d.length !== 12 || !d.startsWith('998')) return "Telefon 998 bilan 12 raqam bo'lishi kerak.";
+  if (d.length !== 12 || !d.startsWith('998')) return t('admin.error.phoneInvalid');
   return null;
 }
 
 function intervalsToPayload(
   rec: IntervalsByWeekday,
   legacyDefaultRadius: number,
+  weekdayLabels: { v: number; l: string }[],
+  t: (key: UiTextKey, params?: Record<string, string | number>) => string,
 ): { slots: BulkScheduleSlotPayload[]; error: string | null } {
   const out: BulkScheduleSlotPayload[] = [];
   for (let wd = 0; wd <= 6; wd++) {
     for (const row of rec[wd] ?? []) {
       if (!row.start || !row.end) {
-        return { slots: [], error: `${WEEKDAYS[wd]?.l ?? wd}: vaqt to'ldirilsin.` };
+        const day = weekdayLabels.find((w) => w.v === wd)?.l ?? String(wd);
+        return { slots: [], error: t('admin.error.timeRequired', { day }) };
       }
       if (row.buildingId !== '') {
         out.push({
@@ -157,9 +147,10 @@ function intervalsToPayload(
       const la = row.legacyLat != null ? parseFloat(row.legacyLat) : NaN;
       const ln = row.legacyLng != null ? parseFloat(row.legacyLng) : NaN;
       if (!n || !Number.isFinite(la) || !Number.isFinite(ln)) {
+        const day = weekdayLabels.find((w) => w.v === wd)?.l ?? String(wd);
         return {
           slots: [],
-          error: `${WEEKDAYS[wd]?.l ?? wd}: bino tanlang yoki (eski usul) nom + lat + lng kiriting.`,
+          error: t('admin.error.buildingRequired', { day }),
         };
       }
       out.push({
@@ -178,6 +169,30 @@ function intervalsToPayload(
 }
 
 export default function AdminStaffLocationConsole() {
+  const { t, locale } = useUiText();
+
+  const WEEKDAYS = useMemo(
+    () => [
+      { v: 0, l: t('admin.weekdayMon') },
+      { v: 1, l: t('admin.weekdayTue') },
+      { v: 2, l: t('admin.weekdayWed') },
+      { v: 3, l: t('admin.weekdayThu') },
+      { v: 4, l: t('admin.weekdayFri') },
+      { v: 5, l: t('admin.weekdaySat') },
+      { v: 6, l: t('admin.weekdaySun') },
+    ],
+    [t],
+  );
+
+  const PHASE_LABEL = useMemo(
+    (): { [K in WeekPhase]: string } => ({
+      every: t('admin.everyWeek'),
+      upper: t('admin.upperWeek'),
+      lower: t('admin.lowerWeek'),
+    }),
+    [t],
+  );
+
   const [tab, setTab] = useState<Tab>('schedule');
   /** 12 raqam (998...) yoki bo'sh: barcha hodimlar */
   const [staffOwnerDigits, setStaffOwnerDigits] = useState('');
@@ -274,11 +289,11 @@ export default function AdminStaffLocationConsole() {
         setAlerts(await listAdminStaffAlerts(o));
       }
     } catch {
-      setError('Maʼlumotni olishda xato (admin huquqi va JWT).');
+      setError(t('admin.error.scheduleLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [tab, ownerFilterApplied]);
+  }, [tab, ownerFilterApplied, t]);
 
   useEffect(() => {
     void load();
@@ -334,7 +349,7 @@ export default function AdminStaffLocationConsole() {
   };
 
   const fillFromSchedule = useCallback(() => {
-    const err = validateOwnerKey(staffOwnerDigits);
+    const err = validateOwnerKey(staffOwnerDigits, t);
     if (err) {
       setError(err);
       return;
@@ -342,7 +357,7 @@ export default function AdminStaffLocationConsole() {
     const digits = editorDigits;
     const mine = schedule.filter((s) => s.owner_key === digits);
     if (mine.length === 0) {
-      setError('Bu hodim uchun jadval hali yo‘q — pastda yangi yarating.');
+      setError(t('admin.error.noScheduleForStaff'));
       return;
     }
     const hasAlt = mine.some((s) => defaultPhase(s) === 'upper' || defaultPhase(s) === 'lower');
@@ -357,7 +372,7 @@ export default function AdminStaffLocationConsole() {
       setIntervalsLower(emptyIntervals());
     }
     setError(null);
-  }, [staffOwnerDigits, editorDigits, schedule]);
+  }, [staffOwnerDigits, editorDigits, schedule, t]);
 
   const copyUpperToLower = () => {
     const copy = emptyIntervals();
@@ -368,12 +383,12 @@ export default function AdminStaffLocationConsole() {
   };
 
   const saveBulk = async (phase: WeekPhase, rec: IntervalsByWeekday) => {
-    const err = validateOwnerKey(staffOwnerDigits);
+    const err = validateOwnerKey(staffOwnerDigits, t);
     if (err) {
       setError(err);
       return;
     }
-    const { slots, error: pe } = intervalsToPayload(rec, legacyRadius);
+    const { slots, error: pe } = intervalsToPayload(rec, legacyRadius, WEEKDAYS, t);
     if (pe) {
       setError(pe);
       return;
@@ -390,7 +405,7 @@ export default function AdminStaffLocationConsole() {
       await load();
       setStaffOwnerDigits(editorDigits);
     } catch (e) {
-      setError(formatApiErrorLocal(e));
+      setError(formatApiErrorLocal(e, t));
     } finally {
       setSaving(false);
     }
@@ -401,17 +416,17 @@ export default function AdminStaffLocationConsole() {
       await patchAdminStaffSchedule(row.id, { is_active: !row.is_active });
       await load();
     } catch {
-      setError('Yangilashda xato.');
+      setError(t('admin.error.updateSlotFailed'));
     }
   };
 
   const removeSlot = async (id: number) => {
-    if (!window.confirm('O‘chirishni tasdiqlaysizmi?')) return;
+    if (!window.confirm(t('admin.confirmDeleteSlot'))) return;
     try {
       await deleteAdminStaffSchedule(id);
       await load();
     } catch {
-      setError('O‘chirishda xato.');
+      setError(t('admin.error.deleteSlotFailed'));
     }
   };
 
@@ -439,7 +454,7 @@ export default function AdminStaffLocationConsole() {
           <h3 className="text-[14px] font-bold text-black/85">{PHASE_LABEL[phase]}</h3>
           {showBadge ? (
             <span className="text-[11px] font-semibold rounded-full bg-emerald-100 text-emerald-900 px-2 py-0.5">
-              Bu hafta shu variant
+              {t('admin.thisWeekVariant')}
             </span>
           ) : null}
         </div>
@@ -456,11 +471,11 @@ export default function AdminStaffLocationConsole() {
                     className="inline-flex items-center gap-1 rounded-lg bg-blue-50 text-blue-700 px-2.5 py-1 text-[12px] font-semibold border border-blue-100"
                   >
                     <Plus size={14} />
-                    Vaqt oralig‘i
+                    {t('admin.addTimeSlot')}
                   </button>
                 </div>
                 {rows.length === 0 ? (
-                  <p className="text-[12px] text-black/45">Bu kun uchun slot yo‘q — «Vaqt oralig‘i» bosing.</p>
+                  <p className="text-[12px] text-black/45">{t('admin.noSlotsForDay')}</p>
                 ) : (
                   <div className="space-y-2">
                     {rows.map((row) => (
@@ -494,13 +509,13 @@ export default function AdminStaffLocationConsole() {
                           }}
                           className="flex-1 min-w-[160px] rounded-lg border border-black/10 px-2 py-1.5 text-[13px]"
                         >
-                          <option value="">— Bino tanlang —</option>
+                          <option value="">{t('admin.selectBuilding')}</option>
                           {buildingOptions}
                         </select>
                         {row.buildingId === '' ? (
                           <div className="flex flex-wrap gap-2 flex-1">
                             <input
-                              placeholder="Eski: bino nomi"
+                              placeholder={t('admin.legacyBuildingName')}
                               value={row.legacyName ?? ''}
                               onChange={(e) =>
                                 patchInterval(which, wd.v, row.clientId, { legacyName: e.target.value })
@@ -526,7 +541,7 @@ export default function AdminStaffLocationConsole() {
                           </div>
                         ) : null}
                         <input
-                          placeholder="Izoh"
+                          placeholder={t('admin.comment')}
                           value={row.title}
                           onChange={(e) => patchInterval(which, wd.v, row.clientId, { title: e.target.value })}
                           className="rounded-lg border border-black/10 px-2 py-1 text-[12px] min-w-[100px] flex-1"
@@ -535,7 +550,7 @@ export default function AdminStaffLocationConsole() {
                           type="button"
                           onClick={() => removeInterval(which, wd.v, row.clientId)}
                           className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 self-start"
-                          aria-label="O‘chirish"
+                          aria-label={t('common.delete')}
                         >
                           <Trash2 size={18} />
                         </button>
@@ -553,7 +568,7 @@ export default function AdminStaffLocationConsole() {
           onClick={() => void saveBulk(phase, rec)}
           className="rounded-xl bg-blue-600 text-white px-5 py-2.5 text-[13px] font-semibold disabled:opacity-50"
         >
-          {saving ? 'Saqlanmoqda…' : `${PHASE_LABEL[phase]} — saqlash`}
+          {saving ? t('admin.saving') : t('admin.savePhase', { phase: PHASE_LABEL[phase] })}
         </button>
       </div>
     );
@@ -569,8 +584,8 @@ export default function AdminStaffLocationConsole() {
             <MapPin size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Hodimlar joylashuvi</h1>
-            <p className="text-[12px] text-black/50">Bino katalogi + kun bo‘yicha bir nechta vaqt</p>
+            <h1 className="text-xl font-bold text-black/90">{t('admin.staffLocationTitle')}</h1>
+            <p className="text-[12px] text-black/50">{t('admin.staffLocationSubtitle')}</p>
           </div>
         </div>
         <button
@@ -579,17 +594,17 @@ export default function AdminStaffLocationConsole() {
           disabled={loading}
           className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold disabled:opacity-50"
         >
-          Yangilash
+          {t('admin.refresh')}
         </button>
       </div>
 
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ['schedule', 'Dars jadvali'],
-            ['livemap', 'Jonli xarita'],
-            ['pings', 'GPS pinglar'],
-            ['alerts', 'Ogohlantirishlar'],
+            ['schedule', t('admin.schedule')],
+            ['livemap', t('admin.liveMap')],
+            ['pings', t('admin.pings')],
+            ['alerts', t('admin.alerts')],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -607,13 +622,13 @@ export default function AdminStaffLocationConsole() {
 
       <div className="flex flex-col gap-1">
         <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 flex-1 min-w-[200px]">
-          Hodimni tanlang (jadval, filtr va jonli xarita)
+          {t('admin.selectStaff')}
           <select
             value={staffOwnerDigits}
             onChange={(e) => setStaffOwnerDigits(e.target.value)}
             className="rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[14px] text-black/90"
           >
-            <option value="">— Barcha hodimlar (barcha slotlar / barcha pinglar) —</option>
+            <option value="">{t('admin.allStaffOption')}</option>
             {staffOptions.map((u) => (
               <option key={u.uid} value={u.phoneDigits}>
                 {u.displayName} · {u.phoneDisplay}
@@ -622,9 +637,7 @@ export default function AdminStaffLocationConsole() {
           </select>
         </label>
         {staffOptions.length === 0 ? (
-          <p className="text-[11px] text-amber-800">
-            Ro‘yxatda hodim yo‘q — avval <strong>Hodimlar boshqaruvi</strong> orqali hodim (rol: hodim) qo‘shing.
-          </p>
+          <p className="text-[11px] text-amber-800">{t('admin.noStaffInList')}</p>
         ) : null}
       </div>
 
@@ -640,13 +653,13 @@ export default function AdminStaffLocationConsole() {
                 <Radio className="h-5 w-5" aria-hidden />
               </div>
               <div>
-                <div className="text-[14px] font-bold text-black/90">Barcha hodimlar — jonli xarita</div>
+                <div className="text-[14px] font-bold text-black/90">{t('admin.allStaffLiveMap')}</div>
                 <div className="text-[12px] text-black/55">
-                  Kim qayerda: oxirgi GPS va kampus binolari (har {LIVE_MAP_POLL_SEC}s yangilanadi)
+                  {t('admin.liveMapDescription', { pollSec: LIVE_MAP_POLL_SEC })}
                 </div>
               </div>
             </div>
-            <span className="text-[12px] font-semibold text-emerald-800 group-hover:underline">Ochish →</span>
+            <span className="text-[12px] font-semibold text-emerald-800 group-hover:underline">{t('admin.openMap')}</span>
           </div>
         </button>
       ) : null}
@@ -654,17 +667,17 @@ export default function AdminStaffLocationConsole() {
       {tab === 'schedule' && weekInfo ? (
         <div className="ios-glass rounded-2xl border border-sky-200/80 bg-sky-50/50 px-4 py-3 text-[13px] text-black/80 flex flex-wrap gap-x-4 gap-y-1">
           <span>
-            <strong>ISO hafta:</strong> {weekInfo.iso_week}
+            <strong>{t('admin.isoWeek')}:</strong> {weekInfo.iso_week}
           </span>
           <span>
-            <strong>Joriy:</strong> {weekInfo.current_week_phase_label_uz}
+            <strong>{t('admin.currentPhase')}:</strong> {weekInfo.current_week_phase_label_uz}
           </span>
         </div>
       ) : null}
 
       {showAlternatingHint ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[12px] text-amber-950">
-          Bu hodimda <strong>yuqori/pastki</strong> hafta slotlari bor — jadvalda guruhlangan.
+          {t('admin.alternatingWeeks')}
         </div>
       ) : null}
 
@@ -677,22 +690,21 @@ export default function AdminStaffLocationConsole() {
 
       {tab === 'schedule' && buildings.length === 0 && !loading ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-2 text-[13px] text-rose-900">
-          Hozircha <strong>kampus binolari</strong> kiritilmagan. Avval menyu orqali{' '}
-          <strong>«Kampus binolari»</strong> sahifasida binolar va GPS nuqtalarini qo‘shing.
+          {t('admin.error.noBuildingsCatalog')}
         </div>
       ) : null}
 
       {loading ? (
         <div className="flex items-center justify-center py-16 text-black/50 gap-2">
           <Loader2 className="animate-spin" size={20} />
-          Yuklanmoqda…
+          {t('admin.loading')}
         </div>
       ) : tab === 'schedule' ? (
         <div className="space-y-8">
           <div className="ios-glass rounded-2xl border border-white/60 overflow-hidden">
             <div className="px-3 py-2 bg-black/[0.02] text-[12px] font-semibold text-black/55 flex items-center gap-1">
               <ChevronDown size={14} />
-              Saqlangan slotlar
+              {t('admin.savedSlots')}
             </div>
             {PHASE_ORDER.map((phase) => {
               const rows = scheduleGrouped[phase] ?? [];
@@ -703,11 +715,11 @@ export default function AdminStaffLocationConsole() {
                   <table className="w-full text-left text-[13px]">
                     <thead className="text-black/50">
                       <tr>
-                        <th className="px-3 py-2">Hodim</th>
-                        <th className="px-3 py-2">Kun</th>
-                        <th className="px-3 py-2">Vaqt</th>
-                        <th className="px-3 py-2">Bino</th>
-                        <th className="px-3 py-2">R</th>
+                        <th className="px-3 py-2">{t('admin.staffMember')}</th>
+                        <th className="px-3 py-2">{t('admin.weekday')}</th>
+                        <th className="px-3 py-2">{t('admin.time')}</th>
+                        <th className="px-3 py-2">{t('admin.building')}</th>
+                        <th className="px-3 py-2">{t('admin.radius')}</th>
                         <th className="px-3 py-2" />
                       </tr>
                     </thead>
@@ -727,13 +739,13 @@ export default function AdminStaffLocationConsole() {
                               onClick={() => void toggleActive(r)}
                               className="text-[12px] font-semibold text-blue-600"
                             >
-                              {r.is_active ? 'Pauza' : 'Faol'}
+                              {r.is_active ? t('admin.pause') : t('admin.active')}
                             </button>
                             <button
                               type="button"
                               onClick={() => void removeSlot(r.id)}
                               className="inline-flex items-center justify-center p-1 rounded-lg text-rose-600"
-                              aria-label="O‘chirish"
+                              aria-label={t('admin.delete')}
                             >
                               <Trash2 size={16} />
                             </button>
@@ -746,35 +758,25 @@ export default function AdminStaffLocationConsole() {
               );
             })}
             {schedule.length === 0 && (
-              <div className="px-4 py-8 text-center text-black/45 text-[13px]">Hech qanday slot yo‘q.</div>
+              <div className="px-4 py-8 text-center text-black/45 text-[13px]">{t('admin.noSlotsYet')}</div>
             )}
           </div>
 
           <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-4">
-            <h2 className="text-[15px] font-bold text-black/90">Haftalik jadval</h2>
-            <p className="text-[12px] text-black/55 leading-relaxed">
-              Har bir kun uchun bir nechta vaqt oralig‘i qo‘shing. Dars vaqtida hodim tanlangan bino markazidan
-              uning <strong>radius_m</strong> masofasi ichida bo‘lishi kerak (odatda 100 m). GPS noaniq bo‘lsa
-              (±150 m dan yomon) ogohlantirish yuborilmaydi.
-            </p>
+            <h2 className="text-[15px] font-bold text-black/90">{t('admin.weeklySchedule')}</h2>
+            <p className="text-[12px] text-black/55 leading-relaxed">{t('admin.scheduleInstructions')}</p>
 
             <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-3 py-2 text-[12px] text-black/70">
               {staffOwnerDigits.length >= 12 ? (
-                <>
-                  Jadval <span className="font-mono font-semibold text-black/90">{staffOwnerDigits}</span> uchun
-                  saqlanadi — hodimni yuqoridagi ro‘yxatdan o‘zgartirishingiz mumkin.
-                </>
+                t('admin.scheduleFor', { phone: staffOwnerDigits })
               ) : (
-                <>
-                  <strong className="text-amber-900">Jadval yaratish va saqlash</strong> uchun yuqoridan konkret
-                  hodimni tanlang.
-                </>
+                t('admin.selectStaffToSchedule')
               )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 sm:col-span-2">
-                Eski usul radius (m) — faqat bino tanlanmagan qatorlar uchun
+                {t('admin.legacyRadius')}
                 <input
                   type="number"
                   min={30}
@@ -787,7 +789,7 @@ export default function AdminStaffLocationConsole() {
             </div>
 
             <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-[12px] font-medium text-black/60">Rejim:</span>
+              <span className="text-[12px] font-medium text-black/60">{t('admin.scheduleMode')}</span>
               <button
                 type="button"
                 onClick={() => setEditorMode('single')}
@@ -795,7 +797,7 @@ export default function AdminStaffLocationConsole() {
                   editorMode === 'single' ? 'bg-blue-600 text-white' : 'bg-white border border-black/10'
                 }`}
               >
-                Har hafta bir xil
+                {t('admin.singleMode')}
               </button>
               <button
                 type="button"
@@ -804,14 +806,14 @@ export default function AdminStaffLocationConsole() {
                   editorMode === 'alternating' ? 'bg-blue-600 text-white' : 'bg-white border border-black/10'
                 }`}
               >
-                Yuqori / pastki alohida
+                {t('admin.alternatingMode')}
               </button>
               <button
                 type="button"
                 onClick={() => fillFromSchedule()}
                 className="rounded-xl border border-black/15 bg-white px-4 py-2 text-[12px] font-semibold text-black/80"
               >
-                Filtr bo‘yicha yuklash
+                {t('admin.loadFromFilter')}
               </button>
               {editorMode === 'alternating' ? (
                 <button
@@ -819,7 +821,7 @@ export default function AdminStaffLocationConsole() {
                   onClick={copyUpperToLower}
                   className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-[12px] font-semibold text-violet-900"
                 >
-                  Pastkini yuqoridan nusxa
+                  {t('admin.copyUpperToLower')}
                 </button>
               ) : null}
             </div>
@@ -848,17 +850,17 @@ export default function AdminStaffLocationConsole() {
           <table className="w-full text-left text-[12px] min-w-[640px]">
             <thead className="bg-black/[0.03] text-black/55">
               <tr>
-                <th className="px-3 py-2">Vaqt</th>
-                <th className="px-3 py-2">Hodim</th>
-                <th className="px-3 py-2">lat</th>
-                <th className="px-3 py-2">lng</th>
-                <th className="px-3 py-2">aniqlik (m)</th>
+                <th className="px-3 py-2">{t('admin.recorded')}</th>
+                <th className="px-3 py-2">{t('admin.staffMember')}</th>
+                <th className="px-3 py-2">{t('admin.lat')}</th>
+                <th className="px-3 py-2">{t('admin.lng')}</th>
+                <th className="px-3 py-2">{t('admin.accuracy')}</th>
               </tr>
             </thead>
             <tbody>
               {pings.map((p) => (
                 <tr key={p.id} className="border-t border-black/5">
-                  <td className="px-3 py-2 whitespace-nowrap">{new Date(p.recorded_at).toLocaleString('uz-UZ')}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{new Date(p.recorded_at).toLocaleString(locale)}</td>
                   <td className="px-3 py-2 font-mono">{p.owner_key}</td>
                   <td className="px-3 py-2 font-mono">{p.latitude.toFixed(5)}</td>
                   <td className="px-3 py-2 font-mono">{p.longitude.toFixed(5)}</td>
@@ -868,7 +870,7 @@ export default function AdminStaffLocationConsole() {
             </tbody>
           </table>
           {pings.length === 0 && (
-            <div className="px-4 py-8 text-center text-black/45 text-[13px]">Ping yo‘q.</div>
+            <div className="px-4 py-8 text-center text-black/45 text-[13px]">{t('admin.noPingsYet')}</div>
           )}
         </div>
       ) : (
@@ -877,18 +879,18 @@ export default function AdminStaffLocationConsole() {
             <div key={a.id} className="ios-glass rounded-2xl border border-amber-200/80 bg-amber-50/40 p-4">
               <div className="flex justify-between gap-2 flex-wrap text-[12px] text-black/50">
                 <span className="font-mono">{a.owner_key}</span>
-                <span>{new Date(a.created_at).toLocaleString('uz-UZ')}</span>
+                <span>{new Date(a.created_at).toLocaleString(locale)}</span>
               </div>
-              <p className="text-[14px] font-medium text-black/85 mt-2">{a.building_name || 'Bino'}</p>
+              <p className="text-[14px] font-medium text-black/85 mt-2">{a.building_name || t('admin.buildingDefaultName')}</p>
               <p className="text-[13px] text-black/70 mt-1">{a.message}</p>
               <p className="text-[11px] text-black/45 mt-2">
-                Masofa: {a.distance_m} m · ruxsat radiusi {a.radius_m} m
+                {t('admin.alertDistance', { distance: a.distance_m, radius: a.radius_m })}
               </p>
             </div>
           ))}
           {alerts.length === 0 && (
             <div className="ios-glass rounded-2xl border border-white/60 p-8 text-center text-black/45 text-[13px]">
-              Ogohlantirish yo‘q.
+              {t('admin.noAlertsYet')}
             </div>
           )}
         </div>

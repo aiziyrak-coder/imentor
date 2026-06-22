@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { deepseekText } from '../services/deepseekClient';
+import { useUiText } from '../i18n/useUiText';
 
 interface Message {
   role: 'user' | 'ai';
@@ -19,8 +20,9 @@ interface Message {
 }
 
 export default function Analytics() {
+  const { t } = useUiText();
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'ai', text: "Assalomu alaykum! Men Salomatlik AI yordamchisiman. Jamoat salomatligi, ma'lumotlar tahlili yoki prognostik modellashtirish bo'yicha qanday savolingiz bor?" }
+    { role: 'ai', text: t('analytics.welcome') }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -53,7 +55,7 @@ export default function Analytics() {
 
       setMessages(prev => [...prev, { role: 'ai', text: reply }]);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'ai', text: "Kechirasiz, tizimda xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring." }]);
+      setMessages(prev => [...prev, { role: 'ai', text: t('analytics.error') }]);
     } finally {
       setLoading(false);
     }
@@ -68,16 +70,16 @@ export default function Analytics() {
           </div>
           <div>
             <h2 className="text-xl font-bold text-black/90 tracking-tight">
-               AI Tahlil va Maslahat
+              {t('analytics.title')}
             </h2>
-            <p className="text-[13px] text-black/50 font-medium">Katta hajmdagi ma'lumotlarni tahlil qilish va prognozlar olish uchun universal chat.</p>
+            <p className="text-[13px] text-black/50 font-medium">{t('analytics.subtitle')}</p>
           </div>
         </div>
         <div className="hidden md:flex gap-2">
            {[ 
-             { icon: LineChart, label: 'Trendlar' },
-             { icon: FileSearch, label: 'Tadqiqot' },
-             { icon: Target, label: 'Prognoz' }
+             { icon: LineChart, label: t('analytics.trends') },
+             { icon: FileSearch, label: t('analytics.research') },
+             { icon: Target, label: t('analytics.forecast') }
            ].map((item, i) => (
              <button key={i} className="flex items-center gap-2 px-4 py-2 bg-white/40 border border-white/60 shadow-sm hover:shadow-md rounded-xl text-[12px] font-semibold text-black/60 hover:text-black/80 transition-all">
                <item.icon size={14} /> {item.label}
@@ -89,7 +91,6 @@ export default function Analytics() {
       <div className="flex-1 ios-glass border border-white/60 rounded-[2rem] overflow-hidden flex flex-col relative shadow-sm">
         <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none" />
         
-        {/* Chat log */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide relative z-10 w-full">
           {messages.map((msg, i) => (
             <motion.div
@@ -128,7 +129,6 @@ export default function Analytics() {
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input area */}
         <div className="p-5 border-t border-black/5 bg-white/40 backdrop-blur-xl relative z-20">
           <div className="relative flex items-end gap-3 w-full">
             <div className="relative flex-1 group">
@@ -141,7 +141,7 @@ export default function Analytics() {
                      handleSend();
                    }
                  }}
-                 placeholder="Savolingizni bering yoki ma'lumotlarni kiriting..."
+                 placeholder={t('analytics.placeholder')}
                  className="w-full p-4 pl-5 pr-14 bg-white/50 border border-white/60 rounded-2xl shadow-sm outline-none focus:bg-white/80 focus:border-sky-400 transition-all text-[15px] font-medium resize-none min-h-[56px] max-h-32 placeholder:text-black/30"
                  rows={1}
                />
@@ -158,11 +158,11 @@ export default function Analytics() {
           </div>
           <div className="mt-3 flex items-center justify-between px-2 w-full">
             <div className="flex items-center gap-1.5 text-[11px] font-bold text-black/30 uppercase tracking-widest leading-none">
-              <Sparkles size={12} className="text-sky-500" /> DeepSeek AI
+              <Sparkles size={12} className="text-sky-500" /> {t('analytics.powered')}
             </div>
             <div className="flex gap-2">
-               <button className="text-[11px] px-2 py-1 rounded bg-black/5 text-black/40 font-semibold hover:bg-black/10 transition-colors">Yangi Chat</button>
-               <button className="text-[11px] px-2 py-1 rounded bg-black/5 text-black/40 font-semibold hover:bg-black/10 transition-colors">Eksport</button>
+               <button className="text-[11px] px-2 py-1 rounded bg-black/5 text-black/40 font-semibold hover:bg-black/10 transition-colors">{t('analytics.newChat')}</button>
+               <button className="text-[11px] px-2 py-1 rounded bg-black/5 text-black/40 font-semibold hover:bg-black/10 transition-colors">{t('analytics.export')}</button>
             </div>
           </div>
         </div>

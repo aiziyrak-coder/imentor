@@ -11,6 +11,7 @@ import {
 } from '../../utils/localStaffAuth';
 import { registerStaffWithBackend } from '../../utils/backendAuth';
 import { HttpError } from '../../api/httpClient';
+import { useUiText } from '../../i18n/useUiText';
 
 const emptyRegisterDefaults = {
   phone: '+998',
@@ -29,6 +30,7 @@ interface RegisterPageProps {
 }
 
 export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPageProps) {
+  const { t } = useUiText();
   const demoDefaults = isDemoAuthEnabled()
     ? {
         phone: TEST_STAFF_PHONE,
@@ -61,34 +63,34 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
     setError(null);
 
     if (!firstName.trim() || !lastName.trim()) {
-      setError('Ism va familiyani kiriting.');
+      setError(t('auth.register.errorName'));
       return;
     }
     if (!faculty.trim() || !department.trim() || !direction.trim()) {
-      setError('Fakultet, kafedra va yo‘nalishni to‘ldiring.');
+      setError(t('auth.register.errorFields'));
       return;
     }
 
     const digits = normalizePhoneDigits(phone);
     if (!isValidPhoneDigits(digits)) {
-      setError("Telefon raqamini to'liq kiriting (O‘zbekiston: +998...).");
+      setError(t('auth.register.errorPhone'));
       return;
     }
     if (password.length < 6) {
-      setError('Parol kamida 6 belgi bo‘lsin.');
+      setError(t('auth.register.errorPasswordShort'));
       return;
     }
     if (password !== confirmPassword) {
-      setError('Parollar mos emas.');
+      setError(t('auth.register.errorPasswordMismatch'));
       return;
     }
     if (regRole === 'startuper') {
       if (participantKind === 'student' && !studyGroup.trim()) {
-        setError('Talaba sifatida guruhni kiriting.');
+        setError(t('auth.register.errorStudentGroup'));
         return;
       }
       if (participantKind === 'employee' && !jobTitle.trim()) {
-        setError('Xodim sifatida lavozimni kiriting.');
+        setError(t('auth.register.errorEmployeeTitle'));
         return;
       }
     }
@@ -110,15 +112,15 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (err instanceof HttpError && err.status === 409) {
-        setError('Bu telefon raqam bilan allaqachon ro‘yxatdan o‘tilgan. «Kirish» sahifasiga o‘ting.');
+        setError(t('auth.register.errorExists'));
       } else if (code === 'already-exists') {
-        setError('Bu telefon raqam bilan allaqachon ro‘yxatdan o‘tilgan. «Kirish» sahifasiga o‘ting.');
+        setError(t('auth.register.errorExists'));
       } else if (code === 'weak-password') {
-        setError('Parol juda zaif.');
+        setError(t('auth.register.errorWeak'));
       } else if (code === 'startuper-no-group' || code === 'startuper-no-title') {
-        setError('Startuper uchun guruh yoki lavozim to‘ldirilmagan.');
+        setError(t('auth.register.errorStartup'));
       } else {
-        setError("Ro'yxatdan o'tishda xatolik. Qayta urinib ko'ring.");
+        setError(t('auth.register.errorGeneric'));
       }
       console.error(err);
     } finally {
@@ -139,117 +141,117 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
             alt="iMentor"
             className="mx-auto w-16 h-16 rounded-2xl object-cover border border-white/70 shadow-lg mb-4 bg-white"
           />
-          <h1 className="text-2xl font-bold text-black/90 tracking-tight">iMentor ro‘yxatdan o‘tish</h1>
+          <h1 className="text-2xl font-bold text-black/90 tracking-tight">{t('auth.register.title')}</h1>
           <p className="text-[13px] text-black/50 mt-2 font-medium">
-            Telefon, parol va ish joyi — startuper yoki hodim sifatida tanlang
+            {t('auth.register.subtitle')}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-black/55">Ro‘yxatdan o‘tish turi</label>
+            <label className="text-xs font-semibold text-black/55">{t('auth.register.roleLabel')}</label>
             <select
               value={regRole}
               onChange={(e) => setRegRole(e.target.value as 'hodim' | 'startuper')}
               className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
             >
-              <option value="hodim">Assistant professor (ta‘lim modullari)</option>
-              <option value="startuper">Startuper (innovatsiya va startap loyihalari)</option>
+              <option value="hodim">{t('auth.register.hodimOption')}</option>
+              <option value="startuper">{t('auth.register.startuperOption')}</option>
             </select>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-black/55">Ism</label>
+              <label className="text-xs font-semibold text-black/55">{t('auth.register.firstName')}</label>
               <input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-                placeholder="Ism"
+                placeholder={t('auth.register.firstName')}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-black/55">Familiya</label>
+              <label className="text-xs font-semibold text-black/55">{t('auth.register.lastName')}</label>
               <input
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-                placeholder="Familiya"
+                placeholder={t('auth.register.lastName')}
               />
             </div>
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
-              <Building2 size={12} /> Fakultet
+              <Building2 size={12} /> {t('auth.register.faculty')}
             </label>
             <input
               value={faculty}
               onChange={(e) => setFaculty(e.target.value)}
               className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-              placeholder="Masalan: Pediatriya fakulteti"
+              placeholder={t('auth.register.facultyPlaceholder')}
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
-              <Users size={12} /> Kafedra
+              <Users size={12} /> {t('auth.register.department')}
             </label>
             <input
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
               className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-              placeholder="Masalan: Xirurgiya kafedrasi"
+              placeholder={t('auth.register.departmentPlaceholder')}
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
-              <BookOpen size={12} /> Yo‘nalish / mutaxassislik
+              <BookOpen size={12} /> {t('auth.register.direction')}
             </label>
             <input
               value={direction}
               onChange={(e) => setDirection(e.target.value)}
               className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-              placeholder="Masalan: Davolash ishi"
+              placeholder={t('auth.register.directionPlaceholder')}
             />
           </div>
 
           {regRole === 'startuper' && (
             <>
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-black/55">Sizning holatingiz</label>
+                <label className="text-xs font-semibold text-black/55">{t('auth.register.statusLabel')}</label>
                 <select
                   value={participantKind}
                   onChange={(e) => setParticipantKind(e.target.value as 'student' | 'employee')}
                   className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
                 >
-                  <option value="student">Talaba</option>
-                  <option value="employee">Xodim (kafedra / bo‘lim)</option>
+                  <option value="student">{t('auth.register.student')}</option>
+                  <option value="employee">{t('auth.register.employee')}</option>
                 </select>
               </div>
               {participantKind === 'student' ? (
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
-                    <Users size={12} /> O‘quv guruhi
+                    <Users size={12} /> {t('auth.register.studyGroup')}
                   </label>
                   <input
                     value={studyGroup}
                     onChange={(e) => setStudyGroup(e.target.value)}
                     className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-                    placeholder="Masalan: 421-22"
+                    placeholder={t('auth.register.studyGroupPlaceholder')}
                   />
                 </div>
               ) : (
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-black/55 flex items-center gap-1">
-                    <Briefcase size={12} /> Lavozim
+                    <Briefcase size={12} /> {t('auth.register.jobTitle')}
                   </label>
                   <input
                     value={jobTitle}
                     onChange={(e) => setJobTitle(e.target.value)}
                     className="w-full rounded-xl border border-black/10 bg-white/70 px-4 py-3 text-[14px] font-medium outline-none focus:ring-2 focus:ring-emerald-500/35"
-                    placeholder="Masalan: Katta o‘qituvchi, assistent"
+                    placeholder={t('auth.register.jobTitlePlaceholder')}
                   />
                 </div>
               )}
@@ -257,7 +259,7 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
           )}
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-black/55">Telefon raqam</label>
+            <label className="text-xs font-semibold text-black/55">{t('auth.register.phoneNumber')}</label>
             <div className="relative">
               <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-black/35" size={18} />
               <input
@@ -272,7 +274,7 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-black/55">Parol</label>
+              <label className="text-xs font-semibold text-black/55">{t('auth.register.password')}</label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-black/35" size={18} />
                 <input
@@ -285,7 +287,7 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-black/55">Parolni tasdiqlash</label>
+              <label className="text-xs font-semibold text-black/55">{t('auth.register.confirmPassword')}</label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-black/35" size={18} />
                 <input
@@ -312,14 +314,14 @@ export default function RegisterPage({ onSwitchToLogin, onBackToQr }: RegisterPa
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-[15px] font-semibold text-white shadow-md transition hover:bg-emerald-500 disabled:opacity-60"
           >
             {loading ? <Loader2 className="animate-spin" size={20} /> : null}
-            Ro‘yxatdan o‘tish
+            {t('auth.register.submit')}
           </button>
         </form>
 
         <p className="mt-6 text-center text-[13px] text-black/50">
-          Allaqachon hisobingiz bormi?{' '}
+          {t('auth.register.hasAccount')}{' '}
           <button type="button" onClick={onSwitchToLogin} className="font-semibold text-blue-600 hover:underline">
-            Kirish
+            {t('auth.register.login')}
           </button>
         </p>
       </div>

@@ -12,6 +12,7 @@ import {
   Save,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useUiText } from '../../i18n/useUiText';
 import { buildStartupProfileSnapshot, getCurrentLocalUser } from '../../utils/localStaffAuth';
 import {
   listMyStartupApplications,
@@ -71,6 +72,7 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 export default function StartupDossierSubmit() {
+  const { t } = useUiText();
   const [items, setItems] = useState<StartupApplicationDto[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,11 +112,11 @@ export default function StartupDossierSubmit() {
         return list[0].id;
       });
     } catch {
-      setError('Ro‘yxatni yuklashda xato.');
+      setError(t('startup.error.dossierLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -191,7 +193,7 @@ export default function StartupDossierSubmit() {
       });
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
     } catch {
-      setError('Dossyeni saqlashda xato.');
+      setError(t('startup.error.dossierSaveFailed'));
     } finally {
       setSaving(false);
     }
@@ -210,7 +212,7 @@ export default function StartupDossierSubmit() {
       return;
     }
     if (gate.warnings.length > 0) {
-      const proceed = window.confirm(`${gate.warnings.join('\n\n')}\n\nYuborishni davom ettirasizmi?`);
+      const proceed = window.confirm(t('startup.error.dossierConfirmWarnings', { warnings: gate.warnings.join('\n\n') }));
       if (!proceed) return;
     }
     setSubmitting(true);
@@ -224,7 +226,7 @@ export default function StartupDossierSubmit() {
       const row = await submitStartupApplication(selected.id);
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
     } catch {
-      setError('Yuborishda xato. Internet yoki huquqni tekshiring.');
+      setError(t('startup.error.dossierSubmitFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -248,11 +250,11 @@ export default function StartupDossierSubmit() {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (next.length >= MAX_FILES) {
-        setError(`Eng ko‘pi bilan ${MAX_FILES} ta fayl.`);
+        setError(t('startup.error.maxFiles', { max: MAX_FILES }));
         break;
       }
       if (file.size > MAX_FILE_BYTES) {
-        setError(`"${file.name}" juda katta (>${Math.round(MAX_FILE_BYTES / 1024)} KB). PDF/rasmni siqing.`);
+        setError(t('startup.error.fileTooLarge', { name: file.name, maxKb: Math.round(MAX_FILE_BYTES / 1024) }));
         continue;
       }
       try {
@@ -266,7 +268,7 @@ export default function StartupDossierSubmit() {
           base64: b64,
         });
       } catch {
-        setError(`"${file.name}" o‘qilmadi.`);
+        setError(t('startup.error.fileReadFailed', { name: file.name }));
       }
     }
     setAttachments(next);
@@ -293,11 +295,8 @@ export default function StartupDossierSubmit() {
             <FolderOpen size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Dossye va administratorga yuborish</h1>
-            <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">
-              Jamoa, pitch, ilova / grant hujjatlari — komissiya yoki administrator ko‘rib chiqishi uchun yagona paket.
-              Avval «Startap studiyasi» bo‘limida loyiha va tahlilni yakunlang.
-            </p>
+            <h1 className="text-xl font-bold text-black/90">{t('startup.dossierTitle')}</h1>
+            <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">{t('startup.dossierSubtitle')}</p>
           </div>
         </div>
         <button
@@ -307,7 +306,7 @@ export default function StartupDossierSubmit() {
           className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-black/10 bg-white/90 px-4 py-2.5 text-[13px] font-semibold text-black/80 shadow-sm disabled:opacity-50"
         >
           {loading ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-          Ma’lumotlarni yangilash
+          {t('startup.dossierRefresh')}
         </button>
       </div>
 
@@ -321,16 +320,16 @@ export default function StartupDossierSubmit() {
       {loading ? (
         <div className="flex items-center justify-center py-20 gap-2 text-black/50">
           <Loader2 className="animate-spin" size={20} />
-          Yuklanmoqda…
+          {t('startup.loading')}
         </div>
       ) : items.length === 0 ? (
         <div className="ios-glass rounded-2xl border border-white/60 p-8 text-center text-[14px] text-black/55">
-          Avval «Startap studiyasi» bo‘limida yangi loyiha yarating.
+          {t('startup.dossierNoProjects')}
         </div>
       ) : (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-[11px] font-semibold text-black/45 uppercase">Loyiha</label>
+            <label className="text-[11px] font-semibold text-black/45 uppercase">{t('startup.dossierProject')}</label>
             <select
               value={selectedId ?? ''}
               onChange={(e) => setSelectedId(Number(e.target.value))}
@@ -345,7 +344,7 @@ export default function StartupDossierSubmit() {
             </select>
             {selected?.status === 'submitted' && (
               <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                Yuborilgan
+                {t('startup.dossierSubmitted')}
               </span>
             )}
           </div>
@@ -364,7 +363,7 @@ export default function StartupDossierSubmit() {
                 }`}
               >
                 <p className="font-bold mb-1">
-                  {dossierGate.ok ? 'Yuborish: minimal talablar bajarilgan' : 'Yuborish hozircha mumkin emas'}
+                  {dossierGate.ok ? t('startup.dossierReadyToSubmit') : t('startup.dossierCannotSubmit')}
                 </p>
                 {!dossierGate.ok && (
                   <ul className="list-disc pl-4 space-y-0.5">
@@ -375,7 +374,7 @@ export default function StartupDossierSubmit() {
                 )}
                 {dossierGate.ok && dossierGate.warnings.length > 0 && (
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/90 px-2.5 py-2 text-amber-950">
-                    <p className="font-semibold text-[11px] uppercase tracking-wide mb-1">Tavsiya</p>
+                    <p className="font-semibold text-[11px] uppercase tracking-wide mb-1">{t('startup.dossierRecommendations')}</p>
                     <ul className="list-disc pl-4 space-y-0.5">
                       {dossierGate.warnings.map((w) => (
                         <li key={w}>{w}</li>
@@ -388,25 +387,25 @@ export default function StartupDossierSubmit() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-black/50">Loyiha turi</label>
+                <label className="text-[11px] font-semibold text-black/50">{t('startup.dossierProjectKind')}</label>
                 <select
                   value={projectKind}
                   onChange={(e) => setProjectKind(e.target.value as 'startup' | 'research' | 'hybrid')}
                   disabled={selected?.status === 'submitted'}
                   className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] disabled:opacity-60"
                 >
-                  <option value="startup">Startap / mahsulot</option>
-                  <option value="research">Ilmiy tadqiqot / ishlanma</option>
-                  <option value="hybrid">Aralash</option>
+                  <option value="startup">{t('startup.dossierStartup')}</option>
+                  <option value="research">{t('startup.dossierResearch')}</option>
+                  <option value="hybrid">{t('startup.dossierHybrid')}</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-black/50">Elevator / bir qatorlik pitch</label>
+                <label className="text-[11px] font-semibold text-black/50">{t('startup.dossierOneLiner')}</label>
                 <input
                   value={vcOneLiner}
                   onChange={(e) => setVcOneLiner(e.target.value)}
                   disabled={selected?.status === 'submitted'}
-                  placeholder="Masalan: sun’iy intellekt bilan ... aniqlaymiz"
+                  placeholder={t('startup.dossierOneLinerPlaceholder')}
                   className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] disabled:opacity-60"
                 />
               </div>
@@ -416,7 +415,7 @@ export default function StartupDossierSubmit() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-black/80">
                   <Users size={16} className="text-indigo-600" />
-                  <span className="text-[13px] font-bold">Jamoa a’zolari</span>
+                  <span className="text-[13px] font-bold">{t('startup.dossierTeam')}</span>
                 </div>
                 {selected?.status !== 'submitted' && (
                   <button
@@ -424,12 +423,12 @@ export default function StartupDossierSubmit() {
                     onClick={addTeamRow}
                     className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 text-white text-[12px] font-semibold px-2.5 py-1.5"
                   >
-                    <Plus size={14} /> Qator
+                    <Plus size={14} /> {t('startup.dossierAddRow')}
                   </button>
                 )}
               </div>
               {team.length === 0 && (
-                <p className="text-[12px] text-black/45">Hali kiritilmagan — «Qator» bilan qo‘shing.</p>
+                <p className="text-[12px] text-black/45">{t('startup.dossierNoTeam')}</p>
               )}
               <div className="space-y-2">
                 {team.map((row) => (
@@ -439,21 +438,21 @@ export default function StartupDossierSubmit() {
                   >
                     <input
                       className="sm:col-span-3 rounded-lg border border-black/10 px-2 py-2 text-[13px]"
-                      placeholder="F.I.Sh."
+                      placeholder={t('startup.dossierFullName')}
                       value={row.full_name}
                       onChange={(e) => updateTeam(row.id, { full_name: e.target.value })}
                       disabled={selected?.status === 'submitted'}
                     />
                     <input
                       className="sm:col-span-3 rounded-lg border border-black/10 px-2 py-2 text-[13px]"
-                      placeholder="Rol (masalan: RA)"
+                      placeholder={t('startup.dossierRole')}
                       value={row.role}
                       onChange={(e) => updateTeam(row.id, { role: e.target.value })}
                       disabled={selected?.status === 'submitted'}
                     />
                     <input
                       className="sm:col-span-3 rounded-lg border border-black/10 px-2 py-2 text-[13px]"
-                      placeholder="Tashkilot / kafedra"
+                      placeholder={t('startup.dossierOrganization')}
                       value={row.organization}
                       onChange={(e) => updateTeam(row.id, { organization: e.target.value })}
                       disabled={selected?.status === 'submitted'}
@@ -461,7 +460,7 @@ export default function StartupDossierSubmit() {
                     <div className="sm:col-span-3 flex gap-1">
                       <input
                         className="flex-1 rounded-lg border border-black/10 px-2 py-2 text-[13px]"
-                        placeholder="Aloqa (email / tel.)"
+                        placeholder={t('startup.dossierContact')}
                         value={row.contact}
                         onChange={(e) => updateTeam(row.id, { contact: e.target.value })}
                         disabled={selected?.status === 'submitted'}
@@ -471,7 +470,7 @@ export default function StartupDossierSubmit() {
                           type="button"
                           onClick={() => removeTeam(row.id)}
                           className="p-2 rounded-lg border border-rose-200 text-rose-600 bg-rose-50"
-                          aria-label="O‘chirish"
+                          aria-label={t('startup.dossierRemove')}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -484,7 +483,7 @@ export default function StartupDossierSubmit() {
 
             <div className="space-y-2">
               <label className="text-[11px] font-semibold text-black/50 flex items-center gap-2">
-                <FileUp size={14} /> Hujjatlar (PDF, rasmlar — har biri ~{Math.round(MAX_FILE_BYTES / 1024)} KB gacha)
+                <FileUp size={14} /> {t('startup.dossierDocuments', { size: Math.round(MAX_FILE_BYTES / 1024) })}
               </label>
               {selected?.status !== 'submitted' && (
                 <input
@@ -496,7 +495,7 @@ export default function StartupDossierSubmit() {
                 />
               )}
               {attachments.length === 0 ? (
-                <p className="text-[12px] text-black/45">Ixtiyoriy: grant ariza, metodika, rasmiylashtirish.</p>
+                <p className="text-[12px] text-black/45">{t('startup.dossierOptional')}</p>
               ) : (
                 <ul className="space-y-2">
                   {attachments.map((a) => (
@@ -510,7 +509,7 @@ export default function StartupDossierSubmit() {
                       </span>
                       <input
                         className="flex-1 min-w-[120px] rounded-lg border border-black/10 px-2 py-1 text-[12px]"
-                        placeholder="Izoh (masalan: Grant loyiha)"
+                        placeholder={t('startup.dossierFileLabel')}
                         value={a.label}
                         onChange={(e) =>
                           setAttachments((prev) =>
@@ -525,7 +524,7 @@ export default function StartupDossierSubmit() {
                           onClick={() => removeAttachment(a.id)}
                           className="text-rose-600 text-[12px] font-semibold"
                         >
-                          O‘chirish
+                          {t('startup.dossierRemove')}
                         </button>
                       )}
                     </li>
@@ -535,20 +534,20 @@ export default function StartupDossierSubmit() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-black/50">Qo‘shimcha izoh (admin uchun)</label>
+              <label className="text-[11px] font-semibold text-black/50">{t('startup.dossierNotes')}</label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 disabled={selected?.status === 'submitted'}
                 rows={4}
                 className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] resize-y disabled:opacity-60"
-                placeholder="Masalan: laboratoriya sinovi muddati, hamkor tashkilot…"
+                placeholder={t('startup.dossierNotesPlaceholder')}
               />
             </div>
 
             {dossierTooLarge && (
               <p className="text-[12px] text-rose-700 font-semibold">
-                Dossye juda katta (~{(dossierBytes / 1e6).toFixed(1)} MB). Ba’zi fayllarni olib tashlang yoki siqing.
+                {t('startup.dossierTooLarge', { size: (dossierBytes / 1e6).toFixed(1) })}
               </p>
             )}
 
@@ -560,7 +559,7 @@ export default function StartupDossierSubmit() {
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                Dossyeni saqlash
+                {t('startup.dossierSave')}
               </button>
               <button
                 type="button"
@@ -574,14 +573,12 @@ export default function StartupDossierSubmit() {
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {submitting ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-                Administratorga yuborish
+                {t('startup.dossierSubmit')}
               </button>
             </div>
 
             <p className="text-[11px] text-black/40 leading-relaxed">
-              «Startap studiyasida» o‘zgarishlar qilganingizdan keyin bu sahifada ro‘yxatni yangilash uchun brauzerda sahifani
-              yangilang (F5) — tekshiruv serverdagi oxirgi saqlangan nusxa bo‘yicha ishlaydi. Fayllar JSON ichida
-              saqlanadi — juda katta hajmdan qoching.
+              {t('startup.dossierDisclaimer')}
             </p>
           </motion.div>
         </div>

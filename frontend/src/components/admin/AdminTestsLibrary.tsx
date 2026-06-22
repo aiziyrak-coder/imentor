@@ -6,8 +6,10 @@ import {
   deleteTestRecord,
   type TestLibraryRecord,
 } from '../../utils/staffContentLibrary';
+import { useUiText } from '../../i18n/useUiText';
 
 export default function AdminTestsLibrary() {
+  const { t } = useUiText();
   const [tick, setTick] = useState(0);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -19,7 +21,7 @@ export default function AdminTestsLibrary() {
     }
   }, [tick]);
 
-  const refresh = () => setTick((t) => t + 1);
+  const refresh = () => setTick((n) => n + 1);
 
   const copyJoin = (sid: string) => {
     const url = `${window.location.origin}${window.location.pathname}?mode=student&sid=${sid}`;
@@ -30,11 +32,11 @@ export default function AdminTestsLibrary() {
 
   const handleDelete = useCallback(
     (id: string) => {
-      if (!window.confirm('Bu test yozuvini va bog‘liq jonli sessiyani o‘chirishni tasdiqlaysizmi?')) return;
+      if (!window.confirm(t('admin.deleteConfirm'))) return;
       deleteTestRecord(id);
       refresh();
     },
-    []
+    [t],
   );
 
   return (
@@ -45,8 +47,8 @@ export default function AdminTestsLibrary() {
             <ClipboardList size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Test savollar bazasi</h1>
-            <p className="text-[12px] text-black/50">Hodimlar yaratgan testlar va jonli sessiya ID</p>
+            <h1 className="text-xl font-bold text-black/90">{t('admin.testsLibraryTitle')}</h1>
+            <p className="text-[12px] text-black/50">{t('admin.testsLibrarySubtitle')}</p>
           </div>
         </div>
         <button
@@ -54,14 +56,14 @@ export default function AdminTestsLibrary() {
           onClick={refresh}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-black/10 bg-white text-[13px] font-semibold"
         >
-          <RefreshCw size={16} /> Yangilash
+          <RefreshCw size={16} /> {t('admin.refresh')}
         </button>
       </div>
 
       <div className="space-y-3">
         {rows.length === 0 ? (
           <div className="ios-glass rounded-2xl border p-10 text-center text-black/45 text-[14px]">
-            Hozircha yozuv yo‘q. Hodimlar «Test yaratish» orqali bazaga qo‘shadi.
+            {t('admin.noRecordsYet', { action: t('admin.testCreation') })}
           </div>
         ) : (
           rows.map((row: TestLibraryRecord) => (
@@ -73,11 +75,11 @@ export default function AdminTestsLibrary() {
               <div className="min-w-0">
                 <p className="font-semibold text-black/90 truncate">{row.testSession.topic}</p>
                 <p className="text-[12px] text-black/45 mt-1">
-                  {row.authorName} · {new Date(row.createdAt).toLocaleString('uz-UZ')} ·{' '}
-                  {row.testSession.questions.length} ta savol
+                  {row.authorName} · {new Date(row.createdAt).toLocaleString()} ·{' '}
+                  {row.testSession.questions.length} {t('admin.questions')}
                 </p>
                 <p className="text-[11px] font-mono text-black/35 mt-1 break-all">
-                  Sessiya: {row.liveSessionId}
+                  {t('admin.sessionId')}: {row.liveSessionId}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
@@ -87,14 +89,14 @@ export default function AdminTestsLibrary() {
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/5 text-[12px] font-semibold text-black/80"
                 >
                   {copied === row.liveSessionId ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-                  Havolani nusxa
+                  {t('admin.copyLink')}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDelete(row.id)}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 text-[12px] font-semibold text-rose-700"
                 >
-                  <Trash2 size={14} /> O‘chirish
+                  <Trash2 size={14} /> {t('admin.delete')}
                 </button>
               </div>
             </motion.div>

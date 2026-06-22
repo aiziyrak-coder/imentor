@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, MessageCircle, Send } from 'lucide-react';
+import { useUiText } from '../../i18n/useUiText';
 
 export type CoachTurn = { role: 'user' | 'assistant'; content: string; ts?: number };
 
@@ -15,11 +16,10 @@ export default function StartupCoachChat({
   disabled: boolean;
   sending: boolean;
   onSend: (text: string) => Promise<void>;
-  /** To‘liq JSON tahlil mavjud bo‘lsa true */
   analysisReady?: boolean;
-  /** Bir teginishda matn maydoniga qo‘yiladigan tezkor savollar */
   suggestedPrompts?: string[];
 }) {
+  const { t } = useUiText();
   const [input, setInput] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -29,10 +29,10 @@ export default function StartupCoachChat({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const t = input.trim();
-    if (!t || disabled || sending) return;
+    const text = input.trim();
+    if (!text || disabled || sending) return;
     setInput('');
-    await onSend(t);
+    await onSend(text);
   };
 
   return (
@@ -42,10 +42,8 @@ export default function StartupCoachChat({
           <MessageCircle size={18} />
         </div>
         <div>
-          <h4 className="text-[14px] font-bold text-black/90">Maslahatchi bilan suhbat</h4>
-          <p className="text-[11px] text-black/50">
-            Strategiya, pilot, bozor, pitch — tahlil bo‘lmasa ham loyiha matningiz asosida javob beradi
-          </p>
+          <h4 className="text-[14px] font-bold text-black/90">{t('startup.coachTitle')}</h4>
+          <p className="text-[11px] text-black/50">{t('startup.coachSubtitle')}</p>
         </div>
       </div>
 
@@ -68,11 +66,7 @@ export default function StartupCoachChat({
       <div className="max-h-[min(55vh,520px)] overflow-y-auto space-y-3 rounded-xl border border-black/8 bg-white/70 px-3 py-3 mb-3">
         {turns.length === 0 && (
           <div className="text-[12px] text-black/45 text-center py-5 space-y-2 px-1">
-            <p>
-              {analysisReady
-                ? 'Tahlil tayyor — strategiya, xavf yoki pitch bo‘yicha savol yozing yoki tezkor tugmalardan foydalaning.'
-                : 'Loyiha matningiz asosida savol bera olasiz. Chuqur jadval va xavflar ro‘yxati uchun keyin «AI tahlil»ni ishga tushiring.'}
-            </p>
+            <p>{analysisReady ? t('startup.coachReady') : t('startup.coachNoAnalysis')}</p>
           </div>
         )}
         {turns.map((m, i) => (
@@ -95,7 +89,7 @@ export default function StartupCoachChat({
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-md border border-black/10 bg-white px-3 py-2 flex items-center gap-2 text-[12px] text-black/50">
               <Loader2 className="animate-spin size-4" />
-              Javob yozilmoqda…
+              {t('startup.coachTyping')}
             </div>
           </div>
         )}
@@ -108,14 +102,14 @@ export default function StartupCoachChat({
           onChange={(e) => setInput(e.target.value)}
           disabled={disabled || sending}
           rows={2}
-          placeholder="Masalan: pilot uchun minimal KPI va 2 haftalik reja?"
+          placeholder={t('startup.coachPlaceholder')}
           className="flex-1 rounded-xl border border-black/12 bg-white/90 px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-fuchsia-400/40 resize-none disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={disabled || sending || !input.trim()}
           className="self-end shrink-0 h-11 w-11 rounded-xl bg-fuchsia-600 text-white flex items-center justify-center shadow-md disabled:opacity-40"
-          aria-label="Yuborish"
+          aria-label={t('startup.coachSend')}
         >
           {sending ? <Loader2 className="animate-spin size-5" /> : <Send size={20} />}
         </button>

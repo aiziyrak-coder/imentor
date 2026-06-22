@@ -45,7 +45,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
       const created = await createDevicePairingSession();
       desktopSecretRef.current = created.desktop_secret || '';
       if (!desktopSecretRef.current) {
-        setError('QR sessiyasi yaratildi, lekin xavfsizlik kaliti yo‘q. Sahifani yangilang (Ctrl+F5).');
+        setError(t('auth.qrNoSecret'));
         return;
       }
       const url = await QRCode.toDataURL(created.qr_payload, {
@@ -110,18 +110,16 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
           if (err instanceof HttpError && err.status === 403) {
             stopPoll();
             setWaitingPhone(false);
-            setError(
-              'QR tekshiruvi rad etildi. Sahifani to‘liq yangilang (Ctrl+F5) va «Yangi QR kod» bosing.',
-            );
+            setError(t('auth.qrRejected'));
           }
         }
       }, 2000);
     } catch {
-      setError('QR yaratib bo‘lmadi. Internetni tekshirib, yangilang.');
+      setError(t('auth.qrCreateFailed'));
     } finally {
       setLoading(false);
     }
-  }, [stopPoll]);
+  }, [stopPoll, t]);
 
   useEffect(() => {
     aliveRef.current = true;

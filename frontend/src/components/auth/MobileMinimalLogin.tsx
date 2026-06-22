@@ -6,12 +6,14 @@ import {
 } from '../../utils/localStaffAuth';
 import { getBackendAccessToken, loginStaffWithBackendFallback } from '../../utils/backendAuth';
 import { HttpError } from '../../api/httpClient';
+import { useUiText } from '../../i18n/useUiText';
 
 type Props = {
   onSwitchToRegister?: () => void;
 };
 
 export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
+  const { t } = useUiText();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,11 +24,11 @@ export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
     setError(null);
     const digits = normalizePhoneDigits(phone);
     if (!isValidPhoneDigits(digits)) {
-      setError("Telefon raqamini to'liq kiriting");
+      setError(t('auth.mobileLogin.phoneRequired'));
       return;
     }
     if (!password.trim()) {
-      setError('Parolni kiriting');
+      setError(t('auth.mobileLogin.passwordRequired'));
       return;
     }
     setLoading(true);
@@ -35,9 +37,9 @@ export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
       await getBackendAccessToken();
     } catch (err) {
       if (err instanceof HttpError && (err.status === 0 || err.message.includes('abort'))) {
-        setError('Internet aloqasini tekshiring');
+        setError(t('auth.mobileLogin.connectionError'));
       } else {
-        setError("Telefon yoki parol noto'g'ri");
+        setError(t('auth.mobileLogin.wrongCredentials'));
       }
     } finally {
       setLoading(false);
@@ -67,7 +69,7 @@ export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
               autoComplete="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="Telefon raqam"
+              placeholder={t('auth.mobileLogin.phoneLabel')}
               className="w-full h-14 rounded-2xl border border-slate-200 bg-white pl-12 pr-4 text-[17px] text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
             />
           </div>
@@ -79,7 +81,7 @@ export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Parol"
+              placeholder={t('auth.mobileLogin.passwordLabel')}
               className="w-full h-14 rounded-2xl border border-slate-200 bg-white pl-12 pr-4 text-[17px] text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
             />
           </div>
@@ -93,18 +95,18 @@ export default function MobileMinimalLogin({ onSwitchToRegister }: Props) {
             disabled={loading}
             className="w-full h-14 rounded-2xl bg-sky-600 text-white text-[17px] font-semibold shadow-lg shadow-sky-600/25 active:scale-[0.98] transition disabled:opacity-60 flex items-center justify-center"
           >
-            {loading ? <Loader2 className="animate-spin" size={24} /> : 'Kirish'}
+            {loading ? <Loader2 className="animate-spin" size={24} /> : t('auth.mobileLogin.submit')}
           </button>
 
           {onSwitchToRegister && (
             <p className="text-center text-[14px] text-slate-500 pt-2">
-              Hisobingiz yo‘qmi?{' '}
+              {t('auth.mobileLogin.noAccount')}{' '}
               <button
                 type="button"
                 onClick={onSwitchToRegister}
                 className="font-semibold text-sky-700 underline underline-offset-2"
               >
-                Ro‘yxatdan o‘tish
+                {t('auth.mobileLogin.register')}
               </button>
             </p>
           )}

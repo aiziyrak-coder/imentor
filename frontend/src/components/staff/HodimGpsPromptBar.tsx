@@ -2,12 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, Shield } from 'lucide-react';
 import { isLikelyPhoneOrSmallTablet } from '../../utils/deviceDetection';
 import { requestOneShotStaffLocationPing } from '../../utils/staffLocationGeo';
+import { useUiText } from '../../i18n/useUiText';
 
-/**
- * Mobil hodim: brauzer ruxsat dialogini foydalanuvchi bosishi bilan chaqirish (iOS/Android).
- * Matnda texnik tafsilotlar ko‘rsatilmaydi.
- */
 export default function HodimGpsPromptBar() {
+  const { t } = useUiText();
   const [permission, setPermission] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,15 +36,15 @@ export default function HodimGpsPromptBar() {
     } catch (e) {
       const err = e as GeolocationPositionError;
       if (err?.code === 1) {
-        setError('Ruxsat berilmadi. Brauzer sozlamalaridan tekshirib, qayta urinib ko‘ring.');
+        setError(t('staff.gps.errorDenied'));
         setPermission('denied');
       } else {
-        setError('So‘rov bajarilmadi. Internet va brauzer sozlamalarini tekshirib, qayta urinib ko‘ring.');
+        setError(t('staff.gps.errorGeneric'));
       }
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [t]);
 
   if (!isLikelyPhoneOrSmallTablet()) return null;
 
@@ -61,9 +59,9 @@ export default function HodimGpsPromptBar() {
             <Shield size={18} />
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-bold leading-tight text-black/90">Tizim bilan ishlash</p>
+            <p className="text-[13px] font-bold leading-tight text-black/90">{t('staff.gps.promptTitle')}</p>
             <p className="text-[11px] text-black/55 leading-snug">
-              Davom etish uchun bir marta ruxsatni tasdiqlang (xavfsizlik uchun).
+              {t('staff.gps.promptSubtitle')}
             </p>
           </div>
         </div>
@@ -71,7 +69,7 @@ export default function HodimGpsPromptBar() {
           {permission === 'granted' ? (
             <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-100 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-900">
               <CheckCircle2 size={14} />
-              Tasdiqlandi
+              {t('staff.gps.confirmed')}
             </span>
           ) : (
             <button
@@ -81,15 +79,13 @@ export default function HodimGpsPromptBar() {
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-md shadow-sky-600/25 active:scale-[0.98] disabled:opacity-60"
             >
               {busy ? <Loader2 className="animate-spin" size={16} /> : <Shield size={16} />}
-              Ruxsatni tasdiqlash
+              {t('staff.gps.confirm')}
             </button>
           )}
         </div>
       </div>
       {needsHttps ? (
-        <p className="mt-2 text-[11px] font-semibold text-rose-800">
-          To‘liq ishlashi uchun sayt <strong>https</strong> orqali ochilgan bo‘lishi kerak.
-        </p>
+        <p className="mt-2 text-[11px] font-semibold text-rose-800" dangerouslySetInnerHTML={{ __html: t('staff.gps.httpsRequired') }} />
       ) : null}
       {error ? <p className="mt-2 text-[11px] text-rose-700">{error}</p> : null}
     </div>

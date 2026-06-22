@@ -1,4 +1,5 @@
 import { type AppLanguage, aiLanguageName, inferPdfLanguage } from '../i18n/language';
+import { translate } from '../i18n/translations';
 import {
   extractTopicsByRegex,
   guessSubjectFromDocumentText,
@@ -217,7 +218,7 @@ async function extractSyllabusWithAi(
     return best;
   }
 
-  throw new Error("Syllabusdan fan nomi yoki mavzular ajratib bo'lmadi. Internetni tekshirib, qayta urinib ko'ring.");
+  throw new Error('syllabus-extract-failed');
 }
 
 function inferSyllabusInstructionLanguage(
@@ -274,24 +275,24 @@ function normalizeSyllabusExtract(
   return finalizeSyllabusExtract(base, pdfText, explicitLang);
 }
 
-function syllabusExtractionErrorMessage(err: unknown, fileName: string): string {
+function syllabusExtractionErrorMessage(err: unknown, fileName: string, lang: AppLanguage = 'uz'): string {
   const msg = err instanceof Error ? err.message : String(err || '');
   if (msg === 'empty-document') {
-    return `"${fileName}" bo'sh yoki matn ajratib bo'lmadi. Skanerlangan PDF bo'lsa, DOCX formatida yuklang.`;
+    return translate(lang, 'ai.error.syllabusEmpty', { fileName });
   }
   if (msg === 'doc-empty') {
-    return `"${fileName}" (.doc) dan matn o'qib bo'lmadi. Faylni DOCX yoki PDF qilib qayta yuklang.`;
+    return translate(lang, 'ai.error.syllabusDocEmpty', { fileName });
   }
   if (msg === 'unsupported-format') {
-    return `"${fileName}" formati qo'llab-quvvatlanmaydi. PDF, DOC yoki DOCX yuklang.`;
+    return translate(lang, 'ai.error.syllabusUnsupported', { fileName });
   }
   if (msg.startsWith('empty:')) {
-    return `"${fileName}" dan mavzular topilmadi. Hujjatda M1/L1 (ma'ruza) yoki A1/P1 (amaliy) formatini tekshiring.`;
+    return translate(lang, 'ai.error.syllabusNoTopics', { fileName });
   }
   if (/api|key|401|403/i.test(msg)) {
-    return 'AI xizmati mavjud emas. Internet yoki server sozlamalarini tekshiring.';
+    return translate(lang, 'ai.error.openai');
   }
-  return `"${fileName}" tahlil qilinmadi. Hujjat aniq matnli ekanini va mavzular raqamlanganini tekshiring.`;
+  return translate(lang, 'ai.error.syllabusParseFailed', { fileName });
 }
 
 export { syllabusExtractionErrorMessage };

@@ -4,6 +4,7 @@ import type { TwentyCriteriaEvaluation } from '../../utils/startupEvaluationType
 import { isStartupMarketReadyForDocuments } from '../../utils/startupEvaluationTypes';
 import type { StartupQuestionnaireState } from '../../utils/startupQuestionnaireModel';
 import { STARTUP_TWENTY_CRITERIA } from '../../utils/startupTwentyCriteria';
+import { useUiText } from '../../i18n/useUiText';
 
 function titleForCriterion(id: string): string {
   return STARTUP_TWENTY_CRITERIA.find((c) => c.id === id)?.title ?? id;
@@ -23,7 +24,6 @@ export default function StartupDiscoveryFlow({
   onDownloadWord,
 }: {
   formDisabled: boolean;
-  /** 1-bosqich: strategik AI tahlil tugagan bo‘lishi kerak */
   stage1AnalysisDone: boolean;
   questionnaire: StartupQuestionnaireState;
   onQuestionnaireChange: (next: StartupQuestionnaireState) => void;
@@ -35,6 +35,7 @@ export default function StartupDiscoveryFlow({
   onEvaluate: () => void;
   onDownloadWord: () => void;
 }) {
+  const { t } = useUiText();
   const items = questionnaire.items;
   const answers = questionnaire.answers;
 
@@ -57,52 +58,40 @@ export default function StartupDiscoveryFlow({
       <div className="sticky top-0 z-20 shrink-0 border-b border-violet-200/70 bg-violet-50/95 backdrop-blur-md px-4 py-3 space-y-2 shadow-sm">
         <div>
           <p className="text-[11px] font-bold text-violet-800 uppercase tracking-wide">
-            2–4-bosqich: savollar → 20 mezon → Word
+            {t('startup.discoveryStageTitle')}
           </p>
-          <p className="text-[12px] text-black/70 mt-1 leading-snug">
-            <strong>2)</strong> AI loyiha matni va 1-bosqich tahliliga asoslangan <strong>20–25 ta</strong> savol tuzadi.
-            <strong> 3)</strong> Javoblardan keyin <strong>20 mezon</strong> bo‘yicha baholash.{' '}
-            <strong>4)</strong> Ballar yetarli bo‘lsa — Word yuklab olish.
-          </p>
+          <p className="text-[12px] text-black/70 mt-1 leading-snug">{t('startup.discoveryStageDescription')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             disabled={formDisabled || generatingQuestions || !stage1AnalysisDone}
-            title={
-              !stage1AnalysisDone
-                ? 'Avval yuqoridagi «1-bosqich: AI tahlil»ni ishga tushiring'
-                : undefined
-            }
+            title={!stage1AnalysisDone ? t('startup.stage2DisabledHint') : undefined}
             onClick={onGenerateQuestions}
             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
           >
             {generatingQuestions ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
-            2-bosqich: AI savollar
+            {t('startup.stage2Questions')}
           </button>
           <button
             type="button"
-            title={
-              !allAnswersFilled
-                ? `Har bir savolga kamida ${minAnswerLen} belgi yozing`
-                : undefined
-            }
+            title={!allAnswersFilled ? t('startup.stage3DisabledHint', { min: minAnswerLen }) : undefined}
             disabled={formDisabled || evaluating || !allAnswersFilled}
             onClick={onEvaluate}
             className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-white shadow-sm disabled:opacity-50"
           >
             {evaluating ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-            3-bosqich: 20 mezon
+            {t('startup.stage3Criteria')}
           </button>
           <button
             type="button"
             disabled={generatingWord || !wordAllowed}
-            title={!wordAllowed ? 'Ballar va tayyorgarlik talablari bajarilishi kerak' : undefined}
+            title={!wordAllowed ? t('startup.stage4DisabledHint') : undefined}
             onClick={onDownloadWord}
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-400/80 bg-emerald-50 px-3 py-2 sm:px-4 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-emerald-900 disabled:opacity-45"
           >
             {generatingWord ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
-            4-bosqich: Word
+            {t('startup.stage4Word')}
           </button>
         </div>
       </div>
@@ -110,20 +99,19 @@ export default function StartupDiscoveryFlow({
       <div className="flex-1 min-h-[180px] overflow-y-auto overscroll-y-contain px-4 py-3 space-y-3">
         {!stage1AnalysisDone ? (
           <p className="text-[12px] text-amber-900/90 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
-            Bu yer ochiladi-yu, avval <strong>1-bosqich</strong>: yuqoridagi «AI tahlil (strategiya…)» tugmasini bosing.
-            Shundan keyin bu yerda 20–25 ta moslashtirilgan savollar paydo bo‘ladi.
+            {t('startup.stage1Required')}
           </p>
         ) : items.length === 0 ? (
-          <p className="text-[12px] text-black/50 leading-relaxed">
-            «2-bosqich: AI savollar»ni bosing — loyiha matningiz va tahlilga qarab savollar generatsiya qilinadi.
-          </p>
+          <p className="text-[12px] text-black/50 leading-relaxed">{t('startup.generateQuestionsPrompt')}</p>
         ) : (
           items.map((it, idx) => (
             <div
               key={it.id}
               className="rounded-xl border border-black/10 bg-white p-3 sm:p-3.5 space-y-2 shadow-sm scroll-mt-28"
             >
-              <p className="text-[12px] font-semibold text-violet-900/90">Savol {idx + 1}</p>
+              <p className="text-[12px] font-semibold text-violet-900/90">
+                {t('startup.questionNumber', { number: idx + 1 })}
+              </p>
               <p className="text-[13px] font-medium text-black/90 leading-snug">{it.question}</p>
               {it.hint ? <p className="text-[11px] text-black/45 italic leading-snug">{it.hint}</p> : null}
               <textarea
@@ -132,7 +120,7 @@ export default function StartupDiscoveryFlow({
                 disabled={formDisabled}
                 rows={4}
                 className="w-full rounded-lg border border-black/12 bg-white px-3 py-2.5 text-[13px] leading-relaxed outline-none focus:ring-2 focus:ring-violet-300/50 disabled:opacity-60 resize-y min-h-[96px]"
-                placeholder={`Javob (kamida ${minAnswerLen} belgi)…`}
+                placeholder={t('startup.answerPlaceholder', { min: minAnswerLen })}
               />
             </div>
           ))
@@ -142,25 +130,24 @@ export default function StartupDiscoveryFlow({
       {evaluation && (
         <div className="shrink-0 border-t border-black/10 bg-white/98 max-h-[min(42vh,380px)] overflow-y-auto px-4 py-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[13px] font-bold text-black/90">20 mezon — natija</p>
+            <p className="text-[13px] font-bold text-black/90">{t('startup.evaluationResult')}</p>
             <span className="text-[12px] font-bold tabular-nums text-violet-800 bg-violet-100 rounded-full px-3 py-0.5">
-              {evaluation.overall_0_100}/100
+              {t('startup.evaluationVerdict', { score: evaluation.overall_0_100 })}
             </span>
           </div>
           <p className="text-[13px] text-black/80 whitespace-pre-wrap leading-relaxed">{evaluation.verdict_uz}</p>
           {!wordAllowed && (
             <p className="text-[12px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
-              Word faqat belgilangan tayyorgarlik darajasidan oshganda ochiladi — javoblarni kuchaytiring yoki qayta
-              baholang.
+              {t('startup.wordRestricted')}
             </p>
           )}
           <div className="overflow-x-auto rounded-lg border border-black/8">
             <table className="w-full text-left text-[11px]">
               <thead>
                 <tr className="bg-black/[0.04]">
-                  <th className="p-2 font-semibold text-black/70">Mezon</th>
+                  <th className="p-2 font-semibold text-black/70">{t('startup.criterion')}</th>
                   <th className="p-2 font-semibold text-black/70 w-12">1–5</th>
-                  <th className="p-2 font-semibold text-black/70">Izoh</th>
+                  <th className="p-2 font-semibold text-black/70">{t('startup.evaluationComment')}</th>
                 </tr>
               </thead>
               <tbody>

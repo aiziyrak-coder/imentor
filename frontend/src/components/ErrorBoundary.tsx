@@ -1,4 +1,5 @@
 import {Component, type ErrorInfo, type ReactNode} from 'react';
+import { translate } from '../i18n/translations';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -33,7 +34,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         this.props.fallback ?? (
           <div role="alert" className="p-4 font-sans">
-            <h1 className="text-lg font-semibold">Something went wrong</h1>
+            <h1 className="text-lg font-semibold">{translate('uz', 'error.title')}</h1>
             <pre className="mt-2 whitespace-pre-wrap text-sm text-red-700">{error.message}</pre>
           </div>
         )

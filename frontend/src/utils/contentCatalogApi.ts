@@ -1,4 +1,6 @@
 import { httpJson } from '../api/httpClient';
+import type { AppLanguage } from '../i18n/language';
+import { translate } from '../i18n/translations';
 import { getBackendAccessToken } from './backendAuth';
 import type { CaseStudySession, TestSession } from '../services/aiService';
 
@@ -83,10 +85,14 @@ export async function fetchCatalogItemDetail(id: number): Promise<CatalogItemDet
   }
 }
 
-export function groupCatalogBySubject(items: CatalogItemSummary[]): Map<string, CatalogItemSummary[]> {
+export function groupCatalogBySubject(
+  items: CatalogItemSummary[],
+  lang: AppLanguage = 'uz',
+): Map<string, CatalogItemSummary[]> {
   const map = new Map<string, CatalogItemSummary[]>();
+  const fallbackSubject = translate(lang, 'catalog.otherTopics');
   for (const item of items) {
-    const key = item.subject_name?.trim() || 'Boshqa mavzular';
+    const key = item.subject_name?.trim() || fallbackSubject;
     const list = map.get(key) ?? [];
     list.push(item);
     map.set(key, list);

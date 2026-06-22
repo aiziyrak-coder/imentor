@@ -498,7 +498,7 @@ export default function TestQuestions() {
       }
     } catch (err) {
       console.error('Test generation error:', err);
-      setError(messageFromAiError(err, t('test.errorGenerate')));
+      setError(messageFromAiError(err, t('test.errorGenerate'), language));
     } finally {
       setLoading(false);
     }
@@ -519,7 +519,7 @@ export default function TestQuestions() {
     if (!testSession) return;
     setDownloadingTestPdf(true);
     try {
-      await downloadTestQuestionsPdf(testSession);
+      await downloadTestQuestionsPdf(testSession, language);
     } catch (err) {
       console.error('Test PDF error:', err);
       setError(t('test.errorPdf'));
@@ -532,7 +532,7 @@ export default function TestQuestions() {
     if (!testSession) return;
     setDownloadingKeyPdf(true);
     try {
-      await downloadTestAnswerKeyPdf(testSession);
+      await downloadTestAnswerKeyPdf(testSession, language);
     } catch (err) {
       console.error('Answer key PDF error:', err);
       setError(t('test.errorPdf'));
@@ -552,7 +552,8 @@ export default function TestQuestions() {
           lastName: s.lastName,
           answers: s.answers,
           submittedAt: s.submittedAt,
-        }))
+        })),
+        language,
       );
     } catch (err) {
       console.error('Results PDF error:', err);

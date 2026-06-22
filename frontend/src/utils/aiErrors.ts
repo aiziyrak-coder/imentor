@@ -1,5 +1,8 @@
+import type { AppLanguage } from '../i18n/language';
+import { translate } from '../i18n/translations';
+
 /** AI (DeepSeek proxy) xatolarini foydalanuvchi tilida ko‘rsatish */
-export function messageFromAiError(err: unknown, fallback: string): string {
+export function messageFromAiError(err: unknown, fallback: string, lang: AppLanguage = 'uz'): string {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   if (
     msg === 'no-backend-token' ||
@@ -7,13 +10,16 @@ export function messageFromAiError(err: unknown, fallback: string): string {
     msg.includes('tizimga kirish') ||
     msg.includes('HTTP 401')
   ) {
-    return 'AI uchun serverga kirish kerak. Chiqing va qayta kiring (hodim kompyuterda QR bilan kirgan bo‘lsa, telefonda qayta skanerlang).';
+    return translate(lang, 'ai.error.noToken');
   }
   if (msg.includes('HTTP 403')) {
-    return 'Bu modul uchun ruxsat yetarli emas. Hodim yoki tegishli rol bilan kiring.';
+    return translate(lang, 'ai.error.forbidden');
   }
   if (msg.includes('HTTP 503') || msg.includes('OpenAI') || msg.includes('sozlanmagan')) {
-    return 'Taqdimot AI (OpenAI) serverda sozlanmagan. Administratorga murojaat qiling.';
+    return translate(lang, 'ai.error.openai');
+  }
+  if (msg.includes('syllabus-extract-failed') || msg.includes('Syllabusdan') || msg.includes('syllabus') || msg.includes('mavzular ajratib')) {
+    return translate(lang, 'ai.error.syllabusExtract');
   }
   return fallback;
 }

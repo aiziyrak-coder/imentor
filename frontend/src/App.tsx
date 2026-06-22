@@ -539,40 +539,26 @@ export default function App() {
             <div className="relative z-10 h-full flex flex-col">
               <div className="flex flex-col gap-2">
                 <h1 className="text-5xl font-black tracking-tight text-[#083047]">iMentor</h1>
-                <p className="text-[#0b425e]/80 text-base font-semibold">AI Medical Education Platform</p>
+                <p className="text-[#0b425e]/80 text-base font-semibold">{translate(language, 'welcome.tagline')}</p>
               </div>
 
               <div className="mt-10 space-y-5 max-w-2xl">
                 <h2 className="text-3xl md:text-4xl leading-tight font-extrabold text-[#083047]">
-                  Zamonaviy tibbiy ta&apos;lim uchun aqlli platforma
+                  {translate(language, 'welcome.heroTitle')}
                 </h2>
                 <div className="space-y-3 text-[#0b425e]/85 leading-relaxed text-[15px] md:text-base">
-                  <p>
-                    iMentor — oliy tibbiy ta&apos;lim muassasalari uchun yaratilgan yagona raqamli o&apos;quv-ekotizim bo&apos;lib,
-                    o&apos;qituvchi va talabalar ish jarayonini sun&apos;iy intellekt yordamida tezlashtiradi. Platforma syllabus
-                    asosida mavzularni avtomatik ajratadi, o&apos;qituvchi uchun ma&apos;ruza matni tayyorlaydi, darsga mos
-                    taqdimot ishlab chiqadi va klinik tafakkurni rivojlantiruvchi keys hamda testlar yaratadi.
-                  </p>
-                  <p>
-                    Tizimda kontentni saqlash, qayta ochish, tahrirlash, PDF/PPT formatlarda yuklab olish va
-                    dars jarayonida to&apos;liq ekranda namoyish etish imkoniyatlari mavjud. Syllabus, ma&apos;ruza,
-                    taqdimot, test va case modullari bir-biri bilan uzviy bog&apos;langan: bir bo&apos;limda tayyorlangan
-                    material keyingi bo&apos;limlarda avtomatik ishlatiladi.
-                  </p>
-                  <p>
-                    iMentor ko&apos;p tilli muhitni qo&apos;llab-quvvatlaydi (O&apos;zbek, Rus, English), shu sabab mahalliy va
-                    xorijiy talabalar bilan ishlashda bir xil qulaylik beradi. Platforma interfeysi sodda, tezkor,
-                    zamonaviy va tibbiy ta&apos;lim ehtiyojlariga mos ravishda ishlab chiqilgan.
-                  </p>
+                  <p>{translate(language, 'welcome.paragraph1')}</p>
+                  <p>{translate(language, 'welcome.paragraph2')}</p>
+                  <p>{translate(language, 'welcome.paragraph3')}</p>
                 </div>
               </div>
 
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
                 {[
-                  { icon: BookOpen, text: 'Syllabus asosida mavzu tanlash' },
-                  { icon: Presentation, text: 'Mavzu bo‘yicha taqdimot yuklash va ko‘rish' },
-                  { icon: ClipboardList, text: 'Klinik case va test generator' },
-                  { icon: Languages, text: 'O‘zbek / Русский / English qo‘llab-quvvatlash' },
+                  { icon: BookOpen, text: translate(language, 'welcome.featureSyllabus') },
+                  { icon: Presentation, text: translate(language, 'welcome.featurePresentation') },
+                  { icon: ClipboardList, text: translate(language, 'welcome.featureCases') },
+                  { icon: Languages, text: translate(language, 'welcome.featureLanguages') },
                 ].map((item) => (
                   <div key={item.text} className="rounded-xl border border-[#0c5a7e]/20 bg-white/35 px-3 py-2 text-[13px] font-medium flex items-center gap-2 text-[#083047]">
                     <item.icon size={15} className="shrink-0 text-[#0c5a7e]" />
@@ -582,7 +568,7 @@ export default function App() {
               </div>
 
               <div className="mt-auto pt-8 text-[12px] text-[#0b425e]/75">
-                Farg&apos;ona jamoat salomatligi tibbiyot instituti uchun ishlab chiqilgan.
+                {translate(language, 'welcome.footerInstitute')}
               </div>
 
               <div className="mt-4 pb-2 flex justify-center">
@@ -595,7 +581,7 @@ export default function App() {
                       rel="noopener noreferrer"
                       className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
                     >
-                      Ishlab chiqaruvchi: FJSTI inkubatsiya akseleratsiya markazi
+                      {translate(language, 'footer.developer')}
                     </a>
                     {' '}•{' '}
                     <a
@@ -604,7 +590,7 @@ export default function App() {
                       rel="noopener noreferrer"
                       className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
                     >
-                      Qo&apos;llab-quvvatlovchi: Farg&apos;ona jamoat salomatligi tibbiyot instituti
+                      {translate(language, 'footer.supporter')}
                     </a>
                   </p>
                 </div>
@@ -794,7 +780,7 @@ export default function App() {
                 value={language}
                 onChange={(e) => setLanguage(e.target.value as AppLanguage)}
                 className="h-10 sm:h-11 max-w-[7rem] sm:max-w-none rounded-xl border border-white/60 bg-white/70 px-2 sm:px-3 text-[11px] sm:text-[12px] font-semibold text-black/70 outline-none"
-                aria-label="Platform language"
+                aria-label={translate(language, 'shell.languageAria')}
               >
                 <option value="uz">{languageLabel('uz')}</option>
                 <option value="ru">{languageLabel('ru')}</option>

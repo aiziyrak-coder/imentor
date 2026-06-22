@@ -128,7 +128,7 @@ export default function CaseStudies() {
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      setError(messageFromAiError(err, t('case.errorGenerate')));
+      setError(messageFromAiError(err, t('case.errorGenerate'), language));
     } finally {
       setLoading(false);
     }
@@ -146,7 +146,7 @@ export default function CaseStudies() {
     if (!caseSession) return;
     setDownloadingCasesPdf(true);
     try {
-      await downloadCaseScenariosPdf(caseSession);
+      await downloadCaseScenariosPdf(caseSession, language);
     } catch (err) {
       console.error('Case PDF error:', err);
       setError(t('case.errorPdf'));
@@ -159,7 +159,7 @@ export default function CaseStudies() {
     if (!caseSession) return;
     setDownloadingKeyPdf(true);
     try {
-      await downloadCaseAnswerKeyPdf(caseSession);
+      await downloadCaseAnswerKeyPdf(caseSession, language);
     } catch (err) {
       console.error('Case key PDF error:', err);
       setError(t('case.errorPdf'));

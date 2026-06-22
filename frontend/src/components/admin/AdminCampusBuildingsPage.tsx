@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Building2, Loader2, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import { useUiText } from '../../i18n/useUiText';
 import {
   createAdminCampusBuilding,
   deleteAdminCampusBuilding,
@@ -19,6 +20,7 @@ const emptyForm = {
 };
 
 export default function AdminCampusBuildingsPage() {
+  const { t } = useUiText();
   const [rows, setRows] = useState<CampusBuildingDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,11 +35,11 @@ export default function AdminCampusBuildingsPage() {
     try {
       setRows(await listAdminCampusBuildings());
     } catch {
-      setError('Binolarni olishda xato (admin JWT).');
+      setError(t('admin.error.buildingsLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -62,7 +64,7 @@ export default function AdminCampusBuildingsPage() {
     const lat = Number(editForm.latitude);
     const lng = Number(editForm.longitude);
     if (!editForm.name.trim() || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setError("Nom va koordinatalar to'g'ri to'ldirilsin.");
+      setError(t('admin.error.buildingCoordsInvalid'));
       return;
     }
     setSaving(true);
@@ -81,7 +83,7 @@ export default function AdminCampusBuildingsPage() {
       setEditingId(null);
       await load();
     } catch {
-      setError('Saqlashda xato.');
+      setError(t('admin.error.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -91,7 +93,7 @@ export default function AdminCampusBuildingsPage() {
     const lat = Number(form.latitude);
     const lng = Number(form.longitude);
     if (!form.name.trim() || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setError("Yangi bino: nom va koordinata majburiy.");
+      setError(t('admin.error.buildingNewRequired'));
       return;
     }
     setSaving(true);
@@ -110,21 +112,21 @@ export default function AdminCampusBuildingsPage() {
       setForm(emptyForm);
       await load();
     } catch {
-      setError("Qo'shishda xato.");
+      setError(t('admin.error.addFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async (id: number) => {
-    if (!window.confirm('Bino o‘chirilsinmi? (jadvalda ishlatilayotgan bo‘lsa, xato beradi)')) return;
+    if (!window.confirm(t('admin.confirmDeleteBuilding'))) return;
     setError(null);
     try {
       await deleteAdminCampusBuilding(id);
       if (editingId === id) setEditingId(null);
       await load();
     } catch {
-      setError("O'chirishda xato yoki jadvalda ishlatilmoqda.");
+      setError(t('admin.error.buildingDeleteFailed'));
     }
   };
 
@@ -135,8 +137,8 @@ export default function AdminCampusBuildingsPage() {
           <Building2 size={24} />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-black/90">Kampus binolari</h1>
-          <p className="text-[12px] text-black/50">Oldindan kiritiladi; jadvalda tanlanadi. Har bino 100 m radius doira bilan tekshiriladi.</p>
+          <h1 className="text-xl font-bold text-black/90">{t('admin.campusBuildingsTitle')}</h1>
+          <p className="text-[12px] text-black/50">{t('admin.campusBuildingsSubtitle')}</p>
         </div>
       </div>
 
@@ -150,19 +152,19 @@ export default function AdminCampusBuildingsPage() {
       {loading ? (
         <div className="flex items-center justify-center py-16 text-black/50 gap-2">
           <Loader2 className="animate-spin" size={20} />
-          Yuklanmoqda…
+          {t('admin.loading')}
         </div>
       ) : (
         <div className="ios-glass rounded-2xl border border-white/60 overflow-hidden">
           <table className="w-full text-left text-[13px]">
             <thead className="bg-black/[0.04] text-black/55">
               <tr>
-                <th className="px-3 py-2">Tartib</th>
-                <th className="px-3 py-2">Bino</th>
-                <th className="px-3 py-2">Kod</th>
-                <th className="px-3 py-2">lat / lng</th>
-                <th className="px-3 py-2">R (m)</th>
-                <th className="px-3 py-2">Holat</th>
+                <th className="px-3 py-2">{t('admin.order')}</th>
+                <th className="px-3 py-2">{t('admin.buildingName')}</th>
+                <th className="px-3 py-2">{t('admin.buildingCode')}</th>
+                <th className="px-3 py-2">{t('admin.coordinates')}</th>
+                <th className="px-3 py-2">{t('admin.radius')}</th>
+                <th className="px-3 py-2">{t('admin.status')}</th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
@@ -220,7 +222,7 @@ export default function AdminCampusBuildingsPage() {
                             checked={editForm.is_active}
                             onChange={(e) => setEditForm((f) => ({ ...f, is_active: e.target.checked }))}
                           />
-                          Faol
+                          {t('admin.active')}
                         </label>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap space-x-1">
@@ -231,10 +233,10 @@ export default function AdminCampusBuildingsPage() {
                           className="inline-flex items-center gap-1 rounded-lg bg-blue-600 text-white px-2 py-1 text-[12px] font-semibold"
                         >
                           <Save size={14} />
-                          Saqlash
+                          {t('admin.save')}
                         </button>
                         <button type="button" onClick={() => setEditingId(null)} className="text-[12px] text-black/60 ml-1">
-                          Bekor
+                          {t('admin.cancel')}
                         </button>
                       </td>
                     </>
@@ -247,13 +249,13 @@ export default function AdminCampusBuildingsPage() {
                         {r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}
                       </td>
                       <td className="px-3 py-2">{r.radius_m}</td>
-                      <td className="px-3 py-2">{r.is_active ? 'Faol' : 'O‘chirilgan'}</td>
+                      <td className="px-3 py-2">{r.is_active ? t('admin.active') : t('admin.inactiveStatus')}</td>
                       <td className="px-3 py-2 text-right space-x-1">
                         <button
                           type="button"
                           onClick={() => startEdit(r)}
                           className="inline-flex p-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
-                          aria-label="Tahrirlash"
+                          aria-label={t('admin.edit')}
                         >
                           <Pencil size={16} />
                         </button>
@@ -261,7 +263,7 @@ export default function AdminCampusBuildingsPage() {
                           type="button"
                           onClick={() => void remove(r.id)}
                           className="inline-flex p-1.5 rounded-lg text-rose-600 hover:bg-rose-50"
-                          aria-label="O‘chirish"
+                          aria-label={t('admin.delete')}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -273,7 +275,7 @@ export default function AdminCampusBuildingsPage() {
             </tbody>
           </table>
           {rows.length === 0 && !loading && (
-            <div className="px-4 py-8 text-center text-black/45 text-[13px]">Hozircha bino yo‘q.</div>
+            <div className="px-4 py-8 text-center text-black/45 text-[13px]">{t('admin.noBuildingsYet')}</div>
           )}
         </div>
       )}
@@ -281,20 +283,20 @@ export default function AdminCampusBuildingsPage() {
       <div className="ios-glass rounded-2xl border border-white/60 p-4 space-y-3">
         <h2 className="text-[14px] font-bold text-black/85 flex items-center gap-2">
           <Plus size={18} />
-          Yangi bino
+          {t('admin.newBuilding')}
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Nomi
+            {t('admin.buildingNameLabel')}
             <input
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               className="rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-              placeholder="Masalan: Anatomiya korpusi"
+              placeholder={t('admin.buildingNamePlaceholder')}
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Qisqa kod (ixtiyoriy)
+            {t('admin.buildingCodeLabel')}
             <input
               value={form.short_code}
               onChange={(e) => setForm((f) => ({ ...f, short_code: e.target.value }))}
@@ -303,7 +305,7 @@ export default function AdminCampusBuildingsPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Lat
+            {t('admin.lat')}
             <input
               value={form.latitude}
               onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
@@ -311,7 +313,7 @@ export default function AdminCampusBuildingsPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Lng
+            {t('admin.lng')}
             <input
               value={form.longitude}
               onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
@@ -319,7 +321,7 @@ export default function AdminCampusBuildingsPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Radius (m)
+            {t('admin.radiusM')}
             <input
               type="number"
               value={form.radius_m}
@@ -328,7 +330,7 @@ export default function AdminCampusBuildingsPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60">
-            Tartib
+            {t('admin.order')}
             <input
               type="number"
               value={form.sort_order}
@@ -337,7 +339,7 @@ export default function AdminCampusBuildingsPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 sm:col-span-2">
-            Izoh
+            {t('admin.notes')}
             <input
               value={form.notes}
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
@@ -351,7 +353,7 @@ export default function AdminCampusBuildingsPage() {
           disabled={saving}
           className="rounded-xl bg-slate-800 text-white px-4 py-2.5 text-[13px] font-semibold disabled:opacity-50"
         >
-          Bino qo‘shish
+          {t('admin.addBuilding')}
         </button>
       </div>
     </div>

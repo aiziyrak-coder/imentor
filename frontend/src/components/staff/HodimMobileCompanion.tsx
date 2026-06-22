@@ -10,16 +10,12 @@ import { clearBackendAuthTokens } from '../../utils/backendAuth';
 import { clearDesktopPairedSession } from '../../utils/deviceSession';
 import { useStaffLocationTracking } from '../../hooks/useStaffLocationTracking';
 import HodimGpsStatusBar from './HodimGpsStatusBar';
+import { useUiText } from '../../i18n/useUiText';
 
 const SCANNER_ID = 'hodim-qr-scanner-region';
 
-const PHONE_STEPS = [
-  { n: 1, text: 'Kompyuter yoki noutbukda brauzerda imentor.uz saytini oching.' },
-  { n: 2, text: 'Kompyuterda login sahifasida QR kod chiqadi (parol kiritish shart emas).' },
-  { n: 3, text: 'Pastdagi tugmani bosing va kompyuterdagi QR kodni skanerlang.' },
-];
-
 export default function HodimMobileCompanion() {
+  const { t } = useUiText();
   const user = getCurrentLocalUser();
   const [phase, setPhase] = useState<'ready' | 'scanning' | 'linked' | 'error'>('ready');
   const [busy, setBusy] = useState(false);
@@ -94,6 +90,12 @@ export default function HodimMobileCompanion() {
 
   if (!user) return null;
 
+  const PHONE_STEPS = [
+    { n: 1, text: t('staff.companion.step1') },
+    { n: 2, text: t('staff.companion.step2') },
+    { n: 3, text: t('staff.companion.step3') },
+  ];
+
   return (
     <div
       className="min-h-[100dvh] flex flex-col bg-[#0a1628] text-white"
@@ -107,11 +109,11 @@ export default function HodimMobileCompanion() {
         <button
           type="button"
           onClick={handleLogout}
-          aria-label="Chiqish"
+          aria-label={t('staff.companion.logout')}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 text-[13px] font-medium"
         >
           <LogOut size={16} />
-          Chiqish
+          {t('staff.companion.logout')}
         </button>
       </header>
 
@@ -121,9 +123,9 @@ export default function HodimMobileCompanion() {
             <Check size={52} strokeWidth={2.5} />
           </div>
           <div className="space-y-2">
-            <h2 className="text-xl font-bold">Kompyuter ulandi</h2>
+            <h2 className="text-xl font-bold">{t('staff.companion.linkedTitle')}</h2>
             <p className="text-[15px] text-white/70 leading-relaxed">
-              Kompyuterda ishlashingiz mumkin. Telefonni yonida qoldiring — joylashuv shu orqali yuboriladi.
+              {t('staff.companion.linkedSubtitle')}
             </p>
           </div>
           <div className="w-full max-w-md">
@@ -135,7 +137,7 @@ export default function HodimMobileCompanion() {
           <section className="px-4 pt-2 pb-3 shrink-0">
             <div className="flex items-center gap-2 mb-3">
               <Monitor size={20} className="text-sky-400 shrink-0" />
-              <h1 className="text-[17px] font-bold leading-snug">Kompyuterni ulash</h1>
+              <h1 className="text-[17px] font-bold leading-snug">{t('staff.companion.connectTitle')}</h1>
             </div>
             <ol className="space-y-2.5">
               {PHONE_STEPS.map((s) => (
@@ -158,7 +160,7 @@ export default function HodimMobileCompanion() {
             {phase !== 'scanning' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 text-center">
                 <Smartphone size={40} className="text-white/30" />
-                <p className="text-[13px] text-white/50">Kamera skanerlash uchun yoqiladi</p>
+                <p className="text-[13px] text-white/50">{t('staff.companion.scanPrompt')}</p>
               </div>
             )}
 
@@ -173,7 +175,7 @@ export default function HodimMobileCompanion() {
             <HodimGpsStatusBar compact />
             {phase === 'error' && (
               <p className="text-center text-[14px] text-amber-300 font-medium">
-                Kamera ochilmadi. Ruxsat bering va qayta urinib ko&apos;ring.
+                {t('staff.companion.scanError')}
               </p>
             )}
 
@@ -185,11 +187,11 @@ export default function HodimMobileCompanion() {
                 className="w-full h-14 rounded-2xl bg-sky-600 text-white text-[16px] font-semibold shadow-lg active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {busy ? <Loader2 size={22} className="animate-spin" /> : null}
-                QR kodni skanerlash
+                {t('staff.companion.scanButton')}
               </button>
             ) : (
               <p className="text-center text-[14px] text-white/70 py-2">
-                Kompyuterdagi QR kodni ramka ichiga tuting
+                {t('staff.companion.scanning')}
               </p>
             )}
 
@@ -202,7 +204,7 @@ export default function HodimMobileCompanion() {
                 }}
                 className="w-full py-3 text-[14px] text-white/60 font-medium"
               >
-                Bekor qilish
+                {t('staff.companion.cancel')}
               </button>
             )}
           </div>

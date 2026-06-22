@@ -1,15 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { useUiText } from '../../i18n/useUiText';
 
 const DEFAULT_TITLES = new Set(['yangi startap loyiha', 'yangi ilmiy loyiha', 'loyihasiz']);
 
-function normTitle(t: string): string {
-  return t.trim().toLowerCase().replace(/\s+/g, ' ');
+function normTitle(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-/**
- * Yangi loyiha: faqat nom + qisqa matn (keyin savolnoma shu asosda).
- */
 export default function StartupNewProjectDialog({
   open,
   domain,
@@ -23,6 +21,7 @@ export default function StartupNewProjectDialog({
   onClose: () => void;
   onConfirm: (payload: { title: string; summary: string }) => void;
 }) {
+  const { t } = useUiText();
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
 
@@ -54,49 +53,48 @@ export default function StartupNewProjectDialog({
       <div className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl border border-black/10 overflow-hidden max-h-[min(92vh,640px)] flex flex-col">
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-black/8 bg-violet-50/80 shrink-0">
           <h2 id="new-project-title" className="text-[15px] font-bold text-black/90">
-            {domain === 'research' ? 'Yangi tadqiqot loyihasi' : 'Yangi startap loyihasi'}
+            {domain === 'research' ? t('startup.newProjectTitle') : t('startup.newStartupTitle')}
           </h2>
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
             className="p-2 rounded-xl hover:bg-black/5 text-black/60 disabled:opacity-40"
-            aria-label="Yopish"
+            aria-label={t('common.close')}
           >
             <X size={20} />
           </button>
         </div>
 
         <div className="px-4 py-4 space-y-4 overflow-y-auto flex-1 min-h-0">
-          <p className="text-[12px] text-black/55 leading-relaxed">
-            Avvalo faqat nom va qisqa tavsif kiritiladi. Keyin saqlangan loyihada savolnoma yaratiladi — qo‘shimcha
-            maydonlar ixtiyoriy.
-          </p>
+          <p className="text-[12px] text-black/55 leading-relaxed">{t('startup.newProjectInstructions')}</p>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-black/50">Loyiha nomi</label>
+            <label className="text-[11px] font-semibold text-black/50">{t('startup.newProjectName')}</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full rounded-xl border border-black/12 bg-white px-3 py-2.5 text-[14px] outline-none focus:ring-2 focus:ring-violet-400/40"
-              placeholder="Masalan: Kampus tele-triage piloti"
+              placeholder={t('startup.newProjectNamePlaceholder')}
               autoFocus
             />
             {!titleOk && title.trim().length > 0 && (
-              <p className="text-[11px] text-amber-700">Kamida 4 belgi; standart «Yangi … loyiha» bo‘lmasin.</p>
+              <p className="text-[11px] text-amber-700">{t('startup.newProjectNameHelp')}</p>
             )}
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-black/50">Loyiha haqida (qisqa)</label>
+            <label className="text-[11px] font-semibold text-black/50">{t('startup.newProjectAbout')}</label>
             <textarea
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               rows={6}
               className="w-full rounded-xl border border-black/12 bg-white px-3 py-2.5 text-[14px] outline-none resize-y min-h-[120px] focus:ring-2 focus:ring-violet-400/40"
-              placeholder="Kim uchun, qanday muammo, nima taklif qilasiz — 2–6 jumla (kamida ~40 belgi)."
+              placeholder={t('startup.newProjectAboutPlaceholder')}
             />
-            <p className="text-[11px] text-black/40 tabular-nums">{summary.trim().length} / 40+ belgi</p>
+            <p className="text-[11px] text-black/40 tabular-nums">
+              {t('startup.newProjectCharCount', { count: summary.trim().length })}
+            </p>
           </div>
         </div>
 
@@ -107,7 +105,7 @@ export default function StartupNewProjectDialog({
             disabled={saving}
             className="rounded-xl border border-black/12 px-4 py-2.5 text-[13px] font-semibold text-black/75 hover:bg-black/[0.03] disabled:opacity-50"
           >
-            Bekor qilish
+            {t('startup.newProjectCancel')}
           </button>
           <button
             type="button"
@@ -116,7 +114,7 @@ export default function StartupNewProjectDialog({
             className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm disabled:opacity-45"
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : null}
-            Yaratish
+            {t('startup.newProjectCreateButton')}
           </button>
         </div>
       </div>

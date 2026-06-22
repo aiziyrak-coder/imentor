@@ -8,6 +8,7 @@ import {
   isAllowedHandoutFile,
   uploadHandout,
 } from '../../utils/handoutApi';
+import { useUiText } from '../../i18n/useUiText';
 
 type Props = {
   topic: SyllabusTopicContext;
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
+  const { t } = useUiText();
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -30,12 +32,12 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
     } catch (e) {
       setCount(0);
       if (e instanceof Error && e.message === 'no-backend-token') {
-        setError('Tarqatma yuklash uchun tizimga kiring.');
+        setError(t('staff.syllabus.errorAuth'));
       }
     } finally {
       setLoading(false);
     }
-  }, [topic]);
+  }, [topic, t]);
 
   useEffect(() => {
     void refreshCount();
@@ -48,14 +50,14 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
     try {
       for (const file of Array.from(fileList)) {
         if (!isAllowedHandoutFile(file)) {
-          setError(`${file.name}: faqat PDF yoki rasm (${handoutFileTypeLabel()}).`);
+          setError(t('staff.syllabus.errorFileType', { name: file.name, types: handoutFileTypeLabel() }));
           continue;
         }
         await uploadHandout({ topic, file });
       }
       await refreshCount();
     } catch {
-      setError('Yuklashda xatolik. Internet va fayl hajmini tekshiring.');
+      setError(t('staff.syllabus.errorUpload'));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -67,9 +69,9 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
       <div className="flex items-start gap-2">
         <Files size={20} className="text-amber-700 shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-bold text-amber-950">Tarqatma materiallar</p>
+          <p className="text-[14px] font-bold text-amber-950">{t('staff.syllabus.handoutTitle')}</p>
           <p className="text-[12px] text-amber-900/70 leading-snug mt-0.5">
-            {handoutFileTypeLabel()} — shu mavzuga yuklanadi. Barcha o‘qituvchilar ko‘ra oladi.
+            {t('staff.syllabus.handoutHint', { types: handoutFileTypeLabel() })}
           </p>
         </div>
       </div>
@@ -90,7 +92,7 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 text-white text-[13px] font-semibold hover:bg-amber-500 disabled:opacity-50 shadow-sm"
         >
           {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-          Yuklash
+          {t('staff.syllabus.upload')}
         </button>
         <button
           type="button"
@@ -99,13 +101,13 @@ export default function SyllabusHandoutPanel({ topic, onOpenHandouts }: Props) {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-300 bg-white text-amber-900 text-[13px] font-semibold hover:bg-amber-50"
         >
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Files size={16} />}
-          Ko‘rish{count > 0 ? ` (${count})` : ''}
+          {t('staff.syllabus.view')}{count > 0 ? ` (${count})` : ''}
         </button>
       </div>
 
       {error && <p className="text-[12px] text-rose-600 font-medium">{error}</p>}
       {!loading && count > 0 && !error && (
-        <p className="text-[11px] text-amber-800/80">Jami {count} ta material saqlangan.</p>
+        <p className="text-[11px] text-amber-800/80">{t('staff.syllabus.totalMaterials', { count })}</p>
       )}
     </div>
   );

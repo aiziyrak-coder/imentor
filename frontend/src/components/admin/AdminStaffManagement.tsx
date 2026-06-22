@@ -16,8 +16,8 @@ import {
   deprovisionBackendStaffAccount,
   provisionBackendStaffAccount,
 } from '../../utils/backendAuth';
-import { AppLanguageContext } from '../../App';
 import { roleLabel } from '../../i18n/translations';
+import { useUiText } from '../../i18n/useUiText';
 
 function formatLastActive(ts: number | undefined): string {
   if (ts == null || Number.isNaN(ts)) return '—';
@@ -52,7 +52,7 @@ type SortKey = 'displayName' | 'phoneDisplay' | 'role' | 'faculty' | 'lastActive
 type SortDirection = 'asc' | 'desc';
 
 export default function AdminStaffManagement() {
-  const { language } = React.useContext(AppLanguageContext);
+  const { t, language } = useUiText();
   const [rows, setRows] = useState<LocalStaffUser[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('lastActiveAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -69,11 +69,11 @@ export default function AdminStaffManagement() {
     try {
       setRows(listAllStaffUsers());
     } catch {
-      setError('Ma’lumotlarni olishda xato (admin huquqi kerak).');
+      setError(t('admin.error.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -114,16 +114,16 @@ export default function AdminStaffManagement() {
     setError(null);
     try {
       if (form.password.length < 6) {
-        setError('Parol kamida 6 belgi.');
+        setError(t('admin.error.passwordMin'));
         return;
       }
       if (form.role === 'startuper') {
         if (form.participantKind === 'student' && !form.studyGroup.trim()) {
-          setError('Startuper (talaba) uchun guruh kerak.');
+          setError(t('admin.error.startuperGroupRequired'));
           return;
         }
         if (form.participantKind === 'employee' && !form.jobTitle.trim()) {
-          setError('Startuper (xodim) uchun lavozim kerak.');
+          setError(t('admin.error.startuperJobRequired'));
           return;
         }
       }
@@ -153,10 +153,10 @@ export default function AdminStaffManagement() {
       load();
     } catch (err: unknown) {
       const c = err instanceof Error ? err.message : '';
-      if (c === 'already-exists') setError('Bu telefon allaqachon band.');
-      else if (c === 'forbidden') setError('Ruxsat yo‘q.');
-      else if (c === 'no-admin-token') setError('Serverga ulanish yo‘q. Qayta kiring.');
-      else setError('Yaratishda xato. Internet va admin huquqini tekshiring.');
+      if (c === 'already-exists') setError(t('admin.error.phoneAlreadyExists'));
+      else if (c === 'forbidden') setError(t('admin.error.forbidden'));
+      else if (c === 'no-admin-token') setError(t('admin.error.noAdminToken'));
+      else setError(t('admin.error.createFailed'));
     } finally {
       setSaving(false);
     }
@@ -170,11 +170,11 @@ export default function AdminStaffManagement() {
     try {
       if (form.role === 'startuper') {
         if (form.participantKind === 'student' && !form.studyGroup.trim()) {
-          setError('Startuper (talaba) uchun guruh kerak.');
+          setError(t('admin.error.startuperGroupRequired'));
           return;
         }
         if (form.participantKind === 'employee' && !form.jobTitle.trim()) {
-          setError('Startuper (xodim) uchun lavozim kerak.');
+          setError(t('admin.error.startuperJobRequired'));
           return;
         }
       }
@@ -212,16 +212,16 @@ export default function AdminStaffManagement() {
       load();
     } catch (err: unknown) {
       const c = err instanceof Error ? err.message : '';
-      if (c === 'last-admin') setError('Yagona admin rolini olib bo‘lmaydi.');
-      else if (c === 'phone-exists') setError('Bu telefon band.');
-      else setError('Yangilashda xato.');
+      if (c === 'last-admin') setError(t('admin.error.lastAdminRole'));
+      else if (c === 'phone-exists') setError(t('admin.error.phoneTaken'));
+      else setError(t('admin.error.updateFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (u: LocalStaffUser) => {
-    if (!window.confirm(`${u.displayName} o‘chirilsinmi?`)) return;
+    if (!window.confirm(t('admin.error.confirmDeleteUser', { name: u.displayName }))) return;
     setError(null);
     setSaving(true);
     try {
@@ -230,10 +230,10 @@ export default function AdminStaffManagement() {
       load();
     } catch (err: unknown) {
       const c = err instanceof Error ? err.message : '';
-      if (c === 'cannot-delete-self') setError('O‘zingizni o‘chira olmaysiz.');
-      else if (c === 'last-admin') setError('Yagona administratorni o‘chirib bo‘lmaydi.');
-      else if (c === 'no-admin-token') setError('Serverga ulanish yo‘q. Qayta kiring.');
-      else setError('O‘chirishda xato.');
+      if (c === 'cannot-delete-self') setError(t('admin.error.cannotDeleteSelf'));
+      else if (c === 'last-admin') setError(t('admin.error.lastAdminDelete'));
+      else if (c === 'no-admin-token') setError(t('admin.error.noAdminToken'));
+      else setError(t('admin.error.deleteFailed'));
     } finally {
       setSaving(false);
     }
@@ -291,7 +291,7 @@ export default function AdminStaffManagement() {
       type="button"
       onClick={() => handleSort(key)}
       className="inline-flex items-center gap-1.5 hover:text-black/80 transition-colors"
-      title={`${label} bo‘yicha saralash`}
+      title={`${label} ${t('admin.sortBy')}`}
     >
       <span>{label}</span>
       {sortKey !== key && <ArrowUpDown size={13} className="text-black/40" />}
@@ -308,8 +308,8 @@ export default function AdminStaffManagement() {
             <Users size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Hodimlar boshqaruvi</h1>
-            <p className="text-[12px] text-black/50">Qo‘shish, tahrirlash, o‘chirish</p>
+            <h1 className="text-xl font-bold text-black/90">{t('admin.staffManagementTitle')}</h1>
+            <p className="text-[12px] text-black/50">{t('admin.staffManagementSubtitle')}</p>
           </div>
         </div>
         <button
@@ -322,7 +322,7 @@ export default function AdminStaffManagement() {
           }}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold shadow-md"
         >
-          <Plus size={18} /> Hodim qo‘shish
+          <Plus size={18} /> {t('admin.addStaff')}
         </button>
       </div>
 
@@ -338,11 +338,11 @@ export default function AdminStaffManagement() {
           <table className="w-full text-left text-[13px]">
             <thead className="bg-black/[0.04] text-black/55 font-semibold">
               <tr>
-                <th className="px-4 py-3">{sortLabel('displayName', 'FIO')}</th>
-                <th className="px-4 py-3">{sortLabel('phoneDisplay', 'Telefon')}</th>
-                <th className="px-4 py-3">{sortLabel('role', 'Rol')}</th>
-                <th className="px-4 py-3">{sortLabel('faculty', 'Fakultet')}</th>
-                <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">{sortLabel('lastActiveAt', 'Oxirgi faollik')}</th>
+                <th className="px-4 py-3">{sortLabel('displayName', t('admin.fullName'))}</th>
+                <th className="px-4 py-3">{sortLabel('phoneDisplay', t('admin.phone'))}</th>
+                <th className="px-4 py-3">{sortLabel('role', t('admin.role'))}</th>
+                <th className="px-4 py-3">{sortLabel('faculty', t('admin.faculty'))}</th>
+                <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">{sortLabel('lastActiveAt', t('admin.lastActivity'))}</th>
                 <th className="px-4 py-3 w-28"></th>
               </tr>
             </thead>
@@ -351,7 +351,7 @@ export default function AdminStaffManagement() {
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-black/45">
                     <Loader2 className="animate-spin inline mr-2" size={18} />
-                    Yuklanmoqda...
+                    {t('admin.loading')}
                   </td>
                 </tr>
               ) : (
@@ -375,7 +375,7 @@ export default function AdminStaffManagement() {
                           type="button"
                           onClick={() => startEdit(u)}
                           className="p-2 rounded-lg hover:bg-black/5 text-indigo-600"
-                          title="Tahrirlash"
+                          title={t('admin.edit')}
                         >
                           <Pencil size={16} />
                         </button>
@@ -383,7 +383,7 @@ export default function AdminStaffManagement() {
                           type="button"
                           onClick={() => handleDelete(u)}
                           className="p-2 rounded-lg hover:bg-rose-500/10 text-rose-600"
-                          title="O‘chirish"
+                          title={t('admin.delete')}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -405,10 +405,10 @@ export default function AdminStaffManagement() {
             exit={{ opacity: 0 }}
             className="ios-glass rounded-2xl border border-white/60 p-6 space-y-4"
           >
-            <h2 className="text-lg font-bold text-black/90">{editing ? 'Hodimni tahrirlash' : 'Yangi hodim'}</h2>
+            <h2 className="text-lg font-bold text-black/90">{editing ? t('admin.editStaff') : t('admin.newStaff')}</h2>
             <form onSubmit={editing ? handleUpdate : handleCreate} className="grid sm:grid-cols-2 gap-3">
               <label className="space-y-1 sm:col-span-2">
-                <span className="text-[11px] font-semibold text-black/50">Telefon</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.phone')}</span>
                 <input
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.phoneDisplay}
@@ -418,7 +418,7 @@ export default function AdminStaffManagement() {
               </label>
               <label className="space-y-1 sm:col-span-2">
                 <span className="text-[11px] font-semibold text-black/50">
-                  Parol {editing && '(bo‘sh qoldiring — o‘zgarmaydi)'}
+                  {t('admin.password')} {editing && `(${t('admin.passwordEmpty')})`}
                 </span>
                 <input
                   type="password"
@@ -430,7 +430,7 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-black/50">Ism</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.firstName')}</span>
                 <input
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.firstName}
@@ -439,7 +439,7 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-black/50">Familiya</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.lastName')}</span>
                 <input
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.lastName}
@@ -448,7 +448,7 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1 sm:col-span-2">
-                <span className="text-[11px] font-semibold text-black/50">Fakultet</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.faculty')}</span>
                 <input
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.faculty}
@@ -456,7 +456,7 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-black/50">Kafedra</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.department')}</span>
                 <input
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.department}
@@ -464,7 +464,7 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-black/50">Yo‘nalish</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.direction')}</span>
                 <input
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.direction}
@@ -472,7 +472,7 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1 sm:col-span-2">
-                <span className="text-[11px] font-semibold text-black/50">Rol</span>
+                <span className="text-[11px] font-semibold text-black/50">{t('admin.role')}</span>
                 <select
                   className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                   value={form.role}
@@ -487,7 +487,7 @@ export default function AdminStaffManagement() {
               {form.role === 'startuper' && (
                 <>
                   <label className="space-y-1 sm:col-span-2">
-                    <span className="text-[11px] font-semibold text-black/50">Startuper: talaba yoki xodim</span>
+                    <span className="text-[11px] font-semibold text-black/50">{t('admin.participantKind')}</span>
                     <select
                       className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                       value={form.participantKind}
@@ -498,13 +498,13 @@ export default function AdminStaffManagement() {
                         }))
                       }
                     >
-                      <option value="student">Talaba</option>
-                      <option value="employee">Xodim</option>
+                      <option value="student">{t('admin.student')}</option>
+                      <option value="employee">{t('admin.employee')}</option>
                     </select>
                   </label>
                   {form.participantKind === 'student' ? (
                     <label className="space-y-1 sm:col-span-2">
-                      <span className="text-[11px] font-semibold text-black/50">Guruh</span>
+                      <span className="text-[11px] font-semibold text-black/50">{t('admin.studyGroup')}</span>
                       <input
                         className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                         value={form.studyGroup}
@@ -513,7 +513,7 @@ export default function AdminStaffManagement() {
                     </label>
                   ) : (
                     <label className="space-y-1 sm:col-span-2">
-                      <span className="text-[11px] font-semibold text-black/50">Lavozim</span>
+                      <span className="text-[11px] font-semibold text-black/50">{t('admin.jobTitle')}</span>
                       <input
                         className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
                         value={form.jobTitle}
@@ -529,7 +529,7 @@ export default function AdminStaffManagement() {
                   disabled={saving}
                   className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-semibold disabled:opacity-50"
                 >
-                  {saving ? <Loader2 className="animate-spin inline" /> : editing ? 'Saqlash' : 'Yaratish'}
+                  {saving ? <Loader2 className="animate-spin inline" /> : editing ? t('admin.save') : t('admin.create')}
                 </button>
                 <button
                   type="button"
@@ -540,7 +540,7 @@ export default function AdminStaffManagement() {
                   }}
                   className="px-6 py-3 rounded-xl border border-black/10 font-semibold"
                 >
-                  Bekor
+                  {t('admin.cancel')}
                 </button>
               </div>
             </form>

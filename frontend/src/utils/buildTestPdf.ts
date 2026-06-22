@@ -1,5 +1,8 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import type { AppLanguage } from '../i18n/language';
+import { localeForLanguage } from '../i18n/language';
+import { translate, type UiTextKey } from '../i18n/translations';
 import type { MedicalReference, TestQuestion, TestSession } from '../services/aiService';
 import { scoreToGrade } from './testGrading';
 
@@ -8,6 +11,10 @@ export interface TestSubmissionRow {
   lastName: string;
   answers: number[];
   submittedAt: number;
+}
+
+function t(lang: AppLanguage, key: UiTextKey, params?: Record<string, string | number>): string {
+  return translate(lang, key, params);
 }
 
 function slugifyTopic(topic: string): string {
@@ -44,7 +51,8 @@ function optionLetter(index: number): string {
   return String.fromCharCode(65 + index);
 }
 
-function buildQuestionsHtml(session: TestSession): string {
+function buildQuestionsHtml(session: TestSession, lang: AppLanguage): string {
+  const locale = localeForLanguage(lang);
   const questionsHtml = session.questions
     .map((q, i) => {
       const options = q.options
@@ -66,16 +74,17 @@ function buildQuestionsHtml(session: TestSession): string {
 
   return `
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;background:#fff;color:#111827;max-width:760px;">
-      <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.08em;color:#4338ca;text-transform:uppercase;">Test savollari</p>
+      <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.08em;color:#4338ca;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.testQuestionsTitle'))}</p>
       <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;line-height:1.3;">${escapeHtml(session.topic)}</h1>
-      <p style="margin:0 0 24px;font-size:13px;color:#6b7280;">${session.questions.length} ta savol · ${new Date().toLocaleString('uz-UZ')}</p>
-      ${referencesBlock(session.references, 'Umumiy manbalar')}
+      <p style="margin:0 0 24px;font-size:13px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.questionsMeta', { count: session.questions.length }))} · ${new Date().toLocaleString(locale)}</p>
+      ${referencesBlock(session.references, t(lang, 'pdf.commonReferences'))}
       ${questionsHtml}
     </div>
   `;
 }
 
-function buildAnswerKeyHtml(session: TestSession): string {
+function buildAnswerKeyHtml(session: TestSession, lang: AppLanguage): string {
+  const locale = localeForLanguage(lang);
   const questionsHtml = session.questions
     .map((q, i) => {
       const options = q.options
@@ -88,7 +97,7 @@ function buildAnswerKeyHtml(session: TestSession): string {
           return `<p style="${style}">${optionLetter(optIdx)}) ${escapeHtml(opt)}${marker}</p>`;
         })
         .join('');
-      const refs = referencesBlock(q.references, 'Savol manbalari');
+      const refs = referencesBlock(q.references, t(lang, 'pdf.questionReferences'));
       return `
         <div style="margin-bottom:32px;page-break-inside:avoid;">
           <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;line-height:1.5;">
@@ -96,7 +105,7 @@ function buildAnswerKeyHtml(session: TestSession): string {
           </p>
           ${options}
           <div style="margin-top:12px;padding:12px;background:#eff6ff;border-radius:8px;border-left:4px solid #3b82f6;">
-            <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">To'g'ri javob tahlili</p>
+            <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.correctAnalysis'))}</p>
             <p style="margin:0;font-size:14px;color:#1e3a8a;line-height:1.6;white-space:pre-wrap;">${escapeHtml(q.explanation || '')}</p>
           </div>
           ${refs}
@@ -107,9 +116,9 @@ function buildAnswerKeyHtml(session: TestSession): string {
 
   return `
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;background:#fff;color:#111827;max-width:760px;">
-      <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.08em;color:#059669;text-transform:uppercase;">Test javob kaliti</p>
+      <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.08em;color:#059669;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.testAnswerKeyTitle'))}</p>
       <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;line-height:1.3;">${escapeHtml(session.topic)}</h1>
-      <p style="margin:0 0 24px;font-size:13px;color:#6b7280;">${session.questions.length} ta savol · ${new Date().toLocaleString('uz-UZ')}</p>
+      <p style="margin:0 0 24px;font-size:13px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.questionsMeta', { count: session.questions.length }))} · ${new Date().toLocaleString(locale)}</p>
       ${questionsHtml}
     </div>
   `;
@@ -119,7 +128,8 @@ function calculateScore(answers: number[], questions: TestQuestion[]): number {
   return answers.filter((a, i) => a === questions[i]?.correctOptionIndex).length;
 }
 
-function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]): string {
+function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[], lang: AppLanguage): string {
+  const locale = localeForLanguage(lang);
   const total = session.questions.length;
   const sorted = [...submissions].sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
   const scores = sorted.map((s) => calculateScore(s.answers, session.questions));
@@ -140,7 +150,7 @@ function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]
           <td style="padding:10px 8px;font-size:14px;font-weight:600;color:#111827;">${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)}</td>
           <td style="padding:10px 8px;font-size:14px;color:#111827;">${score} / ${total} (${pct}%)</td>
           <td style="padding:10px 8px;font-size:14px;font-weight:700;color:#111827;text-align:center;">${grade}</td>
-          <td style="padding:10px 8px;font-size:13px;color:#6b7280;">${new Date(s.submittedAt).toLocaleString('uz-UZ')}</td>
+          <td style="padding:10px 8px;font-size:13px;color:#6b7280;">${new Date(s.submittedAt).toLocaleString(locale)}</td>
         </tr>
       `;
     })
@@ -158,13 +168,15 @@ function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]
           const pickedLabel = picked >= 0 && picked < q.options.length ? optionLetter(picked) : '—';
           const correctLabel = optionLetter(correct);
           const color = ok ? '#059669' : '#dc2626';
-          return `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:6px;background:${ok ? '#ecfdf5' : '#fef2f2'};color:${color};font-size:12px;font-weight:600;">${qi + 1}: ${pickedLabel}${ok ? '' : ` (to'g'ri: ${correctLabel})`}</span>`;
+          const hint = ok ? '' : ` (${t(lang, 'pdf.correctHint', { label: correctLabel })})`;
+          return `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:6px;background:${ok ? '#ecfdf5' : '#fef2f2'};color:${color};font-size:12px;font-weight:600;">${qi + 1}: ${pickedLabel}${hint}</span>`;
         })
         .join('');
+      const name = `${s.firstName} ${s.lastName}`.trim();
       return `
         <div style="margin-bottom:20px;padding:14px;border:1px solid #e5e7eb;border-radius:10px;page-break-inside:avoid;">
           <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#111827;">
-            ${idx + 1}. ${escapeHtml(s.firstName)} ${escapeHtml(s.lastName)} — ${score}/${total} · Baho: ${grade}
+            ${idx + 1}. ${escapeHtml(t(lang, 'pdf.studentRowSummary', { name, score, total, grade }))}
           </p>
           <div>${answerCells}</div>
         </div>
@@ -174,24 +186,24 @@ function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]
 
   return `
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:32px;background:#fff;color:#111827;max-width:760px;">
-      <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.08em;color:#b45309;text-transform:uppercase;">Test natijalari</p>
+      <p style="margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:0.08em;color:#b45309;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.testResultsTitle'))}</p>
       <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;line-height:1.3;">${escapeHtml(session.topic)}</h1>
       <p style="margin:0 0 6px;font-size:13px;color:#6b7280;">
-        Topshirganlar: ${sorted.length} · O'rtacha ball: ${avg} / ${total} · O'rtacha baho: ${avgGrade} · ${new Date().toLocaleString('uz-UZ')}
+        ${escapeHtml(t(lang, 'pdf.submissionsSummary', { count: sorted.length, avg, total, avgGrade }))} · ${new Date().toLocaleString(locale)}
       </p>
       <table style="width:100%;border-collapse:collapse;margin:24px 0 32px;">
         <thead>
           <tr style="border-bottom:2px solid #d1d5db;text-align:left;">
             <th style="padding:10px 8px;font-size:12px;color:#6b7280;">#</th>
-            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">Talaba</th>
-            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">Ball</th>
-            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">Baho</th>
-            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">Vaqt</th>
+            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.studentColumn'))}</th>
+            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.scoreColumn'))}</th>
+            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.gradeColumn'))}</th>
+            <th style="padding:10px 8px;font-size:12px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.timeColumn'))}</th>
           </tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="5" style="padding:24px;text-align:center;color:#9ca3af;">Natija yo'q</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="5" style="padding:24px;text-align:center;color:#9ca3af;">${escapeHtml(t(lang, 'pdf.noResults'))}</td></tr>`}</tbody>
       </table>
-      ${sorted.length > 0 ? `<p style="margin:0 0 12px;font-size:13px;font-weight:700;color:#374151;">Batafsil javoblar</p>${detailBlocks}` : ''}
+      ${sorted.length > 0 ? `<p style="margin:0 0 12px;font-size:13px;font-weight:700;color:#374151;">${escapeHtml(t(lang, 'pdf.detailedAnswers'))}</p>${detailBlocks}` : ''}
     </div>
   `;
 }
@@ -234,20 +246,21 @@ async function renderHtmlToPdf(html: string, filename: string): Promise<void> {
   }
 }
 
-export async function downloadTestQuestionsPdf(session: TestSession): Promise<void> {
+export async function downloadTestQuestionsPdf(session: TestSession, lang: AppLanguage = 'uz'): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildQuestionsHtml(session), `Test_${slug}.pdf`);
+  await renderHtmlToPdf(buildQuestionsHtml(session, lang), t(lang, 'pdf.filenameTest', { slug }));
 }
 
-export async function downloadTestAnswerKeyPdf(session: TestSession): Promise<void> {
+export async function downloadTestAnswerKeyPdf(session: TestSession, lang: AppLanguage = 'uz'): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildAnswerKeyHtml(session), `Test_Kalit_${slug}.pdf`);
+  await renderHtmlToPdf(buildAnswerKeyHtml(session, lang), t(lang, 'pdf.filenameTestKey', { slug }));
 }
 
 export async function downloadTestResultsPdf(
   session: TestSession,
-  submissions: TestSubmissionRow[]
+  submissions: TestSubmissionRow[],
+  lang: AppLanguage = 'uz',
 ): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildResultsHtml(session, submissions), `Test_Natijalar_${slug}.pdf`);
+  await renderHtmlToPdf(buildResultsHtml(session, submissions, lang), t(lang, 'pdf.filenameTestResults', { slug }));
 }

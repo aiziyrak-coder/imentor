@@ -4,6 +4,8 @@ import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-le
 import 'leaflet/dist/leaflet.css';
 import { LeafletAttributionStrip } from '../map/LeafletAttributionStrip';
 import { matchStaffBuilding, isPingStale } from '../../utils/staffLocationGeo';
+import { useUiText } from '../../i18n/useUiText';
+import type { UiTextKey } from '../../i18n/translations';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
 import type { LocalStaffUser } from '../../utils/localStaffAuth';
@@ -17,6 +19,8 @@ const PERSON_SVG = `
   <path fill="white" d="M4 20.5v-1.2c0-2.8 4.2-4.3 8-4.3s8 1.5 8 4.3v1.2H4z"/>
 </svg>
 `.trim();
+
+type TranslateFn = (key: UiTextKey, params?: Record<string, string | number>) => string;
 
 function latestPingByOwner(pings: StaffLocationPingDto[]): StaffLocationPingDto[] {
   const m = new Map<string, StaffLocationPingDto>();
@@ -45,11 +49,11 @@ function hueForOwner(key: string): string {
   return `hsl(${h % 360} 72% 42%)`;
 }
 
-function formatAgeUz(recordedAt: string): string {
+function formatAge(recordedAt: string, t: TranslateFn, locale: string): string {
   const diff = Date.now() - new Date(recordedAt).getTime();
-  if (diff < 60_000) return 'hozirgina';
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)} daq oldin`;
-  return new Date(recordedAt).toLocaleString('uz-UZ');
+  if (diff < 60_000) return t('admin.mapPopup.justNow');
+  if (diff < 3600_000) return t('admin.mapPopup.minutesAgo', { minutes: Math.floor(diff / 60_000) });
+  return new Date(recordedAt).toLocaleString(locale);
 }
 
 function findStaffProfile(ownerKey: string, directory: LocalStaffUser[]): LocalStaffUser | undefined {
@@ -125,6 +129,7 @@ type StaffMarkerProps = {
 };
 
 function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
+  const { t, locale } = useUiText();
   const accent = hueForOwner(ping.owner_key);
   const stale = isPingStale(ping.recorded_at);
   const icon = useMemo(
@@ -149,7 +154,7 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
     [ping.latitude, ping.longitude, buildings],
   );
 
-  const title = profile?.displayName?.trim() || 'Hodim';
+  const title = profile?.displayName?.trim() || t('admin.staffDefaultName');
   const subtitle = profile?.jobTitle?.trim() || profile?.department?.trim() || '';
 
   return (
@@ -182,16 +187,19 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
               }`}
             >
               {stale ? (
-                <>
-                  <strong>Eski GPS</strong> (20+ daqiqa) — hodim hozir joyida emasligi mumkin
-                </>
+                t('admin.mapPopup.staleGps')
               ) : nearest.inside ? (
                 <>
-                  <strong>Joylashuv:</strong> {nearest.building.name} ichida
+                  <strong>{t('admin.mapPopup.location')}</strong>{' '}
+                  {t('admin.mapPopup.insideBuilding', { building: nearest.building.name })}
                 </>
               ) : (
                 <>
-                  <strong>Eng yaqin bino:</strong> {nearest.building.name} ({Math.round(nearest.distance_m)} m)
+                  <strong>{t('admin.mapPopup.nearestBuilding')}</strong>{' '}
+                  {t('admin.mapPopup.distanceM', {
+                    building: nearest.building.name,
+                    distance: Math.round(nearest.distance_m),
+                  })}
                 </>
               )}
             </div>
@@ -200,31 +208,33 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
           <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1.5 text-[12px]">
             {profile?.faculty ? (
               <>
-                <dt className="text-black/45">Fakultet</dt>
+                <dt className="text-black/45">{t('admin.faculty')}</dt>
                 <dd className="font-medium text-black/80">{profile.faculty}</dd>
               </>
             ) : null}
             {profile?.department ? (
               <>
-                <dt className="text-black/45">Kafedra</dt>
+                <dt className="text-black/45">{t('admin.department')}</dt>
                 <dd className="font-medium text-black/80">{profile.department}</dd>
               </>
             ) : null}
             {profile?.direction ? (
               <>
-                <dt className="text-black/45">Yo‘nalish</dt>
+                <dt className="text-black/45">{t('admin.direction')}</dt>
                 <dd className="text-black/80">{profile.direction}</dd>
               </>
             ) : null}
-            <dt className="text-black/45">GPS vaqt</dt>
-            <dd className="font-medium text-black/85">{formatAgeUz(ping.recorded_at)}</dd>
-            <dt className="text-black/45">Koordinata</dt>
+            <dt className="text-black/45">{t('admin.mapPopup.gpsTime')}</dt>
+            <dd className="font-medium text-black/85">{formatAge(ping.recorded_at, t, locale)}</dd>
+            <dt className="text-black/45">{t('admin.mapPopup.coordinates')}</dt>
             <dd className="font-mono text-[11px] text-black/70">
               {ping.latitude.toFixed(5)}, {ping.longitude.toFixed(5)}
             </dd>
-            <dt className="text-black/45">Aniqlik</dt>
+            <dt className="text-black/45">{t('admin.mapPopup.accuracy')}</dt>
             <dd className="text-black/80">
-              {ping.accuracy_m != null ? `±${Math.round(ping.accuracy_m)} m` : '—'}
+              {ping.accuracy_m != null
+                ? t('admin.mapPopup.accuracyValue', { m: Math.round(ping.accuracy_m) })
+                : '—'}
             </dd>
           </dl>
         </div>
@@ -234,6 +244,7 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
 }
 
 function BuildingZone({ building }: { building: CampusBuildingDto }) {
+  const { t } = useUiText();
   const radius = building.radius_m > 0 ? building.radius_m : 100;
 
   return (
@@ -250,9 +261,13 @@ function BuildingZone({ building }: { building: CampusBuildingDto }) {
       <Popup>
         <div className="text-[13px] font-semibold text-black/90">{building.name}</div>
         {building.short_code ? (
-          <div className="text-[11px] text-black/55">Kod: {building.short_code}</div>
+          <div className="text-[11px] text-black/55">
+            {t('admin.buildingCodePrefix')} {building.short_code}
+          </div>
         ) : null}
-        <div className="text-[11px] text-black/60">Ruxsat radiusi: {radius} m</div>
+        <div className="text-[11px] text-black/60">
+          {t('admin.mapPopup.allowedRadius', { radius })}
+        </div>
       </Popup>
     </Circle>
   );
@@ -278,6 +293,8 @@ export default function AdminStaffLiveMapPanel({
   staffDirectory,
   filterOwnerDigits = '',
 }: AdminStaffLiveMapPanelProps) {
+  const { t, locale } = useUiText();
+
   const latest = useMemo(() => {
     return latestPingByOwner(pings)
       .filter((p) => isValidLatLng(p.latitude, p.longitude))
@@ -305,24 +322,26 @@ export default function AdminStaffLiveMapPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 text-[12px] text-black/65">
         <p>
-          <strong className="text-black/90">{latest.length}</strong> hodim ·{' '}
-          <strong className="text-black/90">{activeBuildings.length}</strong> bino xaritada
+          {t('admin.mapStaffBuildingSummary', {
+            staff: t('admin.liveMapStaffCount', { count: latest.length }),
+            buildings: t('admin.liveMapBuildingCount', { count: activeBuildings.length }),
+          })}
           {lastUpdated ? (
-            <span className="ml-2 text-black/55">· Maʼlumot: {lastUpdated.toLocaleTimeString('uz-UZ')}</span>
+            <span className="ml-2 text-black/55">
+              · {t('admin.liveMapUpdated', { time: lastUpdated.toLocaleTimeString(locale) })}
+            </span>
           ) : null}
         </p>
-        <p className="font-semibold text-emerald-800">Avto-yangilanish: {pollIntervalSec}s</p>
+        <p className="font-semibold text-emerald-800">
+          {t('admin.liveMapAutoUpdate', { sec: pollIntervalSec })}
+        </p>
       </div>
 
-      <p className="text-[11px] leading-relaxed text-black/50">
-        Har bino atrofida <strong>radius doira</strong> (odatda 100 m). Kulrang marker — 20+ daqiqalik eski GPS.
-        Hodim belgisi zoomda siljimaydi.
-      </p>
+      <p className="text-[11px] leading-relaxed text-black/50">{t('admin.liveMapHelp')}</p>
 
       {filteredSelectedNoData ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-          <strong>Tanlangan hodim</strong> uchun hali GPS kelmayapti. Hodim telefonda ilovani ochib, joylashuv
-          ruxsatini berishi kerak.
+          {t('admin.liveMapNoData')}
         </div>
       ) : null}
 
@@ -357,7 +376,9 @@ export default function AdminStaffLiveMapPanel({
       </div>
 
       <div>
-        <h3 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-black/45">Hodimlar roʻyxati</h3>
+        <h3 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-black/45">
+          {t('admin.liveMapStaffList')}
+        </h3>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {latest.map((p) => {
             const profile = findStaffProfile(p.owner_key, staffDirectory);
@@ -383,15 +404,18 @@ export default function AdminStaffLiveMapPanel({
                   {nearest ? (
                     <div className={`truncate text-[11px] ${stale ? 'text-slate-600' : nearest.inside ? 'text-emerald-700' : 'text-amber-800'}`}>
                       {stale
-                        ? 'Eski GPS (20+ daq)'
+                        ? t('admin.liveMapOldGps')
                         : nearest.inside
                           ? nearest.building.name
-                          : `${nearest.building.name} (${Math.round(nearest.distance_m)} m)`}
+                          : t('admin.mapPopup.distanceM', {
+                              building: nearest.building.name,
+                              distance: Math.round(nearest.distance_m),
+                            })}
                     </div>
                   ) : stale ? (
-                    <div className="truncate text-[11px] text-slate-600">Eski GPS (20+ daq)</div>
+                    <div className="truncate text-[11px] text-slate-600">{t('admin.liveMapOldGps')}</div>
                   ) : null}
-                  <div className="text-black/55">{formatAgeUz(p.recorded_at)}</div>
+                  <div className="text-black/55">{formatAge(p.recorded_at, t, locale)}</div>
                 </div>
               </div>
             );
@@ -399,9 +423,7 @@ export default function AdminStaffLiveMapPanel({
         </div>
         {latest.length === 0 ? (
           <div className="space-y-2 rounded-xl border border-dashed border-black/15 bg-black/[0.02] px-4 py-6 text-center text-[13px] text-black/50">
-            <p>
-              Hozircha xaritada <strong className="text-black/70">GPS ping yoʻq</strong>.
-            </p>
+            <p>{t('admin.liveMapNoGps')}</p>
           </div>
         ) : null}
       </div>

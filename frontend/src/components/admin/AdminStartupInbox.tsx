@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
+import { useUiText } from '../../i18n/useUiText';
 import { listAdminStartupInbox, type StartupApplicationDto } from '../../utils/startupApplicationApi';
 import { hasMeaningfulAiPack } from '../../utils/startupProjectQuality';
 import StartupInnovationPackPanel from '../startup/StartupInnovationPackPanel';
@@ -22,6 +23,7 @@ function shortJson(obj: unknown, max = 2000): string {
 }
 
 export default function AdminStartupInbox() {
+  const { t } = useUiText();
   const [rows, setRows] = useState<StartupApplicationDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,11 +36,11 @@ export default function AdminStartupInbox() {
       const list = await listAdminStartupInbox();
       setRows(list);
     } catch {
-      setError('Arizalarni olishda xato (admin yoki tizimdan kirishni tekshiring).');
+      setError(t('admin.error.inboxLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -52,8 +54,8 @@ export default function AdminStartupInbox() {
             <Inbox size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Startap arizalar (inbox)</h1>
-            <p className="text-[12px] text-black/50">Faqat yuborilgan loyihalar</p>
+            <h1 className="text-xl font-bold text-black/90">{t('admin.startupInboxTitle')}</h1>
+            <p className="text-[12px] text-black/50">{t('admin.startupInboxSubtitle')}</p>
           </div>
         </div>
         <button
@@ -62,7 +64,7 @@ export default function AdminStartupInbox() {
           disabled={loading}
           className="rounded-xl border border-black/10 bg-white/90 px-4 py-2 text-[13px] font-semibold text-black/80 disabled:opacity-50"
         >
-          Yangilash
+          {t('admin.refresh')}
         </button>
       </div>
 
@@ -76,11 +78,11 @@ export default function AdminStartupInbox() {
       {loading ? (
         <div className="flex items-center justify-center py-16 text-black/50 gap-2">
           <Loader2 className="animate-spin" size={20} />
-          Yuklanmoqda…
+          {t('admin.loading')}
         </div>
       ) : rows.length === 0 ? (
         <div className="ios-glass rounded-2xl border border-white/60 p-8 text-center text-[14px] text-black/55">
-          Hozircha yuborilgan ariza yo‘q.
+          {t('admin.noApplicationsYet')}
         </div>
       ) : (
         <div className="space-y-3">
@@ -102,11 +104,11 @@ export default function AdminStartupInbox() {
                   <div className="flex flex-col items-end gap-1 shrink-0 text-[11px] text-black/45">
                     {hasAiPanel ? (
                       <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-                        AI tahlil
+                        {t('admin.aiAnalysis')}
                       </span>
                     ) : (
                       <span className="rounded-full bg-amber-100 text-amber-900 border border-amber-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-                        Tahlil yo‘q
+                        {t('admin.noAnalysis')}
                       </span>
                     )}
                     <span>
@@ -119,40 +121,39 @@ export default function AdminStartupInbox() {
                 {expanded && (
                   <div className="border-t border-black/10 px-4 py-4 space-y-3 bg-white/40 text-[13px]">
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">Egasi (JWT)</span>
+                      <span className="text-[11px] font-semibold text-black/45">{t('admin.ownerKey')}</span>
                       <p className="font-mono text-[12px] break-all">{r.owner_key}</p>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">Ishtirokchi turi</span>
-                      <p>{r.participant_kind === 'employee' ? 'Xodim' : 'Talaba'}</p>
+                      <span className="text-[11px] font-semibold text-black/45">{t('admin.participantType')}</span>
+                      <p>{r.participant_kind === 'employee' ? t('admin.employee') : t('admin.student')}</p>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">Loyiha turi</span>
+                      <span className="text-[11px] font-semibold text-black/45">{t('admin.projectType')}</span>
                       <p>
                         {r.project_domain === 'research'
-                          ? '🔬 Ilmiy tadqiqot'
-                          : '🚀 Startap / innovatsiya'}
+                          ? t('admin.researchProject')
+                          : t('admin.startupProject')}
                       </p>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">Profil (snapshot)</span>
+                      <span className="text-[11px] font-semibold text-black/45">{t('admin.profileSnapshot')}</span>
                       <pre className="mt-1 text-[11px] whitespace-pre-wrap break-words bg-white/70 rounded-lg p-2 border border-black/5">
                         {shortJson(r.profile_snapshot, 4000)}
                       </pre>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">Batafsil tavsif</span>
+                      <span className="text-[11px] font-semibold text-black/45">{t('admin.detailedDescription')}</span>
                       <p className="mt-1 whitespace-pre-wrap text-black/80">{r.description || '—'}</p>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-black/45">AI tahlil (ko‘rinish)</span>
+                      <span className="text-[11px] font-semibold text-black/45">{t('admin.aiAnalysisView')}</span>
                       <div className="mt-2 max-h-[min(80vh,900px)] overflow-y-auto rounded-2xl border border-violet-100 bg-violet-50/30 p-2">
                         {hasAiPanel ? (
                           <StartupInnovationPackPanel pack={aiDisplayPack} />
                         ) : (
                           <p className="text-[13px] text-black/55 px-2 py-4">
-                            Strategik AI tahlil biriktirilmagan yoki juda qisqa — startaper «Startap studiyasida» tahlilni
-                            ishga tushirgan bo‘lishi ma’qul.
+                            {t('admin.noAiAnalysis')}
                           </p>
                         )}
                       </div>
@@ -172,6 +173,7 @@ export default function AdminStartupInbox() {
 }
 
 function DossierAdminView({ dossier }: { dossier: Record<string, unknown> }) {
+  const { t } = useUiText();
   const kind = typeof dossier.project_kind === 'string' ? dossier.project_kind : '';
   const pitch = typeof dossier.vc_one_liner === 'string' ? dossier.vc_one_liner : '';
   const notes = typeof dossier.applicant_notes === 'string' ? dossier.applicant_notes : '';
@@ -181,25 +183,29 @@ function DossierAdminView({ dossier }: { dossier: Record<string, unknown> }) {
   return (
     <div className="space-y-3 rounded-2xl border border-indigo-200/70 bg-indigo-50/40 p-3">
       <span className="text-[11px] font-semibold text-indigo-900 uppercase tracking-wide">
-        Yuborilgan dossye
+        {t('admin.submittedDossier')}
       </span>
       {kind && (
         <p className="text-[13px]">
-          <span className="text-black/45">Turi:</span>{' '}
+          <span className="text-black/45">{t('admin.dossierType')}:</span>{' '}
           <span className="font-semibold text-black/85">
-            {kind === 'startup' ? 'Startap' : kind === 'research' ? 'Ilmiy' : 'Aralash'}
+            {kind === 'startup'
+              ? t('admin.dossierTypeStartup')
+              : kind === 'research'
+                ? t('admin.dossierTypeResearch')
+                : t('admin.dossierTypeMixed')}
           </span>
         </p>
       )}
       {pitch && (
         <div>
-          <p className="text-[11px] font-semibold text-black/45">Pitch</p>
+          <p className="text-[11px] font-semibold text-black/45">{t('admin.pitch')}</p>
           <p className="text-[13px] text-black/85">{pitch}</p>
         </div>
       )}
       {notes && (
         <div>
-          <p className="text-[11px] font-semibold text-black/45">Izoh</p>
+          <p className="text-[11px] font-semibold text-black/45">{t('admin.comment')}</p>
           <p className="text-[13px] whitespace-pre-wrap text-black/80">{notes}</p>
         </div>
       )}
@@ -208,10 +214,10 @@ function DossierAdminView({ dossier }: { dossier: Record<string, unknown> }) {
           <table className="w-full text-[12px]">
             <thead className="bg-black/[0.04] text-left">
               <tr>
-                <th className="px-2 py-1.5">F.I.Sh.</th>
-                <th className="px-2 py-1.5">Rol</th>
-                <th className="px-2 py-1.5">Tashkilot</th>
-                <th className="px-2 py-1.5">Aloqa</th>
+                <th className="px-2 py-1.5">{t('admin.teamMember')}</th>
+                <th className="px-2 py-1.5">{t('admin.memberRole')}</th>
+                <th className="px-2 py-1.5">{t('admin.organization')}</th>
+                <th className="px-2 py-1.5">{t('admin.contact')}</th>
               </tr>
             </thead>
             <tbody>
@@ -229,7 +235,7 @@ function DossierAdminView({ dossier }: { dossier: Record<string, unknown> }) {
       )}
       {files.length > 0 && (
         <div>
-          <p className="text-[11px] font-semibold text-black/45 mb-1">Hujjatlar</p>
+          <p className="text-[11px] font-semibold text-black/45 mb-1">{t('admin.documents')}</p>
           <ul className="space-y-1 text-[12px]">
             {(files as Record<string, unknown>[]).map((f, i) => (
               <li key={i} className="flex flex-wrap gap-2 rounded-lg bg-white/70 border border-black/5 px-2 py-1">
@@ -241,7 +247,7 @@ function DossierAdminView({ dossier }: { dossier: Record<string, unknown> }) {
                   <span className="text-indigo-700 font-medium">({f.label})</span>
                 )}
                 {Boolean(f.base64) ? (
-                  <span className="text-emerald-700 font-semibold text-[11px]">fayl biriktirilgan</span>
+                  <span className="text-emerald-700 font-semibold text-[11px]">{t('admin.fileAttached')}</span>
                 ) : null}
               </li>
             ))}

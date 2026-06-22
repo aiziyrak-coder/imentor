@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getAppLanguage } from '../../i18n/language';
+import { useUiText } from '../../i18n/useUiText';
 import {
   fetchStartupDiscoveryQuestionnaire,
   fetchStartupInnovationCoachReply,
@@ -131,10 +132,10 @@ function buildWorkspaceExtraNote(f: WorkspaceFields, domain: 'startup' | 'resear
   return [core, qBlock].filter(Boolean).join('\n\n');
 }
 
-function formatProjectLabel(x: StartupApplicationDto): string {
+function formatProjectLabel(x: StartupApplicationDto, untitled: string): string {
   const dom = normalizeDomain(x.project_domain);
   const icon = dom === 'research' ? '🔬' : '🚀';
-  const name = (x.title || 'Loyihasiz').trim() || 'Loyihasiz';
+  const name = (x.title || untitled).trim() || untitled;
   const shortSum = (x.summary || '').trim().slice(0, 40);
   const sumPart = shortSum ? ` — ${shortSum}${(x.summary || '').length > 40 ? '…' : ''}` : '';
   return `${icon} ${name} · #${x.id}${sumPart}${x.status === 'submitted' ? ' ✓' : ''}`;
@@ -186,6 +187,7 @@ function parseCoachThread(raw: unknown): CoachTurn[] {
 }
 
 export default function StartupWorkspace() {
+  const { t } = useUiText();
   const printRef = useRef<HTMLDivElement | null>(null);
 
   const [items, setItems] = useState<StartupApplicationDto[]>([]);
@@ -233,18 +235,16 @@ export default function StartupWorkspace() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'no-backend-token' || msg.includes('HTTP 401')) {
-        setError('Serverga kirish muddati tugagan. Chiqing va qayta kiring.');
+        setError(t('startup.error.sessionExpired'));
       } else if (msg.includes('HTTP 403')) {
-        setError(
-          'Startap moduli faqat «Startuper» roli uchun. Chiqing va startuper sifatida qayta kiring.',
-        );
+        setError(t('startup.error.forbiddenRole'));
       } else {
-        setError("Ma'lumotlarni yuklashda xato. Internet yoki serverni tekshiring.");
+        setError(t('startup.error.loadFailed'));
       }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -307,9 +307,9 @@ export default function StartupWorkspace() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'no-backend-token' || msg.includes('HTTP 401')) {
-        setError('Serverga kirish muddati tugagan. Chiqing va qayta kiring.');
+        setError(t('startup.error.sessionExpired'));
       } else {
-        setError('Yangi loyiha yaratishda xato. Internet yoki huquqni tekshiring.');
+        setError(t('startup.error.createFailed'));
       }
     } finally {
       setSaving(false);
@@ -325,7 +325,7 @@ export default function StartupWorkspace() {
       if (!u) throw new Error('not-auth');
       const pitch = description.trim();
       const row = await updateStartupApplication(selected.id, {
-        title: title.trim() || 'Loyihasiz',
+        title: title.trim() || t('startup.untitledProject'),
         summary:
           projectDomain === 'startup'
             ? (pitch ? pitch.slice(0, 400) : summary.trim())
@@ -338,7 +338,7 @@ export default function StartupWorkspace() {
       });
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
     } catch {
-      setError('Saqlashda xato yoki tizimdan kirish muddati tugagan.');
+      setError(t('startup.error.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -371,7 +371,7 @@ export default function StartupWorkspace() {
       const extra = buildWorkspaceExtraNote(ws, projectDomain);
       const pitchText = (description.trim() || summary.trim()).trim();
       const rawPack = await fetchStartupInnovationPack(
-        title.trim() || 'Loyiha',
+        title.trim() || t('startup.defaultProjectTitle'),
         pitchText.slice(0, 500),
         pitchText,
         profileLine,
@@ -390,9 +390,9 @@ export default function StartupWorkspace() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('Failed to parse JSON') || msg.includes('parse')) {
-        setError('AI javobi formatda keldi. Qayta «AI tahlil»ni bosing yoki matnni qisqartirib urinib ko‘ring.');
+        setError(t('startup.error.aiParseFailed'));
       } else {
-        setError('AI tahlil ishlamadi (kalit yoki tarmoq). Qayta urinib ko‘ring.');
+        setError(t('startup.error.aiFailed'));
       }
     } finally {
       setAiLoading(false);
@@ -414,7 +414,7 @@ export default function StartupWorkspace() {
         messagesForModel.map(({ role, content }) => ({ role, content })),
         {
           project_domain: projectDomain,
-          title: title.trim() || 'Loyiha',
+          title: title.trim() || t('startup.defaultProjectTitle'),
           summary: projectDomain === 'startup' ? pitchCtx.slice(0, 500) : summary,
           description: projectDomain === 'startup' ? pitchCtx : description,
           workspace_profile_json: JSON.stringify(ws),
@@ -438,7 +438,7 @@ export default function StartupWorkspace() {
       });
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
     } catch {
-      setError('Suhbat javobi olinmadi. Qayta urinib ko‘ring.');
+      setError(t('startup.error.coachFailed'));
     } finally {
       setCoachSending(false);
     }
@@ -446,7 +446,7 @@ export default function StartupWorkspace() {
 
   const handleDelete = async () => {
     if (!selected || selected.status === 'submitted') return;
-    if (!window.confirm('Loyiha o‘chirilsinmi?')) return;
+    if (!window.confirm(t('startup.error.confirmDeleteProject'))) return;
     setError(null);
     setSaving(true);
     try {
@@ -457,7 +457,7 @@ export default function StartupWorkspace() {
         return next;
       });
     } catch {
-      setError('O‘chirishda xato.');
+      setError(t('startup.error.deleteFailed'));
     } finally {
       setSaving(false);
     }
@@ -468,7 +468,7 @@ export default function StartupWorkspace() {
     const w = window.open('', '_blank', 'width=900,height=1200');
     if (!w) return;
     w.document.write(
-      `<!doctype html><html><head><meta charset="utf-8"><title>Loyiha — chop etish</title>
+      `<!doctype html><html><head><meta charset="utf-8"><title>${t('startup.printDocumentTitle')}</title>
       <style>
         body{font-family:system-ui,sans-serif;padding:24px;color:#111;line-height:1.45;max-width:880px;margin:0 auto}
         h1{font-size:20px} h2{font-size:15px;margin-top:1.15em} h3{font-size:13px;margin-top:0.9em}
@@ -516,19 +516,19 @@ export default function StartupWorkspace() {
   const coachSuggestedPrompts = useMemo(() => {
     if (projectDomain === 'research') {
       return [
-        'Gipotezani qanday 2–3 haftada arzon tekshirsam?',
-        'Metodologiyadagi eng zaif nuqta qayeri?',
-        'Qaysi dalillar grant arizasiga kiritishim kerak?',
+        t('startup.coachResearchPrompt1'),
+        t('startup.coachResearchPrompt2'),
+        t('startup.coachResearchPrompt3'),
       ];
     }
     return [
-      'Keyingi 7 kun uchun 3 ta aniq vazifa (o‘lchanadigan natija bilan) yozing.',
-      'Mijoz intervyusi uchun 5 ta ochiq savol tuzing.',
-      'Raqobat va o‘zimning farqimni bir jadvalda qisqacha solishtiring.',
-      'Pilot uchun minimal “MVP” va muvaffaqiyat mezonini taklif qiling.',
-      'Pitch: bir qatorlik + 30 soniyalik ogohlantirish (hook) varianti bering.',
+      t('startup.coachSuggestedPrompt1'),
+      t('startup.coachSuggestedPrompt2'),
+      t('startup.coachSuggestedPrompt3'),
+      t('startup.coachSuggestedPrompt4'),
+      t('startup.coachSuggestedPrompt5'),
     ];
-  }, [projectDomain]);
+  }, [projectDomain, t]);
 
   const updateWs = (patch: Partial<WorkspaceFields>) => setWs((prev) => ({ ...prev, ...patch }));
 
@@ -542,7 +542,7 @@ export default function StartupWorkspace() {
   const handleGenerateStartupQuestionnaire = async () => {
     if (!selected || selected.status === 'submitted' || projectDomain !== 'startup') return;
     if (!analysisReady) {
-      setError('Avval «1-bosqich: AI tahlil»ni ishga tushiring — keyin 20–25 ta savollar ochiladi.');
+      setError(t('startup.error.questionnaireNeedsAnalysis'));
       return;
     }
     const ev = evaluateStartupQuestionnaireReadiness({
@@ -569,7 +569,7 @@ export default function StartupWorkspace() {
           : '';
       const structuredContextNote = [structuredCore, analysisAugment].filter(Boolean).join('\n');
       const items = await fetchStartupDiscoveryQuestionnaire({
-        projectTitle: title.trim() || 'Loyiha',
+        projectTitle: title.trim() || t('startup.defaultProjectTitle'),
         summary: pitchBody.slice(0, 500),
         fullDescription: pitchBody,
         structuredContextNote,
@@ -585,7 +585,7 @@ export default function StartupWorkspace() {
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
-      setError(msg || 'Savolnoma generatsiyasi ishlamadi.');
+      setError(msg || t('startup.error.questionnaireFailed'));
     } finally {
       setQuestionnaireAiLoading(false);
     }
@@ -601,7 +601,7 @@ export default function StartupWorkspace() {
       const qBlock = formatQuestionnaireForPrompt(ws.startup_questionnaire ?? EMPTY_STARTUP_QUESTIONNAIRE);
       const pitchBody = description.trim() || summary.trim();
       const result = await fetchStartupTwentyCriteria({
-        projectTitle: title.trim() || 'Loyiha',
+        projectTitle: title.trim() || t('startup.defaultProjectTitle'),
         summary: pitchBody.slice(0, 500),
         fullDescription: pitchBody,
         structuredContextNote: buildWorkspaceStructuredCore(ws, projectDomain),
@@ -620,7 +620,7 @@ export default function StartupWorkspace() {
       setItems((prev) => prev.map((x) => (x.id === row.id ? row : x)));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
-      setError(msg || '20 mezon baholashi ishlamadi. Qayta urinib ko‘ring.');
+      setError(msg || t('startup.error.criteriaFailed'));
     } finally {
       setTwentyEvalLoading(false);
     }
@@ -632,7 +632,7 @@ export default function StartupWorkspace() {
     setWordDocLoading(true);
     try {
       const blob = await buildStartupProjectWordBlob({
-        projectTitle: title.trim() || 'Loyiha',
+        projectTitle: title.trim() || t('startup.defaultProjectTitle'),
         summary,
         description,
         questionnaireItems: startupQuestionnaire.items,
@@ -644,7 +644,7 @@ export default function StartupWorkspace() {
       downloadWordBlob(blob, `${base}_startap.docx`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : '';
-      setError(msg || 'Word faylini yaratishda xato.');
+      setError(msg || t('startup.error.wordFailed'));
     } finally {
       setWordDocLoading(false);
     }
@@ -658,11 +658,8 @@ export default function StartupWorkspace() {
             <Rocket size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-black/90">Startap studiyasi</h1>
-            <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">
-              Startap rejasi: avval loyiha matni → AI tahlil → shunga mos 20–25 savol → 20 mezon bahosi → (yetarli bo‘lsa)
-              Word. Administratorga yuborish «Dossye» bo‘limida.
-            </p>
+            <h1 className="text-xl font-bold text-black/90">{t('startup.workspaceTitle')}</h1>
+            <p className="text-[12px] text-black/50 leading-relaxed max-w-xl">{t('startup.workspaceSubtitle')}</p>
           </div>
         </div>
         <button
@@ -672,7 +669,7 @@ export default function StartupWorkspace() {
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-md disabled:opacity-50"
         >
           {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-          Yangi loyiha
+          {t('startup.newProject')}
         </button>
       </div>
 
@@ -680,7 +677,7 @@ export default function StartupWorkspace() {
       {/* Yangi loyiha turi (joriy tanlov — «Yangi loyiha» shu tipda yaratiladi) */}
       <div className="rounded-2xl border border-black/10 bg-white/70 p-3 sm:p-4 shadow-sm">
         <p className="text-[11px] font-semibold text-black/45 uppercase tracking-wide mb-2">
-          Loyiha turi (yangi loyiha uchun)
+          {t('startup.projectType')}
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -693,7 +690,7 @@ export default function StartupWorkspace() {
             }`}
           >
             <Briefcase size={16} />
-            Startap / mahsulot
+            {t('startup.startupProduct')}
           </button>
           <button
             type="button"
@@ -705,12 +702,11 @@ export default function StartupWorkspace() {
             }`}
           >
             <Beaker size={16} />
-            Ilmiy tadqiqot
+            {t('startup.researchProject')}
           </button>
         </div>
         <p className="text-[11px] text-black/45 mt-2">
-          Tanlangan tur «Yangi loyiha» tugmasida yaratiladi. Mavjud loyihada tur va maydonlarni o‘zgartirish uchun
-          «Saqlash»ni bosing.
+          {t('startup.typeInstructions')}
         </p>
       </div>
 
@@ -724,20 +720,17 @@ export default function StartupWorkspace() {
       {loading ? (
         <div className="flex items-center justify-center py-20 text-black/50 gap-2 text-[14px]">
           <Loader2 className="animate-spin" size={20} />
-          Yuklanmoqda…
+          {t('startup.loading')}
         </div>
       ) : items.length === 0 ? (
         <div className="ios-glass rounded-2xl border border-white/60 p-8 text-center text-[14px] text-black/55 space-y-3">
-          <p>Hozircha loyiha yo‘q.</p>
-          <p className="text-[13px]">
-            Yuqorida <strong>Startap</strong> yoki <strong>Ilmiy tadqiqot</strong>ni tanlang, keyin «Yangi loyiha»ni
-            bosing. Startapda ketma-ket: matn → AI tahlil → AI savollar → 20 mezon → Word.
-          </p>
+          <p>{t('startup.noProjectsYet')}</p>
+          <p className="text-[13px]">{t('startup.noProjectsHelp')}</p>
         </div>
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold text-black/45 uppercase tracking-wide">Mening loyihalarim</span>
+            <span className="text-[11px] font-semibold text-black/45 uppercase tracking-wide">{t('startup.myProjects')}</span>
             <select
               value={selectedId ?? ''}
               onChange={(e) => setSelectedId(Number(e.target.value))}
@@ -745,13 +738,13 @@ export default function StartupWorkspace() {
             >
               {items.map((x) => (
                 <option key={x.id} value={x.id}>
-                  {formatProjectLabel(x)}
+                  {formatProjectLabel(x, t('startup.untitledProject'))}
                 </option>
               ))}
             </select>
             {selected?.status === 'submitted' && (
               <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
-                Administratorga yuborilgan
+                {t('startup.submittedToAdmin')}
               </span>
             )}
           </div>
@@ -762,65 +755,65 @@ export default function StartupWorkspace() {
             className="ios-glass rounded-2xl border border-white/60 p-5 sm:p-6 flex flex-col min-h-0 gap-4"
           >
             <div className="flex flex-wrap items-center gap-2 text-[12px] shrink-0">
-              <span className="text-black/45">Joriy loyiha turi:</span>
+              <span className="text-black/45">{t('startup.currentProjectType')}</span>
               <span className="font-bold text-black/85">
-                {projectDomain === 'research' ? '🔬 Ilmiy tadqiqot' : '🚀 Startap / innovatsiya'}
+                {projectDomain === 'research' ? t('startup.researchTypeLabel') : t('startup.startupTypeLabel')}
               </span>
             </div>
 
             <div className="space-y-1 shrink-0">
-              <label className="text-[11px] font-semibold text-black/50">Loyiha nomi</label>
+              <label className="text-[11px] font-semibold text-black/50">{t('startup.projectName')}</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 disabled={isReadOnly}
                 className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none disabled:opacity-60"
-                placeholder="Masalan: Telemedicine pilot yoki Biomarker tadqiqoti"
+                placeholder={t('startup.projectNamePlaceholder')}
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 shrink-0">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-black/50">Ishtirokchi turi</label>
+                <label className="text-[11px] font-semibold text-black/50">{t('startup.participantType')}</label>
                 <select
                   value={participantKind}
                   onChange={(e) => setParticipantKind(e.target.value as 'student' | 'employee')}
                   disabled={isReadOnly}
                   className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] disabled:opacity-60"
                 >
-                  <option value="student">Talaba</option>
-                  <option value="employee">Xodim</option>
+                  <option value="student">{t('admin.student')}</option>
+                  <option value="employee">{t('admin.employee')}</option>
                 </select>
               </div>
             </div>
 
             {projectDomain === 'research' ? (
               <div className="grid grid-cols-1 gap-3 rounded-2xl border border-indigo-200/60 bg-indigo-50/40 p-4 shrink-0">
-                <p className="text-[12px] font-bold text-indigo-900">Ilmiy qatlam</p>
+                <p className="text-[12px] font-bold text-indigo-900">{t('startup.scientificLayerTitle')}</p>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Tadqiqot savoli / gipoteza</label>
+                  <label className="text-[11px] font-semibold text-black/50">{t('startup.researchQuestion')}</label>
                   <textarea
                     value={ws.research_question}
                     onChange={(e) => updateWs({ research_question: e.target.value })}
                     disabled={isReadOnly}
                     rows={2}
                     className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Asosiy ilmiy savol yoki tekshiriladigan gipoteza"
+                    placeholder={t('startup.researchQuestionPlaceholder')}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Metodologiya va dizayn</label>
+                  <label className="text-[11px] font-semibold text-black/50">{t('startup.methodology')}</label>
                   <textarea
                     value={ws.methodology_notes}
                     onChange={(e) => updateWs({ methodology_notes: e.target.value })}
                     disabled={isReadOnly}
                     rows={3}
                     className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2 text-[14px] disabled:opacity-60"
-                    placeholder="Laboratoriya / klinik / statistik dizayn, namuna hajmi…"
+                    placeholder={t('startup.methodologyPlaceholder')}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-black/50">Laboratoriya / uskunalar / hamkorlar</label>
+                  <label className="text-[11px] font-semibold text-black/50">{t('startup.labEquipment')}</label>
                   <textarea
                     value={ws.partners_lab_equipment}
                     onChange={(e) => updateWs({ partners_lab_equipment: e.target.value })}
@@ -832,58 +825,55 @@ export default function StartupWorkspace() {
               </div>
             ) : (
               <div className="space-y-1 shrink-0">
-                <label className="text-[11px] font-semibold text-black/50">
-                  Loyiha haqida — qisqa yoki batafsil (bitta maydon)
-                </label>
-                <p className="text-[11px] text-black/45 leading-relaxed">
-                  Bu yerda faqat g‘oyangizni yozasiz (qo‘shimcha bo‘sh maydonlar yo‘q). Keyin «1-bosqich: AI tahlil»,
-                  undan keyin pastda 2–4-bosqichlar ochiladi. Kamida ~60 belgi.
-                </p>
+                <label className="text-[11px] font-semibold text-black/50">{t('startup.projectDescription')}</label>
+                <p className="text-[11px] text-black/45 leading-relaxed">{t('startup.projectDescriptionHelp')}</p>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   disabled={isReadOnly}
                   rows={14}
                   className="w-full rounded-xl border border-black/10 bg-white/90 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[220px] disabled:opacity-60"
-                  placeholder="Masalan: qaysi jarayon/muammo, hozir qanday hal qilinadi, sizning yechimingiz, kim uchun, pilot reja…"
+                  placeholder={t('startup.projectDescriptionPlaceholder')}
                 />
-                <p className="text-[11px] text-black/40 tabular-nums">{description.trim().length} belgi</p>
+                <p className="text-[11px] text-black/40 tabular-nums">
+                  {t('startup.charactersCount', { count: description.trim().length })}
+                </p>
               </div>
             )}
 
             {projectDomain === 'research' && (
               <>
                 <div className="space-y-1 shrink-0">
-                  <label className="text-[11px] font-semibold text-black/50">Jamoa va kalit resurslar</label>
+                  <label className="text-[11px] font-semibold text-black/50">{t('startup.teamResources')}</label>
                   <textarea
                     value={ws.key_resources_team}
                     onChange={(e) => updateWs({ key_resources_team: e.target.value })}
                     disabled={isReadOnly}
                     rows={2}
                     className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y disabled:opacity-60"
-                    placeholder="Kim bor, kimga kerak, qaysi ko‘nikmalar"
+                    placeholder={t('startup.teamResourcesPlaceholder')}
                   />
                 </div>
                 <div className="space-y-1 shrink-0">
-                  <label className="text-[11px] font-semibold text-black/50">Qisqa tavsif</label>
+                  <label className="text-[11px] font-semibold text-black/50">{t('startup.briefDescription')}</label>
                   <textarea
                     value={summary}
                     onChange={(e) => setSummary(e.target.value)}
                     disabled={isReadOnly}
                     rows={3}
                     className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[80px] disabled:opacity-60"
-                    placeholder="Loyiha maqsadi, ijtimoiy yoki klinik ahamiyat (qisqa)"
+                    placeholder={t('startup.briefDescriptionPlaceholder')}
                   />
                 </div>
                 <div className="space-y-1 shrink-0">
-                  <label className="text-[11px] font-semibold text-black/50">Batafsil tavsif</label>
+                  <label className="text-[11px] font-semibold text-black/50">{t('startup.detailedDescription')}</label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     disabled={isReadOnly}
                     rows={8}
                     className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2.5 text-[14px] outline-none resize-y min-h-[180px] disabled:opacity-60"
-                    placeholder="Muammo (kim uchun), hozirgi yechimlar nima yetishmayapti, sizning yondashuvingiz…"
+                    placeholder={t('startup.detailedDescriptionPlaceholder')}
                   />
                 </div>
               </>
@@ -891,8 +881,7 @@ export default function StartupWorkspace() {
 
             {!isReadOnly && projectDomain === 'startup' && (
               <div className="rounded-xl border border-violet-200/80 bg-violet-50/50 px-3 py-2 text-[11px] text-violet-950/90 leading-relaxed">
-                <strong className="font-semibold">1-bosqich:</strong> saqlang → «AI tahlil»ni bosing. Keyin pastda{' '}
-                <strong>2–4-bosqich</strong> (savollar, 20 mezon, Word) ochiladi.
+                {t('startup.stage1Instructions')}
               </div>
             )}
 
@@ -904,21 +893,17 @@ export default function StartupWorkspace() {
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                Saqlash
+                {t('startup.saveButton')}
               </button>
               <button
                 type="button"
-                title={
-                  strategicAiGate.ok
-                    ? 'Strategik tahlil, baho matritsasi va xavflar'
-                    : strategicAiGate.blockMessages.join(' ')
-                }
+                title={strategicAiGate.ok ? t('startup.aiAnalysisTooltip') : strategicAiGate.blockMessages.join(' ')}
                 onClick={() => void handleAi()}
                 disabled={aiLoading || isReadOnly || !strategicAiGate.ok}
                 className="inline-flex items-center gap-2 rounded-xl bg-fuchsia-600 px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
               >
                 {aiLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                1-bosqich: AI tahlil (strategiya + xavflar + yo‘l xaritasi)
+                {t('startup.stage1Analysis')}
               </button>
               <button
                 type="button"
@@ -926,7 +911,7 @@ export default function StartupWorkspace() {
                 className="inline-flex items-center gap-2 rounded-xl border border-black/15 bg-white/90 px-4 py-2.5 text-[13px] font-semibold text-black/80"
               >
                 <FileDown size={16} />
-                PDF / chop etish
+                {t('startup.printPdf')}
               </button>
               {!isReadOnly && (
                 <button
@@ -936,20 +921,18 @@ export default function StartupWorkspace() {
                   className="inline-flex items-center gap-2 rounded-xl border border-rose-200 text-rose-700 bg-rose-50 px-4 py-2.5 text-[13px] font-semibold disabled:opacity-50"
                 >
                   <Trash2 size={16} />
-                  O‘chirish
+                  {t('startup.deleteProject')}
                 </button>
               )}
             </div>
 
             <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 px-3 py-2.5 text-[12px] text-indigo-950 leading-relaxed">
-              <strong className="font-semibold">Administratorga yuborish:</strong> chap menyudan{' '}
-              <span className="font-semibold">«Dossye va yuborish»</span> bo‘limiga o‘ting — jamoa, hujjatlar va yakuniy
-              yuborish u yerda.
+              {t('startup.submitInstructions')}
             </div>
 
             {selected && analysisReady && (
               <div className="mt-2 space-y-3">
-                <h3 className="text-[14px] font-bold text-black/90 tracking-tight">1-bosqich — AI strategik tahlil</h3>
+                <h3 className="text-[14px] font-bold text-black/90 tracking-tight">{t('startup.stage1Title')}</h3>
                 <StartupInnovationPackPanel pack={displayPack} />
               </div>
             )}
@@ -984,7 +967,7 @@ export default function StartupWorkspace() {
             )}
 
             <p className="text-[11px] text-black/40 leading-relaxed">
-              AI tavsiyalari maslahat xarakterida; rasmiy tasdiq emas. Suhbat tarixlari loyiha bilan saqlanadi.
+              {t('startup.aiDisclaimer')}
             </p>
           </motion.div>
         </div>
@@ -1004,16 +987,18 @@ export default function StartupWorkspace() {
         <div ref={printRef}>
           {selected && (
             <div>
-              <h1>{title || 'Loyiha'}</h1>
+              <h1>{title || t('startup.defaultProjectTitle')}</h1>
               <p>
-                <strong>Holat:</strong> {selected.status === 'submitted' ? 'Yuborilgan' : 'Qoralama'}
+                <strong>{t('startup.printStatus')}</strong>{' '}
+                {selected.status === 'submitted' ? t('startup.statusSubmitted') : t('startup.statusDraft')}
               </p>
               <p>
-                <strong>Turi:</strong> {projectDomain === 'research' ? 'Ilmiy tadqiqot' : 'Startap / innovatsiya'}
+                <strong>{t('startup.printType')}</strong>{' '}
+                {projectDomain === 'research' ? t('startup.researchProject') : t('startup.startupProduct')}
               </p>
-              <h2>Qisqa tavsif</h2>
+              <h2>{t('startup.printSummary')}</h2>
               <p style={{ whiteSpace: 'pre-wrap' }}>{summary}</p>
-              <h2>Loyiha matni</h2>
+              <h2>{t('startup.printProjectText')}</h2>
               <p style={{ whiteSpace: 'pre-wrap' }}>
                 {projectDomain === 'startup' ? description.trim() || summary : description}
               </p>

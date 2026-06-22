@@ -134,7 +134,7 @@ function CatalogDetailPanel({
 }
 
 export default function ContentCatalogPage() {
-  const { t } = useUiText();
+  const { t, language } = useUiText();
   const [kindFilter, setKindFilter] = useState<KindFilter>('');
   const [subjectCode, setSubjectCode] = useState('');
   const [search, setSearch] = useState('');

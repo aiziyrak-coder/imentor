@@ -11,11 +11,17 @@ import {
   ChevronUp,
   Clock,
   Eye,
+  FileText,
+  KeyRound,
+  Download,
 } from 'lucide-react';
 import type { AppLanguage } from '../../i18n/language';
 import { localeForLanguage } from '../../i18n/language';
 import { translate } from '../../i18n/translations';
 import { groupCatalogBySubject } from '../../utils/contentCatalogApi';
+import { downloadCaseAnswerKeyPdf, downloadCaseScenariosPdf } from '../../utils/buildCasePdf';
+import { downloadTestAnswerKeyPdf, downloadTestQuestionsPdf } from '../../utils/buildTestPdf';
+import type { CatalogPdfMeta } from '../../utils/catalogPdfVerification';
 import {
   fetchPublicCatalogItemDetail,
   fetchPublicCatalogItems,
@@ -44,10 +50,43 @@ function PublicCatalogDetail({
   onClose: () => void;
 }) {
   const locale = localeForLanguage(language);
+  const [downloadingMain, setDownloadingMain] = useState(false);
+  const [downloadingKey, setDownloadingKey] = useState(false);
+
+  const pdfMeta: CatalogPdfMeta = {
+    documentId: detail.document_id,
+    verificationCode: detail.verification_code,
+  };
+
+  const handleDownloadMain = async () => {
+    setDownloadingMain(true);
+    try {
+      if (detail.kind === 'case') {
+        await downloadCaseScenariosPdf(detail.payload as CaseStudySession, language, pdfMeta);
+      } else {
+        await downloadTestQuestionsPdf(detail.payload as TestSession, language, pdfMeta);
+      }
+    } finally {
+      setDownloadingMain(false);
+    }
+  };
+
+  const handleDownloadKey = async () => {
+    setDownloadingKey(true);
+    try {
+      if (detail.kind === 'case') {
+        await downloadCaseAnswerKeyPdf(detail.payload as CaseStudySession, language, pdfMeta);
+      } else {
+        await downloadTestAnswerKeyPdf(detail.payload as TestSession, language, pdfMeta);
+      }
+    } finally {
+      setDownloadingKey(false);
+    }
+  };
 
   const header = (
-    <div className="flex items-start justify-between gap-3 mb-5">
-      <div>
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-5">
+      <div className="min-w-0">
         <p
           className={`text-[11px] font-bold uppercase tracking-wide ${
             detail.kind === 'case' ? 'text-emerald-700' : 'text-indigo-700'
@@ -60,27 +99,64 @@ function PublicCatalogDetail({
           {detail.subject_name || t(language, 'catalog.otherTopics')} · {detail.author_display_name} ·{' '}
           {new Date(detail.created_at).toLocaleString(locale)}
         </p>
+        {detail.document_id && (
+          <p className="text-[10px] font-mono text-emerald-700/80 mt-1">{detail.document_id}</p>
+        )}
       </div>
-      <button
-        type="button"
-        onClick={onClose}
-        className="text-[13px] font-semibold text-black/50 hover:text-black/80 shrink-0"
-      >
-        {t(language, 'catalog.close')}
-      </button>
+      <div className="flex flex-col items-stretch sm:items-end gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void handleDownloadMain()}
+            disabled={downloadingMain || downloadingKey}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-[12px] font-semibold border disabled:opacity-50 ${
+              detail.kind === 'case'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                : 'bg-indigo-50 text-indigo-800 border-indigo-200 hover:bg-indigo-100'
+            }`}
+          >
+            {downloadingMain ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+            {detail.kind === 'case' ? t(language, 'case.downloadCasesPdf') : t(language, 'test.downloadTestPdf')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDownloadKey()}
+            disabled={downloadingMain || downloadingKey}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-50 text-blue-800 border border-blue-200 text-[12px] font-semibold hover:bg-blue-100 disabled:opacity-50"
+          >
+            {downloadingKey ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+            {detail.kind === 'case' ? t(language, 'case.downloadKeyPdf') : t(language, 'test.downloadKeyPdf')}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[13px] font-semibold text-black/50 hover:text-black/80 text-right"
+        >
+          {t(language, 'catalog.close')}
+        </button>
+      </div>
     </div>
+  );
+
+  const downloadNote = (
+    <p className="mb-4 flex items-start gap-2 rounded-xl border border-sky-200/80 bg-sky-50/80 px-3 py-2.5 text-[12px] text-sky-900/85">
+      <Download size={14} className="shrink-0 mt-0.5" />
+      {t(language, 'publicCatalog.downloadHint')}
+    </p>
   );
 
   if (detail.kind === 'case') {
     const session = detail.payload as CaseStudySession;
     return (
       <div className="rounded-3xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-2xl p-5 sm:p-6">
+        {header}
+        {downloadNote}
         <ProtectedContentShell
           language={language}
           documentId={detail.document_id}
           verificationCode={detail.verification_code}
         >
-          {header}
           <div className="space-y-8">
             {session.questions.map((q, i) => (
               <div key={i} className="space-y-3 border-b border-black/5 pb-6 last:border-0">
@@ -113,12 +189,13 @@ function PublicCatalogDetail({
   const session = detail.payload as TestSession;
   return (
     <div className="rounded-3xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-2xl p-5 sm:p-6">
+      {header}
+      {downloadNote}
       <ProtectedContentShell
         language={language}
         documentId={detail.document_id}
         verificationCode={detail.verification_code}
       >
-        {header}
         {session.references && session.references.length > 0 && (
           <MedicalReferencesList references={session.references} />
         )}

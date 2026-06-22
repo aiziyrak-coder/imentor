@@ -5,6 +5,7 @@ import { localeForLanguage } from '../i18n/language';
 import { translate, type UiTextKey } from '../i18n/translations';
 import type { CaseStudySession, MedicalReference } from '../services/aiService';
 import { caseFocusLabel } from './caseFocusLabels';
+import { catalogPdfVerificationFooter, type CatalogPdfMeta } from './catalogPdfVerification';
 
 function t(lang: AppLanguage, key: UiTextKey, params?: Record<string, string | number>): string {
   return translate(lang, key, params);
@@ -87,7 +88,7 @@ async function renderHtmlToPdf(html: string, filename: string): Promise<void> {
   }
 }
 
-function buildScenariosHtml(session: CaseStudySession, lang: AppLanguage): string {
+function buildScenariosHtml(session: CaseStudySession, lang: AppLanguage, meta?: CatalogPdfMeta): string {
   const locale = localeForLanguage(lang);
   const items = session.questions
     .map(
@@ -110,11 +111,12 @@ function buildScenariosHtml(session: CaseStudySession, lang: AppLanguage): strin
       ${keywordsBlock(session.keywords, lang)}
       ${referencesBlock(session.references, t(lang, 'pdf.commonReferences'))}
       ${items}
+      ${catalogPdfVerificationFooter(meta, lang)}
     </div>
   `;
 }
 
-function buildAnswerKeyHtml(session: CaseStudySession, lang: AppLanguage): string {
+function buildAnswerKeyHtml(session: CaseStudySession, lang: AppLanguage, meta?: CatalogPdfMeta): string {
   const locale = localeForLanguage(lang);
   const items = session.questions
     .map((q, i) => {
@@ -142,16 +144,25 @@ function buildAnswerKeyHtml(session: CaseStudySession, lang: AppLanguage): strin
       <p style="margin:0 0 12px;font-size:13px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.casesMeta', { count: session.questions.length }))} · ${new Date().toLocaleString(locale)}</p>
       ${keywordsBlock(session.keywords, lang)}
       ${items}
+      ${catalogPdfVerificationFooter(meta, lang)}
     </div>
   `;
 }
 
-export async function downloadCaseScenariosPdf(session: CaseStudySession, lang: AppLanguage = 'uz'): Promise<void> {
+export async function downloadCaseScenariosPdf(
+  session: CaseStudySession,
+  lang: AppLanguage = 'uz',
+  meta?: CatalogPdfMeta,
+): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildScenariosHtml(session, lang), t(lang, 'pdf.filenameCase', { slug }));
+  await renderHtmlToPdf(buildScenariosHtml(session, lang, meta), t(lang, 'pdf.filenameCase', { slug }));
 }
 
-export async function downloadCaseAnswerKeyPdf(session: CaseStudySession, lang: AppLanguage = 'uz'): Promise<void> {
+export async function downloadCaseAnswerKeyPdf(
+  session: CaseStudySession,
+  lang: AppLanguage = 'uz',
+  meta?: CatalogPdfMeta,
+): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildAnswerKeyHtml(session, lang), t(lang, 'pdf.filenameCaseKey', { slug }));
+  await renderHtmlToPdf(buildAnswerKeyHtml(session, lang, meta), t(lang, 'pdf.filenameCaseKey', { slug }));
 }

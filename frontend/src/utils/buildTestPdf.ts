@@ -5,6 +5,7 @@ import { localeForLanguage } from '../i18n/language';
 import { translate, type UiTextKey } from '../i18n/translations';
 import type { MedicalReference, TestQuestion, TestSession } from '../services/aiService';
 import { scoreToGrade } from './testGrading';
+import { catalogPdfVerificationFooter, type CatalogPdfMeta } from './catalogPdfVerification';
 
 export interface TestSubmissionRow {
   firstName: string;
@@ -51,7 +52,7 @@ function optionLetter(index: number): string {
   return String.fromCharCode(65 + index);
 }
 
-function buildQuestionsHtml(session: TestSession, lang: AppLanguage): string {
+function buildQuestionsHtml(session: TestSession, lang: AppLanguage, meta?: CatalogPdfMeta): string {
   const locale = localeForLanguage(lang);
   const questionsHtml = session.questions
     .map((q, i) => {
@@ -79,11 +80,12 @@ function buildQuestionsHtml(session: TestSession, lang: AppLanguage): string {
       <p style="margin:0 0 24px;font-size:13px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.questionsMeta', { count: session.questions.length }))} · ${new Date().toLocaleString(locale)}</p>
       ${referencesBlock(session.references, t(lang, 'pdf.commonReferences'))}
       ${questionsHtml}
+      ${catalogPdfVerificationFooter(meta, lang)}
     </div>
   `;
 }
 
-function buildAnswerKeyHtml(session: TestSession, lang: AppLanguage): string {
+function buildAnswerKeyHtml(session: TestSession, lang: AppLanguage, meta?: CatalogPdfMeta): string {
   const locale = localeForLanguage(lang);
   const questionsHtml = session.questions
     .map((q, i) => {
@@ -120,6 +122,7 @@ function buildAnswerKeyHtml(session: TestSession, lang: AppLanguage): string {
       <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;line-height:1.3;">${escapeHtml(session.topic)}</h1>
       <p style="margin:0 0 24px;font-size:13px;color:#6b7280;">${escapeHtml(t(lang, 'pdf.questionsMeta', { count: session.questions.length }))} · ${new Date().toLocaleString(locale)}</p>
       ${questionsHtml}
+      ${catalogPdfVerificationFooter(meta, lang)}
     </div>
   `;
 }
@@ -246,14 +249,22 @@ async function renderHtmlToPdf(html: string, filename: string): Promise<void> {
   }
 }
 
-export async function downloadTestQuestionsPdf(session: TestSession, lang: AppLanguage = 'uz'): Promise<void> {
+export async function downloadTestQuestionsPdf(
+  session: TestSession,
+  lang: AppLanguage = 'uz',
+  meta?: CatalogPdfMeta,
+): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildQuestionsHtml(session, lang), t(lang, 'pdf.filenameTest', { slug }));
+  await renderHtmlToPdf(buildQuestionsHtml(session, lang, meta), t(lang, 'pdf.filenameTest', { slug }));
 }
 
-export async function downloadTestAnswerKeyPdf(session: TestSession, lang: AppLanguage = 'uz'): Promise<void> {
+export async function downloadTestAnswerKeyPdf(
+  session: TestSession,
+  lang: AppLanguage = 'uz',
+  meta?: CatalogPdfMeta,
+): Promise<void> {
   const slug = slugifyTopic(session.topic);
-  await renderHtmlToPdf(buildAnswerKeyHtml(session, lang), t(lang, 'pdf.filenameTestKey', { slug }));
+  await renderHtmlToPdf(buildAnswerKeyHtml(session, lang, meta), t(lang, 'pdf.filenameTestKey', { slug }));
 }
 
 export async function downloadTestResultsPdf(

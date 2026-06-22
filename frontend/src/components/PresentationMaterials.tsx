@@ -63,6 +63,7 @@ type LightboxProps = {
 };
 
 function PresentationLightbox({ items, index, onClose, onIndexChange }: LightboxProps) {
+  const { t } = useUiText();
   const item = items[index];
   const [fileSrc, setFileSrc] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');

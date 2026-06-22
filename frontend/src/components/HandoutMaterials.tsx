@@ -99,6 +99,7 @@ type LightboxProps = {
 };
 
 function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps) {
+  const { t } = useUiText();
   const item = items[index];
   const [fileSrc, setFileSrc] = useState('');
   if (!item) return null;
@@ -137,7 +138,7 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
       className="fixed inset-0 z-[200] flex flex-col bg-black/92"
       role="dialog"
       aria-modal="true"
-      aria-label="Tarqatma ko‘rish"
+      aria-label={t('handout.viewerLabel')}
     >
       <header className="flex items-center justify-between px-4 py-3 text-white shrink-0">
         <div className="min-w-0 flex-1 pr-3">

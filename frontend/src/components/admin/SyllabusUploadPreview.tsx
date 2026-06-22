@@ -1,7 +1,7 @@
 import React from 'react';
 import { BookOpen, Check, FlaskConical, Loader2, X } from 'lucide-react';
-import type { SyllabusTopic } from '../services/aiService';
-import type { AppLanguage } from '../i18n/language';
+import type { SyllabusTopic } from '../../services/aiService';
+import type { AppLanguage } from '../../i18n/language';
 import { instructionLanguageBadge } from '../../utils/syllabusInstructionLanguage';
 import { countTopicsByType } from '../../utils/syllabusVariant';
 import type { SyllabusVariant as VariantRow } from '../../utils/syllabusVariant';

@@ -149,7 +149,7 @@ function PublicCatalogDetail({
   if (detail.kind === 'case') {
     const session = detail.payload as CaseStudySession;
     return (
-      <div className="rounded-3xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-2xl p-5 sm:p-6">
+      <div className="rounded-3xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-2xl p-6 sm:p-7 lg:p-8">
         {header}
         {downloadNote}
         <ProtectedContentShell
@@ -188,7 +188,7 @@ function PublicCatalogDetail({
 
   const session = detail.payload as TestSession;
   return (
-    <div className="rounded-3xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-2xl p-5 sm:p-6">
+    <div className="rounded-3xl border border-white/70 bg-white/90 backdrop-blur-xl shadow-2xl p-6 sm:p-7 lg:p-8">
       {header}
       {downloadNote}
       <ProtectedContentShell
@@ -288,7 +288,14 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
   };
 
   return (
-    <section id="public-catalog" className={embedded ? 'space-y-6' : 'w-full px-3 sm:px-5 lg:px-8 py-6 pb-20 space-y-6'}>
+    <section
+      id="public-catalog"
+      className={
+        embedded
+          ? 'space-y-6 p-5 sm:p-7 lg:p-8'
+          : 'w-full px-3 sm:px-5 lg:px-8 py-6 pb-20 space-y-6'
+      }
+    >
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-lg">
@@ -323,8 +330,8 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
         </button>
       </div>
 
-      <div className="rounded-3xl border border-white/70 bg-white/75 backdrop-blur-xl p-4 sm:p-5 space-y-4 shadow-lg">
-        <div className="flex flex-wrap gap-2">
+      <div className="rounded-3xl border border-white/70 bg-white/75 backdrop-blur-xl p-5 sm:p-6 lg:p-7 space-y-5 shadow-lg">
+        <div className="flex flex-wrap gap-2.5">
           {(['', 'case', 'test'] as KindFilter[]).map((k) => (
             <button
               key={k || 'all'}
@@ -341,7 +348,7 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
           ))}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 pt-1">
           <label className="space-y-1">
             <span className="text-[11px] font-semibold text-black/45 flex items-center gap-1">
               <Filter size={12} /> {t(language, 'catalog.filterSubject')}
@@ -417,31 +424,34 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
       )}
 
       {!detail && !loading && items.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {[...grouped.entries()].map(([subjectName, rows]) => {
             const isOpen = expandedSubject === null || expandedSubject === subjectName;
             return (
-              <div key={subjectName} className="rounded-3xl border border-white/70 bg-white/80 backdrop-blur-xl overflow-hidden shadow-md">
+              <div
+                key={subjectName}
+                className="rounded-3xl border border-white/70 bg-white/80 backdrop-blur-xl overflow-hidden shadow-md"
+              >
                 <button
                   type="button"
                   onClick={() => setExpandedSubject((s) => (s === subjectName ? null : subjectName))}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-gradient-to-r from-[#083047]/5 to-transparent hover:from-[#083047]/8"
+                  className="w-full flex items-center justify-between px-5 sm:px-6 lg:px-7 py-4 bg-gradient-to-r from-[#083047]/5 to-transparent hover:from-[#083047]/8"
                 >
-                  <div className="flex items-center gap-2 text-left">
+                  <div className="flex items-center gap-3 text-left min-w-0">
                     <BookOpen size={18} className="text-indigo-600 shrink-0" />
-                    <span className="font-bold text-[#083047]">{subjectName}</span>
-                    <span className="text-[12px] text-black/40">({rows.length})</span>
+                    <span className="font-bold text-[#083047] truncate">{subjectName}</span>
+                    <span className="text-[12px] text-black/40 shrink-0">({rows.length})</span>
                   </div>
-                  {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  {isOpen ? <ChevronUp size={18} className="shrink-0 ml-3" /> : <ChevronDown size={18} className="shrink-0 ml-3" />}
                 </button>
                 {isOpen && (
-                  <div className="divide-y divide-black/5">
+                  <div className="px-3 sm:px-4 pb-4 pt-1 space-y-2">
                     {(rows as PublicCatalogItemSummary[]).map((row) => (
                       <button
                         key={row.id}
                         type="button"
                         onClick={() => void openDetail(row.id)}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-[#083047]/[0.03] transition-colors"
+                        className="w-full flex items-center gap-4 px-4 sm:px-5 py-4 text-left rounded-2xl border border-black/[0.06] bg-white/70 hover:bg-[#083047]/[0.03] hover:border-[#083047]/10 transition-colors"
                       >
                         <div
                           className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
@@ -461,7 +471,7 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
                             <p className="text-[10px] font-mono text-emerald-700/70 mt-0.5">{row.document_id}</p>
                           )}
                         </div>
-                        <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 shrink-0">
+                        <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 shrink-0 pl-2">
                           <Eye size={14} /> {t(language, 'catalog.view')}
                         </span>
                       </button>

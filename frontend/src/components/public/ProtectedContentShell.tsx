@@ -66,7 +66,7 @@ export default function ProtectedContentShell({
         ))}
       </div>
 
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10 px-1 sm:px-2 py-1">{children}</div>
 
       {(documentId || verificationCode) && (
         <div className="relative z-10 mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/90 px-3 py-2.5 text-[11px] text-emerald-900">

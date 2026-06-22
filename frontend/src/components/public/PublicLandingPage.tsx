@@ -188,7 +188,7 @@ export default function PublicLandingPage({
           </motion.div>
         </section>
 
-        <div className="rounded-[2rem] border border-white/70 bg-white/50 backdrop-blur-xl shadow-xl overflow-hidden">
+        <div className="rounded-[2rem] border border-white/70 bg-white/50 backdrop-blur-xl shadow-xl overflow-hidden mb-2">
           <PublicContentCatalog language={language} embedded />
         </div>
 

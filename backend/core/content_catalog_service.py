@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from datetime import timedelta
 
+from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -27,8 +30,23 @@ def question_count(item: PreparedContent) -> int:
     return len(questions) if isinstance(questions, list) else 0
 
 
-def catalog_item_summary(item: PreparedContent) -> dict:
-    return {
+def catalog_verification_code(item: PreparedContent) -> str:
+    """Hujjatni soxtalashtirishni qiyinlashtirish uchun barqaror tasdiqlash kodi."""
+    raw = f"{item.id}:{item.created_at.isoformat()}:{item.kind}:{item.topic_norm}:{item.owner_key}"
+    digest = hmac.new(
+        settings.SECRET_KEY.encode('utf-8'),
+        raw.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    return digest[:16].upper()
+
+
+def catalog_document_id(item: PreparedContent) -> str:
+    return f"IM-{item.id:06d}-{catalog_verification_code(item)[:8]}"
+
+
+def catalog_item_summary(item: PreparedContent, *, include_verification: bool = False) -> dict:
+    data = {
         'id': item.id,
         'kind': item.kind,
         'topic': item.topic,
@@ -39,6 +57,10 @@ def catalog_item_summary(item: PreparedContent) -> dict:
         'created_at': item.created_at.isoformat(),
         'question_count': question_count(item),
     }
+    if include_verification:
+        data['document_id'] = catalog_document_id(item)
+        data['verification_code'] = catalog_verification_code(item)
+    return data
 
 
 def filter_catalog_queryset(qs, params) -> object:

@@ -55,10 +55,7 @@ import { type AppNotificationEventDetail } from './utils/notifications';
 import { isPublicStudentTestUrl } from './utils/liveTestApi';
 
 // Components
-import LoginPage from './components/auth/LoginPage';
-import RegisterPage from './components/auth/RegisterPage';
 import DesktopHodimQrLogin from './components/auth/DesktopHodimQrLogin';
-import MobileMinimalLogin from './components/auth/MobileMinimalLogin';
 import HodimMobileCompanion from './components/staff/HodimMobileCompanion';
 import { isDesktopBrowser } from './utils/deviceDetection';
 import { useDeviceProfile } from './hooks/useDeviceProfile';
@@ -87,7 +84,7 @@ import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
 import HandoutTopicBanner from './components/staff/HandoutTopicBanner';
 import HandoutMaterials from './components/HandoutMaterials';
-import ContentCatalogPage from './components/catalog/ContentCatalogPage';
+import PublicLandingPage from './components/public/PublicLandingPage';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 import type { SyllabusTopic } from './services/aiService';
 import {
@@ -144,10 +141,9 @@ const NAV_ICONS: Record<View, LucideIcon> = {
   'startup-dossier': FolderOpen,
 };
 
-const HODIM_NAV_IDS: View[] = ['syllabus', 'content-catalog', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
+const HODIM_NAV_IDS: View[] = ['syllabus', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
 const ADMIN_NAV_IDS: View[] = [
   'admin-dashboard',
-  'content-catalog',
   'admin-staff',
   'admin-staff-location',
   'admin-campus-buildings',
@@ -157,7 +153,7 @@ const ADMIN_NAV_IDS: View[] = [
   'admin-tests',
   'profile',
 ];
-const TARJIMON_NAV_IDS: View[] = ['content-catalog', 'translator', 'profile'];
+const TARJIMON_NAV_IDS: View[] = ['translator', 'profile'];
 const STARTUPER_NAV_IDS: View[] = ['startup', 'startup-dossier', 'profile'];
 
 function navItemsForRole(role: UserRole, lang: AppLanguage): NavItemDef[] {
@@ -215,7 +211,6 @@ export const AppLanguageContext = createContext<{
   setLanguage: () => {},
 });
 
-type AuthScreen = 'login' | 'register';
 type AppNotification = {
   id: string;
   title: string;
@@ -244,7 +239,6 @@ export default function App() {
   const [mountedViews, setMountedViews] = useState<View[]>([]);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
-  const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
   /** Kompyuterda admin/tarjimon/startuper uchun klassik login */
   const [desktopStaffLogin, setDesktopStaffLogin] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopicContext | null>(() =>
@@ -338,7 +332,6 @@ export default function App() {
     const unsub = subscribeLocalAuth(() => {
       const u = getCurrentLocalUser();
       setUser(u);
-      if (!u) setAuthScreen('login');
     });
     return () => unsub();
   }, []);
@@ -486,8 +479,6 @@ export default function App() {
         );
       case 'handouts':
         return <HandoutMaterials />;
-      case 'content-catalog':
-        return <ContentCatalogPage />;
       case 'lectures':
         return <LectureNotes />;
       case 'profile':
@@ -513,119 +504,18 @@ export default function App() {
     }
   };
 
-  const mobileAuthShell = (
-    <div className="min-h-[100dvh] w-full bg-[#f8fafc] overflow-hidden">
-      {authScreen === 'login' ? (
-        <MobileMinimalLogin onSwitchToRegister={() => setAuthScreen('register')} />
-      ) : (
-        <div className="min-h-[100dvh] flex items-center justify-center px-4">
-          <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />
-        </div>
-      )}
-    </div>
-  );
-
-  const authShell = (
-    <div className="flex h-screen w-full relative overflow-hidden text-[#1c1c1e]">
-      <div className="absolute inset-0 futuristic-gradient opacity-95" />
-      <div className="absolute top-[-10%] left-[-8%] w-[35%] h-[45%] bg-cyan-100/60 rounded-full blur-[120px] pointer-events-none orb-float" />
-      <div className="absolute bottom-[-18%] right-[-8%] w-[42%] h-[55%] bg-emerald-100/55 rounded-full blur-[140px] pointer-events-none orb-float" />
-
-      <div className="relative z-10 w-full h-full overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] h-full">
-          <section className="relative p-8 md:p-10 lg:p-12 text-[#063545] overflow-hidden">
-            <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-2xl orb-float" />
-            <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-emerald-100/30 blur-3xl orb-float" />
-            <div className="relative z-10 h-full flex flex-col">
-              <div className="flex flex-col gap-2">
-                <h1 className="text-5xl font-black tracking-tight text-[#083047]">iMentor</h1>
-                <p className="text-[#0b425e]/80 text-base font-semibold">{translate(language, 'welcome.tagline')}</p>
-              </div>
-
-              <div className="mt-10 space-y-5 max-w-2xl">
-                <h2 className="text-3xl md:text-4xl leading-tight font-extrabold text-[#083047]">
-                  {translate(language, 'welcome.heroTitle')}
-                </h2>
-                <div className="space-y-3 text-[#0b425e]/85 leading-relaxed text-[15px] md:text-base">
-                  <p>{translate(language, 'welcome.paragraph1')}</p>
-                  <p>{translate(language, 'welcome.paragraph2')}</p>
-                  <p>{translate(language, 'welcome.paragraph3')}</p>
-                </div>
-              </div>
-
-              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
-                {[
-                  { icon: BookOpen, text: translate(language, 'welcome.featureSyllabus') },
-                  { icon: Presentation, text: translate(language, 'welcome.featurePresentation') },
-                  { icon: ClipboardList, text: translate(language, 'welcome.featureCases') },
-                  { icon: Languages, text: translate(language, 'welcome.featureLanguages') },
-                ].map((item) => (
-                  <div key={item.text} className="rounded-xl border border-[#0c5a7e]/20 bg-white/35 px-3 py-2 text-[13px] font-medium flex items-center gap-2 text-[#083047]">
-                    <item.icon size={15} className="shrink-0 text-[#0c5a7e]" />
-                    {item.text}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-auto pt-8 text-[12px] text-[#0b425e]/75">
-                {translate(language, 'welcome.footerInstitute')}
-              </div>
-
-              <div className="mt-4 pb-2 flex justify-center">
-                <div className="rounded-full border border-white/70 bg-white/80 px-4 py-2 shadow-lg backdrop-blur-md">
-                  <p className="text-[11px] leading-tight text-black/60 text-center whitespace-nowrap">
-                    {'\u00A9'} 2026{' '}
-                    <a
-                      href="https://fjsti.uz"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-blue-700 hover:text-blue-600 underline decoration-blue-300"
-                    >
-                      {translate(language, 'footer.developer')}
-                    </a>
-                    {' '}•{' '}
-                    <a
-                      href="https://fjsti.uz"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-emerald-700 hover:text-emerald-600 underline decoration-emerald-300"
-                    >
-                      {translate(language, 'footer.supporter')}
-                    </a>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="p-4 md:p-6 lg:p-8 flex items-center justify-center bg-white/80 backdrop-blur-xl h-full overflow-y-auto scrollbar-hide">
-            <div className="w-full max-w-[560px]">
-              {isDesktopBrowser() && !desktopStaffLogin ? (
-                <DesktopHodimQrLogin onOtherRoles={() => setDesktopStaffLogin(true)} />
-              ) : authScreen === 'login' ? (
-                <LoginPage
-                  onSwitchToRegister={() => setAuthScreen('register')}
-                  onBackToQr={isDesktopBrowser() ? () => setDesktopStaffLogin(false) : undefined}
-                />
-              ) : (
-                <RegisterPage
-                  onSwitchToLogin={() => setAuthScreen('login')}
-                  onBackToQr={isDesktopBrowser() ? () => { setAuthScreen('login'); setDesktopStaffLogin(false); } : undefined}
-                />
-              )}
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-
   const platformCredit = (
     <div className="w-full px-0 pb-0 print:hidden">
       <div className="w-full border-t border-white/70 bg-white/80 backdrop-blur-md shadow-[0_-6px_24px_rgba(0,0,0,0.05)]">
         <div className="mx-auto w-full max-w-[1600px] px-3 py-1.5 overflow-x-auto scrollbar-hide">
           <div className="flex flex-nowrap items-center justify-center gap-x-3 text-[9px] md:text-[10px] leading-tight text-black/65 whitespace-nowrap min-w-max mx-auto">
             <span className="font-medium">{translate(language, 'footer.copyright')}</span>
+            <a
+              href="/?library=1#public-catalog"
+              className="font-semibold text-indigo-700 hover:text-indigo-600 underline decoration-indigo-300 shrink-0"
+            >
+              {translate(language, 'publicLanding.openCatalog')}
+            </a>
             <a
               href="https://fjsti.uz"
               target="_blank"
@@ -651,7 +541,16 @@ export default function App() {
     </div>
   );
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const wantsPublicLibrary = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('library') === '1' || window.location.hash === '#public-catalog';
+  }, []);
+
+  const wantsPublicLibrary = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('library') === '1';
+  }, []);
 
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>
@@ -668,10 +567,14 @@ export default function App() {
       <GlobalTopicContext.Provider value={selectedTopic}>
       <AppNavigationContext.Provider value={{ openHandouts, openSyllabus }}>
       <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
-      {!user ? (
-        <>
-          {isMobileDevice ? mobileAuthShell : authShell}
-        </>
+      {!user || wantsPublicLibrary ? (
+        <PublicLandingPage
+          language={language}
+          setLanguage={setLanguage}
+          isMobileDevice={isMobileDevice}
+          desktopStaffLogin={desktopStaffLogin}
+          setDesktopStaffLogin={setDesktopStaffLogin}
+        />
       ) : shouldHodimUseMobileCompanion(user, isMobileDevice) ? (
         <HodimMobileCompanion />
       ) : userRole === 'hodim' && isDesktopBrowser() && !isDesktopPairedSession(user.uid) ? (

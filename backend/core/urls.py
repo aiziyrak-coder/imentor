@@ -29,6 +29,9 @@ from .content_catalog_views import (
     ContentCatalogDetailView,
     ContentCatalogListView,
     ContentCatalogSubjectsView,
+    PublicContentCatalogDetailView,
+    PublicContentCatalogListView,
+    PublicContentCatalogSubjectsView,
 )
 from .migrate_views import MigrateFullExportView
 from .staff_profile_views import StaffAvatarView
@@ -70,6 +73,9 @@ urlpatterns = [
     path('v1/content-catalog/', ContentCatalogListView.as_view(), name='content-catalog-list'),
     path('v1/content-catalog/subjects/', ContentCatalogSubjectsView.as_view(), name='content-catalog-subjects'),
     path('v1/content-catalog/<int:pk>/', ContentCatalogDetailView.as_view(), name='content-catalog-detail'),
+    path('v1/public/content-catalog/', PublicContentCatalogListView.as_view(), name='public-content-catalog-list'),
+    path('v1/public/content-catalog/subjects/', PublicContentCatalogSubjectsView.as_view(), name='public-content-catalog-subjects'),
+    path('v1/public/content-catalog/<int:pk>/', PublicContentCatalogDetailView.as_view(), name='public-content-catalog-detail'),
     path('v1/migrate/full-export/', MigrateFullExportView.as_view(), name='migrate-full-export'),
     path('health/', HealthView.as_view(), name='health'),
     path('prepared-content/', PreparedContentView.as_view(), name='prepared-content'),

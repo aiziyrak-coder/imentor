@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GlobalTopicContext, AppNavigationContext } from '../App';
+import { useUiText } from '../i18n/useUiText';
 import {
   deletePresentation,
   fetchPresentationsForTopic,
@@ -119,7 +120,7 @@ function PresentationLightbox({ items, index, onClose, onIndexChange }: Lightbox
             download={item.file_name}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-[13px] font-semibold shrink-0"
           >
-            <Download size={16} /> Yuklab olish
+            <Download size={16} /> {t('common.download')}
           </a>
         )}
         <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/10 hover:bg-white/20 shrink-0">
@@ -167,6 +168,7 @@ function PresentationLightbox({ items, index, onClose, onIndexChange }: Lightbox
 }
 
 export default function PresentationMaterials() {
+  const { t } = useUiText();
   const globalTopic = useContext(GlobalTopicContext);
   const { openSyllabus } = useContext(AppNavigationContext);
   const [items, setItems] = useState<TopicPresentationItem[]>([]);
@@ -191,13 +193,13 @@ export default function PresentationMaterials() {
       setItems([]);
       setError(
         e instanceof Error && e.message === 'no-backend-token'
-          ? 'Ko‘rish uchun tizimga kirish kerak.'
-          : 'Taqdimotlarni yuklab bo‘lmadi.',
+          ? t('presentation.errorLogin')
+          : t('presentation.errorLoad'),
       );
     } finally {
       setLoading(false);
     }
-  }, [topicTitle]);
+  }, [topicTitle, t]);
 
   useEffect(() => {
     void loadItems();
@@ -206,7 +208,7 @@ export default function PresentationMaterials() {
   const handleUpload = async (file: File) => {
     if (!topicTitle) return;
     if (!isAllowedPresentationFile(file)) {
-      setError('Faqat PDF, PPT yoki PPTX yuklash mumkin.');
+      setError(t('presentation.errorFileType'));
       return;
     }
     setUploading(true);
@@ -215,7 +217,7 @@ export default function PresentationMaterials() {
       await uploadPresentation({ topic: topicTitle, file });
       await loadItems();
     } catch {
-      setError('Taqdimot yuklanmadi. Fayl hajmi 50 MB dan oshmasin.');
+      setError(t('presentation.errorUpload'));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -223,13 +225,13 @@ export default function PresentationMaterials() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Ushbu taqdimotni o‘chirasizmi?')) return;
+    if (!window.confirm(t('presentation.confirmDelete'))) return;
     try {
       await deletePresentation(id);
       await loadItems();
       setLightboxIndex(null);
     } catch {
-      setError('O‘chirib bo‘lmadi.');
+      setError(t('presentation.errorDelete'));
     }
   };
 
@@ -238,16 +240,14 @@ export default function PresentationMaterials() {
       <div className="max-w-lg mx-auto p-8 text-center space-y-4">
         <div className="ios-glass rounded-2xl border border-white/70 p-8">
           <BookOpen size={40} className="mx-auto text-indigo-600 mb-4" />
-          <h2 className="text-lg font-bold text-[#083047]">Mavzu tanlanmagan</h2>
-          <p className="text-[14px] text-black/55 mt-2 leading-relaxed">
-            Taqdimot yuklash uchun avval <strong>Syllabus</strong> bo‘limida mavzuni tanlang.
-          </p>
+          <h2 className="text-lg font-bold text-[#083047]">{t('presentation.noTopic')}</h2>
+          <p className="text-[14px] text-black/55 mt-2 leading-relaxed">{t('presentation.noTopicHint')}</p>
           <button
             type="button"
             onClick={openSyllabus}
             className="mt-5 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold hover:bg-indigo-500"
           >
-            Syllabusga o‘tish
+            {t('common.goToSyllabus')}
           </button>
         </div>
       </div>
@@ -257,16 +257,14 @@ export default function PresentationMaterials() {
   return (
     <div className="w-full px-3 sm:px-5 lg:px-6 py-4 sm:py-6 space-y-5 pb-8">
       <div className="ios-glass rounded-[1.5rem] border border-white/70 p-5 sm:p-6 shadow-sm">
-        <h2 className="text-xl sm:text-2xl font-bold text-[#083047]">Taqdimotlar</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-[#083047]">{t('presentation.title')}</h2>
         <p className="text-[14px] text-black/55 mt-1">
-          Mavzu:{' '}
+          {t('presentation.topicLabel')}{' '}
           <span className="font-semibold text-indigo-800">
             {globalTopic.id} — {globalTopic.title}
           </span>
         </p>
-        <p className="text-[12px] text-black/45 mt-2">
-          PDF, PPT yoki PPTX yuklang — ko‘rish (preview) va yuklab olish mumkin.
-        </p>
+        <p className="text-[12px] text-black/45 mt-2">{t('presentation.hint')}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <input
             ref={fileRef}
@@ -285,7 +283,7 @@ export default function PresentationMaterials() {
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold hover:bg-indigo-500 disabled:opacity-50"
           >
             {uploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
-            {uploading ? 'Yuklanmoqda…' : 'Taqdimot yuklash'}
+            {uploading ? t('common.loading') : t('presentation.upload')}
           </button>
           <button
             type="button"
@@ -293,7 +291,7 @@ export default function PresentationMaterials() {
             disabled={loading}
             className="px-4 py-2.5 rounded-xl border border-black/10 text-[14px] font-semibold text-indigo-700 hover:bg-white/80 disabled:opacity-50"
           >
-            {loading ? 'Yuklanmoqda…' : 'Yangilash'}
+            {loading ? t('common.loading') : t('common.refresh')}
           </button>
         </div>
       </div>
@@ -306,7 +304,7 @@ export default function PresentationMaterials() {
         </div>
       ) : items.length === 0 ? (
         <p className="text-center text-black/45 py-12 ios-glass rounded-2xl border border-white/60">
-          Bu mavzuda hali taqdimot yo‘q. «Taqdimot yuklash» tugmasini bosing.
+          {t('presentation.empty')}
         </p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
@@ -337,7 +335,7 @@ export default function PresentationMaterials() {
                   type="button"
                   onClick={() => void handleDelete(item.id)}
                   className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-rose-600 shadow opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label="O‘chirish"
+                  aria-label={t('common.delete')}
                 >
                   <Trash2 size={16} />
                 </button>

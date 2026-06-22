@@ -332,7 +332,7 @@ export default function LectureNotes() {
                       }}
                       className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
                     >
-                      O'zgarishlarni Saqlash
+                      {t('lecture.saveChanges')}
                     </button>
                   </div>
                 </div>
@@ -370,7 +370,7 @@ export default function LectureNotes() {
                 }}
                 className="px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
               >
-                Yangi yaratish
+                {t('lecture.createNew')}
               </button>
             </div>
           </motion.div>

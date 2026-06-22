@@ -132,7 +132,7 @@ function saveLocalSubmissions(sessionId: string, list: TestSubmissionDoc[]): voi
 export default function TestQuestions() {
   const globalTopic = useContext(GlobalTopicContext);
   const { language } = useContext(AppLanguageContext);
-  const { t } = useUiText();
+  const { t, locale } = useUiText();
   const queryParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const isStudentMode = queryParams.get('mode') === 'student';
   /** QR ba'zan `id=` bilan chiqishi mumkin — ikkalasini qabul qilamiz */
@@ -242,7 +242,7 @@ export default function TestQuestions() {
       const applyClosed = (closed: boolean) => {
         if (closed) {
           setSessionClosed(true);
-          setError("Test yakunlangan. O'qituvchi natijalarni ko'rdi — yangi test uchun o'qituvchidan so'rang.");
+          setError(t('test.sessionClosedStudentHint'));
         }
       };
 
@@ -293,9 +293,7 @@ export default function TestQuestions() {
       }
 
       if (!cancelled) {
-        setError(
-          "Test sessiyasi topilmadi. O'qituvchi testni yaratgan va QR yangilanganligini tekshiring."
-        );
+        setError(t('test.sessionNotFound'));
         setSessionLoading(false);
       }
     })();
@@ -567,11 +565,11 @@ export default function TestQuestions() {
   const handleStudentSubmit = async () => {
     if (!studentTest || !studentSessionId) return;
     if (!studentFirstName.trim() || !studentLastName.trim()) {
-      setError("Ism va familiyani kiriting.");
+      setError(t('test.studentErrorName'));
       return;
     }
     if (studentAnswers.includes(-1)) {
-      setError("Barcha savollarga javob bering.");
+      setError(t('test.studentErrorAllQuestions'));
       return;
     }
     setStudentLoading(true);
@@ -596,7 +594,7 @@ export default function TestQuestions() {
       setStudentSubmitted(true);
     } catch (err) {
       console.error(err);
-      setError("Yuborishda xatolik yuz berdi. Internetni tekshirib qayta urinib ko'ring.");
+      setError(t('test.studentErrorSubmit'));
     } finally {
       setStudentLoading(false);
     }
@@ -607,13 +605,13 @@ export default function TestQuestions() {
       <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
         <div className="w-full space-y-6 pb-20">
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-gray-900">Talaba testi</h1>
-            <p className="text-gray-500">Ism-familiyangizni kiriting va testni yuboring.</p>
+            <h1 className="text-3xl font-bold text-gray-900">{t('test.studentTitle')}</h1>
+            <p className="text-gray-500">{t('test.studentSubtitle')}</p>
           </div>
           {sessionLoading ? (
             <div className="bg-white rounded-3xl p-8 border border-gray-100 text-center">
               <Loader2 className="animate-spin text-indigo-600 mx-auto mb-3" />
-              <p className="text-gray-600">Test sessiyasi yuklanmoqda...</p>
+              <p className="text-gray-600">{t('test.studentLoading')}</p>
             </div>
           ) : error && !studentTest ? (
             <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-3xl p-6 text-center font-medium">
@@ -633,14 +631,14 @@ export default function TestQuestions() {
                   <input
                     value={studentFirstName}
                     onChange={(e) => setStudentFirstName(e.target.value)}
-                    placeholder="Ism"
+                    placeholder={t('test.studentFirstName')}
                     disabled={studentSubmitted || sessionClosed}
                     className="px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-400"
                   />
                   <input
                     value={studentLastName}
                     onChange={(e) => setStudentLastName(e.target.value)}
-                    placeholder="Familiya"
+                    placeholder={t('test.studentLastName')}
                     disabled={studentSubmitted || sessionClosed}
                     className="px-4 py-3 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-indigo-400"
                   />
@@ -676,11 +674,11 @@ export default function TestQuestions() {
                   className="w-full h-12 bg-indigo-600 text-white rounded-2xl font-semibold hover:bg-indigo-500 flex items-center justify-center gap-2"
                 >
                   {studentLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-                  Yuborish
+                  {t('test.studentSubmit')}
                 </button>
               ) : studentSubmitted ? (
                 <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-xl font-semibold">
-                  Javoblaringiz muvaffaqiyatli yuborildi. Rahmat!
+                  {t('test.studentSuccess')}
                 </div>
               ) : null}
             </>
@@ -699,7 +697,7 @@ export default function TestQuestions() {
         <div className="text-center space-y-4 pt-4">
           <div className="inline-flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-1.5 rounded-full font-semibold text-sm mb-4">
             <ClipboardList size={16} />
-            Teacher Test Sessiyasi + QR (10 savol)
+            {t('test.teacherBadge')}
           </div>
           <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
             {t('test.heroTitle')} <br className="hidden sm:block"/>
@@ -743,10 +741,10 @@ export default function TestQuestions() {
               <Brain size={28} className="absolute inset-0 m-auto text-indigo-600 animate-pulse" />
             </div>
             <p className="text-gray-500 font-medium animate-pulse text-lg">
-              AI test savollarini shakllantirmoqda...
+              {t('test.generating')}
             </p>
             <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
-              Bu jarayon 10 ta murakkab klinik savol va har biriga ilmiy manba havolalarini tayyorlaydi.
+              {t('test.generatingHint')}
             </p>
           </div>
         )}
@@ -818,7 +816,7 @@ export default function TestQuestions() {
                   </div>
                   <div className="lg:col-span-2 space-y-3">
                     <p className="text-sm text-gray-600">
-                      Talabalar shu QR ni skaner qilib alohida oynada testga kirishadi.
+                      {t('test.qrInstructions')}
                     </p>
                     <div className="flex gap-2">
                       <input
@@ -832,7 +830,7 @@ export default function TestQuestions() {
                         }}
                         className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold flex items-center gap-2"
                       >
-                        <Copy size={16} /> Link
+                        <Copy size={16} /> {t('common.link')}
                       </button>
                     </div>
                     <div className="flex gap-2 flex-wrap">
@@ -884,10 +882,10 @@ export default function TestQuestions() {
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="text-left text-gray-500 border-b">
-                        <th className="px-4 py-3">Talaba</th>
-                        <th className="px-4 py-3">Ball</th>
+                        <th className="px-4 py-3">{t('test.studentColumn')}</th>
+                        <th className="px-4 py-3">{t('test.scoreColumn')}</th>
                         <th className="px-4 py-3">{t('test.gradeColumn')}</th>
-                        <th className="px-4 py-3">Vaqt</th>
+                        <th className="px-4 py-3">{t('test.timeColumn')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -907,7 +905,7 @@ export default function TestQuestions() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-gray-500">
-                            {new Date(s.submittedAt).toLocaleString('uz-UZ')}
+                            {new Date(s.submittedAt).toLocaleString(locale)}
                           </td>
                         </tr>
                         );
@@ -915,7 +913,7 @@ export default function TestQuestions() {
                       {submissions.length === 0 && (
                         <tr>
                           <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
-                            Hali hech kim yubormadi...
+                            {t('test.noSubmissionsRow')}
                           </td>
                         </tr>
                       )}
@@ -946,7 +944,7 @@ export default function TestQuestions() {
                           {String.fromCharCode(65 + optIdx)}) {option}
                           {optIdx === q.correctOptionIndex && (
                             <span className="ml-2 inline-flex items-center text-xs font-semibold">
-                              <CheckCircle2 size={14} className="mr-1" /> To'g'ri
+                              <CheckCircle2 size={14} className="mr-1" /> {t('test.correctAnswer')}
                             </span>
                           )}
                         </div>
@@ -954,13 +952,13 @@ export default function TestQuestions() {
                     </div>
                     <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-3">
                       <h4 className="font-semibold text-blue-800 mb-1 flex items-center gap-2">
-                        <Brain size={16} /> To'g'ri javob tahlili
+                        <Brain size={16} /> {t('test.correctAnalysis')}
                       </h4>
                       <p className="text-blue-800/90 whitespace-pre-wrap">{q.explanation}</p>
                       {q.references && q.references.length > 0 && (
                         <MedicalReferencesList
                           references={q.references}
-                          title="Ushbu savol manbalari"
+                          title={t('test.questionReferences')}
                           compact
                         />
                       )}
@@ -989,7 +987,7 @@ export default function TestQuestions() {
                   className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                  Yana yangi test (yangi QR)
+                  {t('test.createAnother')}
                 </button>
               )}
             </div>

@@ -12,18 +12,14 @@ import {
   type LocalStaffUser,
 } from '../../utils/localStaffAuth';
 import { markDesktopPairedSession } from '../../utils/deviceSession';
-
-const DESKTOP_STEPS = [
-  { n: 1, text: 'Telefoningizda brauzerda imentor.uz ni oching.' },
-  { n: 2, text: 'Telefon va parol bilan kiring (shu qurilmada emas).' },
-  { n: 3, text: 'Telefonda QR skaner ochiladi — quyidagi kodni skanerlang.' },
-];
+import { useUiText } from '../../i18n/useUiText';
 
 type Props = {
   onOtherRoles: () => void;
 };
 
 export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
+  const { t } = useUiText();
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,7 +69,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
           if (st.status === 'expired') {
             stopPoll();
             setWaitingPhone(false);
-            setError('QR kod muddati tugagan. «Yangi QR kod» tugmasini bosing.');
+            setError(t('auth.qrExpired'));
             return;
           }
           if (st.status !== 'confirmed' || !st.access || !st.refresh) return;
@@ -82,7 +78,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
           const profile = (st.profile ?? {}) as Partial<LocalStaffUser>;
           const phoneDigits = profile.phoneDigits || st.username || '';
           if (!phoneDigits) {
-            setError('Telefon tasdiqladi, lekin profil yetarli emas. Telefonda qayta skanerlang.');
+            setError(t('auth.qrProfileIncomplete'));
             return;
           }
           writeBackendTokensFromPair({
@@ -142,22 +138,22 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
         <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-600 text-white flex items-center justify-center shadow-lg">
           <Monitor size={28} />
         </div>
-        <h2 className="text-2xl font-bold text-[#083047] tracking-tight">Kompyuter orqali kirish</h2>
+        <h2 className="text-2xl font-bold text-[#083047] tracking-tight">{t('auth.qrTitle')}</h2>
         <p className="text-[14px] text-black/55 leading-relaxed">
-          Avval telefonda kiring, keyin shu ekrandagi QR kodni skanerlang.
+          {t('auth.qrSubtitle')}
         </p>
       </div>
 
       <div className="rounded-2xl border border-sky-100 bg-sky-50/90 px-4 py-3">
         <div className="flex items-center gap-2 mb-2">
           <Smartphone size={18} className="text-sky-700 shrink-0" />
-          <span className="text-[13px] font-bold text-sky-900">Telefonda qiling</span>
+          <span className="text-[13px] font-bold text-sky-900">{t('auth.qrPhoneInstructions')}</span>
         </div>
         <ol className="space-y-2">
-          {DESKTOP_STEPS.map((s) => (
-            <li key={s.n} className="flex gap-2.5 text-[13px] text-sky-950/90 leading-snug">
-              <span className="font-bold text-sky-700 shrink-0">{s.n}.</span>
-              <span>{s.text}</span>
+          {[1, 2, 3].map((n) => (
+            <li key={n} className="flex gap-2.5 text-[13px] text-sky-950/90 leading-snug">
+              <span className="font-bold text-sky-700 shrink-0">{n}.</span>
+              <span>{t(`auth.qrStep${n}` as any)}</span>
             </li>
           ))}
         </ol>
@@ -167,17 +163,17 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
         {loading && !qrDataUrl ? (
           <div className="py-12 flex flex-col items-center gap-3 text-black/50">
             <Loader2 className="animate-spin text-sky-600" size={36} />
-            <span className="text-sm font-medium">QR tayyorlanmoqda…</span>
+            <span className="text-sm font-medium">{t('auth.qrPreparing')}</span>
           </div>
         ) : qrDataUrl ? (
           <>
-            <img src={qrDataUrl} alt="Kirish QR kodi" className="w-[260px] h-[260px] rounded-2xl" />
+            <img src={qrDataUrl} alt={t('auth.qrAlt')} className="w-[260px] h-[260px] rounded-2xl" />
             {expiresLabel && (
-              <p className="text-[12px] text-black/45">Kod amal qiladi: ~{expiresLabel} gacha</p>
+              <p className="text-[12px] text-black/45">{t('auth.qrExpires', { time: expiresLabel })}</p>
             )}
             {waitingPhone && (
               <p className="text-[13px] text-sky-700 font-medium text-center animate-pulse">
-                Telefondan skaner kutilmoqda…
+                {t('auth.qrWaiting')}
               </p>
             )}
           </>
@@ -193,7 +189,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
           className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl border border-sky-200 bg-white text-sky-800 font-semibold text-[14px] hover:bg-sky-50 transition-colors"
         >
           <RefreshCw size={18} />
-          Yangi QR kod
+          {t('auth.qrNew')}
         </button>
       </div>
 
@@ -202,7 +198,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles }: Props) {
         onClick={onOtherRoles}
         className="w-full text-center text-[13px] font-semibold text-black/50 hover:text-sky-700 underline underline-offset-2"
       >
-        Administrator / tarjimon / startuper kirishi
+        {t('auth.otherRoles')}
       </button>
     </div>
   );

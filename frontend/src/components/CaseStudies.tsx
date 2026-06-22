@@ -345,7 +345,7 @@ export default function CaseStudies() {
                               <div className="mt-4">
                                 <MedicalReferencesList
                                   references={q.references}
-                                  title="Ushbu keys manbalari"
+                                  title={t('case.questionReferences')}
                                   compact
                                 />
                               </div>

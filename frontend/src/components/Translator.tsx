@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Languages,
   Upload,
@@ -53,6 +53,14 @@ export default function Translator() {
   const [generatingPDF, setGeneratingPDF] = useState(false);
 
   const contentRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+
+  useEffect(() => {
+    setPages((prev) =>
+      prev.length
+        ? prev.map((p) => ({ ...p, translatedBlocks: null, translatedError: null, isTranslating: false }))
+        : prev,
+    );
+  }, [language]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

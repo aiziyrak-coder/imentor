@@ -25,8 +25,8 @@ import {
   clearBackendAuthTokens,
   syncCurrentUserPasswordToBackend,
 } from '../utils/backendAuth';
-import { AppLanguageContext } from '../App';
 import { roleLabel as translateRoleLabel } from '../i18n/translations';
+import { useUiText } from '../i18n/useUiText';
 import { AVATAR_ACCEPT, fileToAvatarBlob } from '../utils/profilePhoto';
 import {
   deleteStaffAvatarOnServer,
@@ -35,7 +35,7 @@ import {
 } from '../utils/profilePhotoApi';
 
 export default function UserProfile() {
-  const { language } = React.useContext(AppLanguageContext);
+  const { t, language } = useUiText();
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
   
   const [displayName, setDisplayName] = useState('');
@@ -80,12 +80,12 @@ export default function UserProfile() {
         phoneDisplay: phone.trim(),
       });
       setUser(updated);
-      setProfileMessage({ text: "Profil muvaffaqiyatli yangilandi!", type: 'success' });
+      setProfileMessage({ text: t('profile.updateSuccess'), type: 'success' });
       
       setTimeout(() => setProfileMessage(null), 3000);
     } catch (err) {
       console.error(err);
-      setProfileMessage({ text: "Xatolik yuz berdi. Iltimos qayta urinib ko'ring.", type: 'error' });
+      setProfileMessage({ text: t('profile.updateError'), type: 'error' });
     } finally {
       setLoadingProfile(false);
     }
@@ -96,12 +96,12 @@ export default function UserProfile() {
     if (!user) return;
 
     if (newPassword !== confirmPassword) {
-      setPasswordMessage({ text: "Yangi parollar mos kelmadi!", type: 'error' });
+      setPasswordMessage({ text: t('profile.passwordMismatch'), type: 'error' });
       return;
     }
 
     if (newPassword.length < 6) {
-      setPasswordMessage({ text: "Parol kamida 6 belgidan iborat bo'lishi kerak!", type: 'error' });
+      setPasswordMessage({ text: t('profile.passwordTooShort'), type: 'error' });
       return;
     }
 
@@ -110,19 +110,19 @@ export default function UserProfile() {
     
     try {
       if (currentPassword !== user.password) {
-        setPasswordMessage({ text: "Joriy parol noto'g'ri kiritildi.", type: 'error' });
+        setPasswordMessage({ text: t('profile.currentPasswordWrong'), type: 'error' });
       } else {
         await syncCurrentUserPasswordToBackend(currentPassword, newPassword);
         const updated = updateCurrentLocalUser({ password: newPassword });
         setUser(updated);
-        setPasswordMessage({ text: "Parol muvaffaqiyatli o'zgartirildi!", type: 'success' });
+        setPasswordMessage({ text: t('profile.passwordSuccess'), type: 'success' });
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
       }
     } catch (err: unknown) {
       console.error(err);
-      setPasswordMessage({ text: "Parolni yangilashda xatolik.", type: 'error' });
+      setPasswordMessage({ text: t('profile.passwordError'), type: 'error' });
     } finally {
       setLoadingPassword(false);
     }
@@ -143,14 +143,14 @@ export default function UserProfile() {
       const photoUrl = await uploadStaffAvatar(blob);
       const updated = updateCurrentLocalUser({ photoURL: photoUrl });
       setUser(updated);
-      setAvatarMessage({ text: 'Profil rasmi saqlandi.', type: 'success' });
+      setAvatarMessage({ text: t('profile.avatarSaved'), type: 'success' });
       setTimeout(() => setAvatarMessage(null), 3000);
     } catch (err) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'invalid-type') {
-        setAvatarMessage({ text: 'Faqat rasm fayli (JPG, PNG, WEBP).', type: 'error' });
+        setAvatarMessage({ text: t('profile.avatarInvalidType'), type: 'error' });
       } else if (code === 'too-large' || code === 'compress-failed') {
-        setAvatarMessage({ text: 'Rasm juda katta. Boshqa fayl tanlang.', type: 'error' });
+        setAvatarMessage({ text: t('profile.avatarTooLarge'), type: 'error' });
       } else if (code === 'no-backend-token') {
         setAvatarMessage({ text: 'Serverga ulanish yo‘q. Qayta kiring.', type: 'error' });
       } else {
@@ -175,7 +175,7 @@ export default function UserProfile() {
       }
       const updated = updateCurrentLocalUser({ photoURL: null });
       setUser(updated);
-      setAvatarMessage({ text: 'Profil rasmi olib tashlandi.', type: 'success' });
+      setAvatarMessage({ text: t('profile.avatarRemoved'), type: 'success' });
       setTimeout(() => setAvatarMessage(null), 3000);
     } catch {
       setAvatarMessage({ text: 'Rasmni o‘chirib bo‘lmadi.', type: 'error' });
@@ -199,8 +199,8 @@ export default function UserProfile() {
           className="absolute top-5 right-5 sm:top-6 sm:right-6 z-20 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-rose-600 bg-white/80 border border-rose-200/70 hover:bg-rose-50 transition-colors shadow-sm"
         >
           <LogOut size={16} />
-          <span className="hidden sm:inline">Tizimdan chiqish</span>
-          <span className="sm:hidden">Chiqish</span>
+          <span className="hidden sm:inline">{t('profile.logout')}</span>
+          <span className="sm:hidden">{t('profile.logoutShort')}</span>
         </button>
 
         <div className="flex flex-col md:flex-row items-center md:items-start gap-8 relative z-10 w-full pt-12 sm:pt-0 md:pr-32">
@@ -226,7 +226,7 @@ export default function UserProfile() {
                 disabled={uploadingAvatar}
                 onClick={() => avatarInputRef.current?.click()}
                 className="absolute -bottom-3 -right-3 w-12 h-12 bg-white rounded-2xl shadow-lg border border-black/5 flex items-center justify-center text-blue-600 hover:text-blue-700 hover:scale-105 transition-all disabled:opacity-60"
-                aria-label="Profil rasmini yuklash"
+                aria-label={t('profile.uploadPhotoAria')}
               >
                 {uploadingAvatar ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
               </button>
@@ -238,7 +238,7 @@ export default function UserProfile() {
                 onClick={() => avatarInputRef.current?.click()}
                 className="text-[12px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
               >
-                Rasm yuklash
+                {t('profile.uploadPhoto')}
               </button>
               {user?.photoURL && (
                 <button
@@ -265,26 +265,26 @@ export default function UserProfile() {
           <div className="flex-1 text-center md:text-left pt-2 w-full min-w-0">
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mb-2">
               <h1 className="text-2xl md:text-3xl font-bold text-black/90 tracking-tight">
-                {user?.displayName || 'Foydalanuvchi'}
+                {user?.displayName || t('profile.defaultName')}
               </h1>
               <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/20 text-sky-700 text-[12px] font-semibold rounded-lg">
-                Rol: {displayRole}
+                {t('common.role')}: {displayRole}
               </span>
               <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 text-[12px] font-semibold rounded-lg inline-flex items-center gap-1.5">
-                <ShieldCheck size={14} /> Lokal rejim
+                <ShieldCheck size={14} /> {t('profile.localMode')}
               </span>
             </div>
             {user?.faculty && (
               <p className="text-[14px] font-medium text-black/55 mb-2">
-                <span className="text-black/40">Fakultet:</span> {user.faculty}
+                <span className="text-black/40">{t('profile.faculty')}</span> {user.faculty}
                 <br />
-                <span className="text-black/40">Kafedra:</span> {user.department}
+                <span className="text-black/40">{t('profile.department')}</span> {user.department}
                 <br />
-                <span className="text-black/40">Yo&apos;nalish:</span> {user.direction}
+                <span className="text-black/40">{t('profile.direction')}</span> {user.direction}
               </p>
             )}
             <p className="text-[12px] font-mono text-black/40 break-all">
-              Tizim ID: {user?.email || '—'}
+              {t('profile.systemId')}: {user?.email || '—'}
             </p>
           </div>
         </div>
@@ -296,12 +296,12 @@ export default function UserProfile() {
          <div className="space-y-6">
             <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm border border-white/60">
                 <h3 className="text-xl font-bold text-black/80 flex items-center gap-2 mb-6">
-                    <User size={22} className="text-blue-500" /> Shaxsiy Ma'lumotlar
+                    <User size={22} className="text-blue-500" /> {t('profile.personalTitle')}
                 </h3>
                 <form onSubmit={handleUpdateProfile} className="space-y-5">
                     
                     <div className="space-y-1.5">
-                        <label className="text-sm font-semibold text-black/60 px-1">Ism-sharif</label>
+                        <label className="text-sm font-semibold text-black/60 px-1">{t('profile.fullName')}</label>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40"><User size={18} /></span>
                             <input 
@@ -309,13 +309,13 @@ export default function UserProfile() {
                                 value={displayName}
                                 onChange={e => setDisplayName(e.target.value)}
                                 className="w-full bg-white/60 border border-black/10 rounded-xl py-3 pl-11 pr-4 text-black/80 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all"
-                                placeholder="To'liq ismingiz"
+                                placeholder={t('profile.fullNamePlaceholder')}
                             />
                         </div>
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="text-sm font-semibold text-black/60 px-1">Telefon raqam</label>
+                        <label className="text-sm font-semibold text-black/60 px-1">{t('profile.phoneNumber')}</label>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40"><Phone size={18} /></span>
                             <input 
@@ -329,7 +329,7 @@ export default function UserProfile() {
                     </div>
 
                     <div className="space-y-1.5">
-                        <label className="text-sm font-semibold text-black/60 px-1">Ichki login (telefon asosida)</label>
+                        <label className="text-sm font-semibold text-black/60 px-1">{t('profile.internalLogin')}</label>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40"><Mail size={18} /></span>
                             <input 
@@ -339,7 +339,7 @@ export default function UserProfile() {
                                 className="w-full bg-black/5 border border-black/5 rounded-xl py-3 pl-11 pr-4 text-black/50 font-medium cursor-not-allowed text-xs"
                             />
                         </div>
-                        <p className="text-xs text-black/40 px-1 mt-1">Kirish telefon raqam orqali; bu maydon faqat tizim identifikatori.</p>
+                        <p className="text-xs text-black/40 px-1 mt-1">{t('profile.internalLoginHint')}</p>
                     </div>
 
                     {profileMessage && (
@@ -355,7 +355,7 @@ export default function UserProfile() {
                         className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                     >
                         {loadingProfile ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                        O'zgarishlarni saqlash
+                        {t('profile.saveChanges')}
                     </button>
                 </form>
             </div>
@@ -365,7 +365,7 @@ export default function UserProfile() {
          <div className="space-y-6">
             <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm border border-white/60 h-full">
                 <h3 className="text-xl font-bold text-black/80 flex items-center gap-2 mb-6">
-                    <Lock size={22} className="text-violet-500" /> Parolni O'zgartirish
+                    <Lock size={22} className="text-violet-500" /> {t('profile.passwordTitle')}
                 </h3>
                 
                 {isGoogleAuth ? (
@@ -373,28 +373,28 @@ export default function UserProfile() {
                         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4 text-violet-500">
                             <Lock size={32} />
                         </div>
-                        <h4 className="font-semibold text-black/80 text-lg mb-2">Google hisobi ulangan</h4>
+                        <h4 className="font-semibold text-black/80 text-lg mb-2">{t('profile.googleLinkedTitle')}</h4>
                         <p className="text-sm text-black/50">
-                            Siz tizimga Google orqali kirgansiz. Parolingizni to'g'ridan-to'g'ri tizim orqali o'zgartirish mumkin emas.
+                            {t('profile.googleLinkedHint')}
                         </p>
                     </div>
                 ) : (
                     <form onSubmit={handleChangePassword} className="space-y-5">
                     
                         <div className="space-y-1.5">
-                            <label className="text-sm font-semibold text-black/60 px-1">Joriy parol</label>
+                            <label className="text-sm font-semibold text-black/60 px-1">{t('profile.currentPassword')}</label>
                             <input 
                                 type="password"
                                 value={currentPassword}
                                 onChange={e => setCurrentPassword(e.target.value)}
                                 required
                                 className="w-full bg-white/60 border border-black/10 rounded-xl py-3 px-4 text-black/80 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:bg-white transition-all"
-                                placeholder={"Joriy parolingizni kiriting"}
+                                placeholder={t('profile.currentPasswordPlaceholder')}
                             />
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-sm font-semibold text-black/60 px-1">Yangi parol</label>
+                            <label className="text-sm font-semibold text-black/60 px-1">{t('profile.newPassword')}</label>
                             <input 
                                 type="password"
                                 value={newPassword}
@@ -402,12 +402,12 @@ export default function UserProfile() {
                                 required
                                 minLength={6}
                                 className="w-full bg-white/60 border border-black/10 rounded-xl py-3 px-4 text-black/80 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:bg-white transition-all"
-                                placeholder={"Kamida 6 belgi"}
+                                placeholder={t('profile.newPasswordPlaceholder')}
                             />
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-sm font-semibold text-black/60 px-1">Yangi parolni tasdiqlang</label>
+                            <label className="text-sm font-semibold text-black/60 px-1">{t('profile.confirmPassword')}</label>
                             <input 
                                 type="password"
                                 value={confirmPassword}
@@ -415,7 +415,7 @@ export default function UserProfile() {
                                 required
                                 minLength={6}
                                 className="w-full bg-white/60 border border-black/10 rounded-xl py-3 px-4 text-black/80 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:bg-white transition-all"
-                                placeholder={"Yangi parolni qayta kiriting"}
+                                placeholder={t('profile.confirmPasswordPlaceholder')}
                             />
                         </div>
 
@@ -432,7 +432,7 @@ export default function UserProfile() {
                             className="w-full mt-2 bg-violet-600 hover:bg-violet-700 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                         >
                             {loadingPassword ? <Loader2 size={18} className="animate-spin" /> : <Lock size={18} />}
-                            Parolni yangilash
+                            {t('profile.updatePassword')}
                         </button>
                     </form>
                 )}

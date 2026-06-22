@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GlobalTopicContext, AppNavigationContext } from '../App';
+import { useUiText } from '../i18n/useUiText';
 import {
   deleteHandout,
   fetchHandoutsForTopic,
@@ -23,10 +24,12 @@ function HandoutFilePreview({
   item,
   className,
   mode,
+  t,
 }: {
   item: TopicHandoutItem;
   className?: string;
   mode: 'thumb' | 'full';
+  t: (key: string) => string;
 }) {
   const [src, setSrc] = useState('');
   const [failed, setFailed] = useState(false);
@@ -67,7 +70,7 @@ function HandoutFilePreview({
   if (failed || !src) {
     return (
       <div className={`flex items-center justify-center bg-black/5 text-black/30 text-[11px] ${className ?? ''}`}>
-        {failed ? 'Rasm yuklanmadi' : '…'}
+        {failed ? t('handout.imageFailed') : t('common.loading')}
       </div>
     );
   }
@@ -147,7 +150,7 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
           type="button"
           onClick={onClose}
           className="p-2 rounded-xl bg-white/10 hover:bg-white/20"
-          aria-label="Yopish"
+          aria-label={t('common.close')}
         >
           <X size={22} />
         </button>
@@ -159,7 +162,7 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
             type="button"
             onClick={() => onIndexChange(index - 1)}
             className="absolute left-2 z-10 p-3 rounded-full bg-white/15 hover:bg-white/25 text-white"
-            aria-label="Oldingi"
+            aria-label={t('common.prev')}
           >
             <ChevronLeft size={28} />
           </button>
@@ -192,7 +195,7 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
             type="button"
             onClick={() => onIndexChange(index + 1)}
             className="absolute right-2 z-10 p-3 rounded-full bg-white/15 hover:bg-white/25 text-white"
-            aria-label="Keyingi"
+            aria-label={t('common.next')}
           >
             <ChevronRight size={28} />
           </button>
@@ -203,6 +206,7 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
 }
 
 export default function HandoutMaterials() {
+  const { t } = useUiText();
   const globalTopic = useContext(GlobalTopicContext);
   const { openSyllabus } = useContext(AppNavigationContext);
   const [items, setItems] = useState<TopicHandoutItem[]>([]);
@@ -223,27 +227,27 @@ export default function HandoutMaterials() {
     } catch (e) {
       setItems([]);
       if (e instanceof Error && e.message === 'no-backend-token') {
-        setError('Ko‘rish uchun tizimga kirish kerak.');
+        setError(t('handout.errorLogin'));
       } else {
-        setError('Tarqatmalarni yuklab bo‘lmadi.');
+        setError(t('handout.errorLoad'));
       }
     } finally {
       setLoading(false);
     }
-  }, [globalTopic]);
+  }, [globalTopic, t]);
 
   useEffect(() => {
     void loadHandouts();
   }, [loadHandouts]);
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Ushbu tarqatma materialini o‘chirasizmi?')) return;
+    if (!window.confirm(t('handout.confirmDelete'))) return;
     try {
       await deleteHandout(id);
       await loadHandouts();
       setLightboxIndex(null);
     } catch {
-      setError('O‘chirib bo‘lmadi.');
+      setError(t('handout.errorDelete'));
     }
   };
 
@@ -252,17 +256,14 @@ export default function HandoutMaterials() {
       <div className="max-w-lg mx-auto p-8 text-center space-y-4">
         <div className="ios-glass rounded-2xl border border-white/70 p-8">
           <BookOpen size={40} className="mx-auto text-amber-600 mb-4" />
-          <h2 className="text-lg font-bold text-[#083047]">Mavzu tanlanmagan</h2>
-          <p className="text-[14px] text-black/55 mt-2 leading-relaxed">
-            Tarqatmalarni ko‘rish uchun avval <strong>Mening fanlarim</strong> bo‘limida fan va mavzuni
-            tanlang.
-          </p>
+          <h2 className="text-lg font-bold text-[#083047]">{t('handout.noTopicTitle')}</h2>
+          <p className="text-[14px] text-black/55 mt-2 leading-relaxed">{t('handout.noTopicHint')}</p>
           <button
             type="button"
             onClick={openSyllabus}
             className="mt-5 px-5 py-2.5 rounded-xl bg-amber-600 text-white text-[14px] font-semibold hover:bg-amber-500"
           >
-            Fanlar bo‘limiga o‘tish
+            {t('common.goToCourses')}
           </button>
         </div>
       </div>
@@ -272,23 +273,21 @@ export default function HandoutMaterials() {
   return (
     <div className="w-full px-3 sm:px-5 lg:px-6 py-4 sm:py-6 space-y-5 pb-8">
       <div className="ios-glass rounded-[1.5rem] border border-white/70 p-5 sm:p-6 shadow-sm">
-        <h2 className="text-xl sm:text-2xl font-bold text-[#083047]">Tarqatma materiallar</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-[#083047]">{t('handout.title')}</h2>
         <p className="text-[14px] text-black/55 mt-1">
-          Tanlangan mavzu:{' '}
+          {t('handout.selectedTopic')}{' '}
           <span className="font-semibold text-amber-800">
             {globalTopic.id} — {globalTopic.title}
           </span>
         </p>
-        <p className="text-[12px] text-black/45 mt-2">
-          Yangi material yuklash — Syllabus bo‘limida shu mavzuni tanlang.
-        </p>
+        <p className="text-[12px] text-black/45 mt-2">{t('handout.uploadHint')}</p>
         <button
           type="button"
           onClick={() => void loadHandouts()}
           disabled={loading}
           className="mt-3 text-[13px] font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-50"
         >
-          {loading ? 'Yuklanmoqda…' : 'Yangilash'}
+          {loading ? t('common.loading') : t('common.refresh')}
         </button>
       </div>
 
@@ -300,7 +299,7 @@ export default function HandoutMaterials() {
         </div>
       ) : items.length === 0 ? (
         <p className="text-center text-black/45 py-12 ios-glass rounded-2xl border border-white/60">
-          Bu mavzuda hali tarqatma yo‘q. Syllabusda «Yuklash» tugmasi orqali qo‘shing.
+          {t('handout.empty')}
         </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
@@ -320,6 +319,7 @@ export default function HandoutMaterials() {
                     item={item}
                     mode="thumb"
                     className="absolute inset-0 w-full h-full object-cover"
+                    t={t}
                   />
                   <span className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
                     <ZoomIn size={16} />
@@ -337,7 +337,7 @@ export default function HandoutMaterials() {
                     type="button"
                     onClick={() => void handleDelete(item.id)}
                     className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-rose-600 shadow opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label="O‘chirish"
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -349,7 +349,7 @@ export default function HandoutMaterials() {
       )}
 
       {items.length > 0 && (
-        <p className="text-center text-[12px] text-black/40">Jami {items.length} ta material</p>
+        <p className="text-center text-[12px] text-black/40">{t('handout.totalCount', { count: items.length })}</p>
       )}
 
       <AnimatePresence>

@@ -12,6 +12,7 @@ import {
 } from '../../utils/localStaffAuth';
 import { getBackendAccessToken, loginStaffWithBackendFallback } from '../../utils/backendAuth';
 import { isDesktopBrowser } from '../../utils/deviceDetection';
+import { useUiText } from '../../i18n/useUiText';
 
 interface LoginPageProps {
   onSwitchToRegister: () => void;
@@ -19,6 +20,7 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageProps) {
+  const { t } = useUiText();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,7 +36,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     setPassword(passwordVal);
     const digits = normalizePhoneDigits(phoneVal);
     if (!isValidPhoneDigits(digits)) {
-      setError("Telefon raqamini to'liq kiriting (masalan: +998 90 111 22 33).");
+      setError(t('auth.phoneRequired'));
       return;
     }
     if (isDesktopBrowser()) {
@@ -42,7 +44,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
       const users = JSON.parse(localStorage.getItem('salomatlik-local-staff-users-v1') || '[]') as { phoneDigits?: string; role?: string }[];
       const found = users.find((u) => u.phoneDigits === digits);
       if (found && (found.role === 'hodim' || !found.role)) {
-        setError("Hodim kompyuterda faqat QR orqali kiradi. «QR orqali kirish» sahifasiga qayting.");
+        setError(t('auth.hodimDesktopQrOnly'));
         return;
       }
     }
@@ -50,7 +52,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     try {
       const u = await loginStaffWithBackendFallback(phoneVal, passwordVal);
       if (normalizeUserRole(u) === 'hodim' && isDesktopBrowser()) {
-        setError("Hodim kompyuterda faqat QR orqali kiradi.");
+        setError(t('auth.hodimDesktopRestriction'));
         logoutLocalStaff();
         return;
       }
@@ -58,9 +60,9 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {
-        setError("Telefon yoki parol noto'g'ri.");
+        setError(t('auth.wrongCredentials'));
       } else {
-        setError("Kirishda xatolik. Qayta urinib ko'ring.");
+        setError(t('auth.loginError'));
         console.error(err);
       }
     } finally {
@@ -70,7 +72,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
 
   const handleDemoRoleClick = (phoneVal: string, passwordVal: string, role: string) => {
     if (isDesktopBrowser() && role === 'hodim') {
-      setError("Hodim demo kompyuterda ishlamaydi — QR orqali kiriting.");
+      setError(t('auth.hodimDemoDesktop'));
       return;
     }
     loginWithCredentials(phoneVal, passwordVal);
@@ -81,7 +83,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     setError(null);
     const digits = normalizePhoneDigits(phone);
     if (!isValidPhoneDigits(digits)) {
-      setError("Telefon raqamini to'liq kiriting (masalan: +998 90 111 22 33).");
+      setError(t('auth.phoneRequired'));
       return;
     }
     if (isDesktopBrowser()) {
@@ -89,7 +91,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
       const users = JSON.parse(localStorage.getItem('salomatlik-local-staff-users-v1') || '[]') as { phoneDigits?: string; role?: string }[];
       const found = users.find((u) => u.phoneDigits === digits);
       if (found && (found.role === 'hodim' || !found.role)) {
-        setError("Hodim kompyuterda faqat QR orqali kiradi. «QR orqali kirish» sahifasiga qayting.");
+        setError(t('auth.hodimDesktopQrOnly'));
         return;
       }
     }
@@ -97,7 +99,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     try {
       const u = await loginStaffWithBackendFallback(phone, password);
       if (normalizeUserRole(u) === 'hodim' && isDesktopBrowser()) {
-        setError("Hodim kompyuterda faqat QR orqali kiradi.");
+        setError(t('auth.hodimDesktopRestriction'));
         logoutLocalStaff();
         return;
       }
@@ -105,9 +107,9 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
     } catch (err: unknown) {
       const code = err instanceof Error ? err.message : '';
       if (code === 'user-not-found' || code === 'wrong-password') {
-        setError("Telefon yoki parol noto'g'ri. Avval «Ro'yxatdan o'tish» orqali hisob yarating.");
+        setError(t('auth.wrongCredentialsRegister'));
       } else {
-        setError("Kirishda xatolik. Qayta urinib ko'ring.");
+        setError(t('auth.loginError'));
         console.error(err);
       }
     } finally {
@@ -128,24 +130,22 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
             alt="iMentor"
             className="mx-auto w-16 h-16 rounded-2xl object-cover border border-white/70 shadow-lg mb-4 bg-white"
           />
-          <h1 className="text-2xl font-bold text-black/90 tracking-tight">iMentor tizimiga kirish</h1>
-          <p className="text-[13px] text-black/50 mt-2 font-medium">
-            iMentor uchun telefon raqam va parol
-          </p>
+          <h1 className="text-2xl font-bold text-black/90 tracking-tight">{t('auth.loginTitle')}</h1>
+          <p className="text-[13px] text-black/50 mt-2 font-medium">{t('auth.loginSubtitle')}</p>
           {onBackToQr && (
             <button
               type="button"
               onClick={onBackToQr}
               className="mt-3 text-[12px] font-semibold text-sky-700 underline underline-offset-2"
             >
-              ← Hodim: kompyuter QR orqali kirish
+              {t('auth.backToQr')}
             </button>
           )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-black/55 uppercase tracking-wide">Telefon raqam</label>
+            <label className="text-xs font-semibold text-black/55 uppercase tracking-wide">{t('auth.phoneLabel')}</label>
             <div className="relative">
               <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-black/35" size={18} />
               <input
@@ -160,7 +160,7 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-black/55 uppercase tracking-wide">Parol</label>
+            <label className="text-xs font-semibold text-black/55 uppercase tracking-wide">{t('auth.passwordLabel')}</label>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-black/35" size={18} />
               <input
@@ -169,18 +169,17 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-xl border border-black/10 bg-white/70 py-3.5 pl-12 pr-4 text-[15px] font-medium text-black/90 outline-none focus:ring-2 focus:ring-blue-500/40"
-                placeholder="Parol"
+                placeholder={t('auth.passwordPlaceholder')}
               />
             </div>
           </div>
 
           <p className="text-[11px] text-black/45 leading-relaxed bg-black/[0.03] rounded-xl px-3 py-2 border border-black/5">
-            <span className="font-semibold text-black/55">Yangi hisob:</span> birinchi marta{' '}
+            <span className="font-semibold text-black/55">{t('auth.newAccountLabel')}</span> {t('auth.newAccountIntro')}{' '}
             <button type="button" onClick={onSwitchToRegister} className="text-blue-600 font-semibold underline-offset-2 hover:underline">
-              Ro‘yxatdan o‘tish
+              {t('auth.registerLink')}
             </button>{' '}
-            — ro‘yxatdan o‘tishda <span className="font-semibold text-black/55">hodim</span> yoki{' '}
-            <span className="font-semibold text-black/55">startuper</span> rolini tanlaysiz.
+            {t('auth.newAccountRoles', { hodim: t('auth.hodimRole'), startuper: t('auth.startuperRole') })}
           </p>
 
           {error && (
@@ -196,14 +195,14 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3.5 text-[15px] font-semibold text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-500 disabled:opacity-60"
           >
             {loading ? <Loader2 className="animate-spin" size={20} /> : null}
-            Kirish
+            {t('auth.submitLogin')}
           </button>
         </form>
 
         {isDemoAuthEnabled() && (
         <div className="mt-8 pt-6 border-t border-black/10 space-y-3">
           <p className="text-[11px] font-semibold text-black/45 uppercase tracking-wide text-center">
-            Demo kirish (ustiga bosing — forma to‘ldiriladi va tizimga kiriladi)
+            {t('auth.demoTitle')}
           </p>
           <div className="grid gap-2">
             {DEMO_ROLE_LOGINS.map((demo) => {
@@ -241,9 +240,9 @@ export default function LoginPage({ onSwitchToRegister, onBackToQr }: LoginPageP
         )}
 
         <p className="mt-6 text-center text-[13px] text-black/50">
-          Hisobingiz yo‘qmi?{' '}
+          {t('auth.noAccount')}{' '}
           <button type="button" onClick={onSwitchToRegister} className="font-semibold text-blue-600 hover:underline">
-            Ro‘yxatdan o‘tish
+            {t('auth.registerLink')}
           </button>
         </p>
       </div>

@@ -45,7 +45,6 @@ import { clearBackendAuthTokens, getBackendAccessToken, syncStaffPhotoFromServer
 import { resolveProfilePhotoUrl } from './utils/profilePhotoApi';
 import {
   type AppLanguage,
-  getAppLanguage,
   localeForLanguage,
   setAppLanguage as persistAppLanguage,
   languageLabel,
@@ -245,11 +244,7 @@ export default function App() {
     loadPersistedSelectedTopic(),
   );
   const [latestLectureContent, setLatestLectureContent] = useState('');
-  const [language, setLanguage] = useState<AppLanguage>(() => {
-    const topic = loadPersistedSelectedTopic();
-    if (topic?.instructionLanguage) return topic.instructionLanguage;
-    return getAppLanguage();
-  });
+  const [language, setLanguage] = useState<AppLanguage>(() => 'uz');
   const [notifications, setNotifications] = useState<AppNotification[]>(readStoredNotifications);
   const [isNotificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -336,6 +331,22 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  /** Kirish: hodim — syllabus tili; boshqalar — o'zbek */
+  useEffect(() => {
+    if (!user) return;
+    const role = normalizeUserRole(user);
+    if (role === 'hodim') {
+      const topic = loadPersistedSelectedTopic();
+      if (topic?.instructionLanguage) {
+        setLanguage(topic.instructionLanguage);
+        persistAppLanguage(topic.instructionLanguage);
+        return;
+      }
+    }
+    setLanguage('uz');
+    persistAppLanguage('uz');
+  }, [user?.uid]);
+
   useEffect(() => {
     if (!user) return;
     addNotification(
@@ -382,6 +393,8 @@ export default function App() {
     clearBackendAuthTokens();
     clearDesktopPairedSession(user?.uid);
     logoutLocalStaff();
+    setLanguage('uz');
+    persistAppLanguage('uz');
   };
 
   const userRole = user ? normalizeUserRole(user) : null;

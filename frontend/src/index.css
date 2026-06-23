@@ -78,40 +78,75 @@ body {
 }
 
 @keyframes landingShimmer {
-  0% { background-position: 200% center; }
-  100% { background-position: -200% center; }
+  0% { background-position: 0% center; }
+  100% { background-position: 200% center; }
 }
 
-@keyframes landingPulse {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.05); }
+@keyframes landingBlob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.05); }
+  66% { transform: translate(-20px, 15px) scale(0.95); }
 }
 
-@keyframes landingFadeUp {
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.landing-gradient-text {
-  background: linear-gradient(135deg, #34d399 0%, #22d3ee 40%, #818cf8 80%, #34d399 100%);
+.landing-accent-text {
+  background: linear-gradient(135deg, #2563eb 0%, #059669 35%, #7c3aed 70%, #2563eb 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: landingShimmer 6s linear infinite;
+  animation: landingShimmer 8s ease-in-out infinite;
 }
 
-.landing-grid-bg {
-  background-image:
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-  background-size: 64px 64px;
+.landing-dot-grid {
+  background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
-.landing-glow {
-  animation: landingPulse 4s ease-in-out infinite;
+.landing-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  animation: landingBlob 18s ease-in-out infinite;
+  opacity: 0.5;
 }
 
-.landing-fade-up {
-  animation: landingFadeUp 0.7s ease-out both;
+.landing-blob-1 {
+  width: 480px;
+  height: 480px;
+  background: #bfdbfe;
+  top: -8%;
+  left: -5%;
+}
+
+.landing-blob-2 {
+  width: 420px;
+  height: 420px;
+  background: #a7f3d0;
+  top: 15%;
+  right: -8%;
+  animation-delay: -6s;
+}
+
+.landing-blob-3 {
+  width: 360px;
+  height: 360px;
+  background: #ddd6fe;
+  bottom: 5%;
+  left: 35%;
+  animation-delay: -12s;
+}
+
+.landing-cta-primary {
+  background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.landing-cta-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.25);
+}
+
+.landing-cta-band {
+  background: linear-gradient(135deg, #eff6ff 0%, #ecfdf5 50%, #f5f3ff 100%);
+  border: 1px solid rgba(226, 232, 240, 0.9);
 }

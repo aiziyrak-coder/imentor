@@ -377,7 +377,7 @@ class PreparedContentApiTests(TestCase):
 
     def test_admin_provision_staff_creates_and_updates_password(self):
         Group.objects.get_or_create(name='admin')
-        Group.objects.get_or_create(name='tarjimon')
+        Group.objects.get_or_create(name='hodim')
         admin_bundle = self._ensure_admin_user()
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_bundle["access"]}')
 
@@ -387,9 +387,9 @@ class PreparedContentApiTests(TestCase):
             {
                 'phone_digits': staff_phone,
                 'password': 'StaffPass123',
-                'role': 'tarjimon',
+                'role': 'hodim',
                 'first_name': 'Yangi',
-                'last_name': 'Tarjimon',
+                'last_name': 'Hodim',
             },
             format='json',
         )
@@ -405,16 +405,16 @@ class PreparedContentApiTests(TestCase):
             format='json',
         )
         self.assertEqual(staff_login.status_code, 200)
-        self.assertEqual(staff_login.json()['role'], 'tarjimon')
+        self.assertEqual(staff_login.json()['role'], 'hodim')
 
         update_resp = self.client.post(
             '/api/v1/auth/admin-provision-staff/',
             {
                 'phone_digits': staff_phone,
                 'password': 'NewPass456',
-                'role': 'tarjimon',
+                'role': 'hodim',
                 'first_name': 'Yangi',
-                'last_name': 'Tarjimon',
+                'last_name': 'Hodim',
             },
             format='json',
         )
@@ -426,14 +426,14 @@ class PreparedContentApiTests(TestCase):
             {
                 'phone_digits': staff_phone,
                 'password': 'StaffPass123',
-                'role': 'tarjimon',
+                'role': 'hodim',
             },
             format='json',
         )
         self.assertEqual(bad_login.status_code, 401)
 
         good_login = self._login_user(staff_phone, 'NewPass456')
-        self.assertEqual(good_login['role'], 'tarjimon')
+        self.assertEqual(good_login['role'], 'hodim')
 
     def test_change_password_and_deprovision(self):
         Group.objects.get_or_create(name='hodim')

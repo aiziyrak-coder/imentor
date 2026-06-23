@@ -12,7 +12,6 @@ import React, { useState, useEffect, useCallback, useMemo, createContext, useCon
 import { 
   LayoutDashboard, 
   Presentation, 
-  Languages, 
   Menu, 
   X,
   Bell,
@@ -65,7 +64,6 @@ import {
 } from './utils/deviceSession';
 import PresentationBuilder from './components/PresentationBuilder';
 import CaseStudies from './components/CaseStudies';
-import Translator from './components/Translator';
 import UserProfile from './components/UserProfile';
 import SyllabusView from './components/SyllabusView';
 import TestQuestions from './components/TestQuestions';
@@ -109,7 +107,6 @@ type View =
   | 'presentation'
   | 'cases'
   | 'tests'
-  | 'translator'
   | 'lectures'
   | 'handouts'
   | 'content-catalog'
@@ -135,7 +132,6 @@ const NAV_ICONS: Record<View, LucideIcon> = {
   cases: BriefcaseMedical,
   tests: ClipboardList,
   profile: UserCircle,
-  translator: Languages,
   startup: Rocket,
   'startup-dossier': FolderOpen,
 };
@@ -152,18 +148,15 @@ const ADMIN_NAV_IDS: View[] = [
   'admin-tests',
   'profile',
 ];
-const TARJIMON_NAV_IDS: View[] = ['translator', 'profile'];
 const STARTUPER_NAV_IDS: View[] = ['startup', 'startup-dossier', 'profile'];
 
 function navItemsForRole(role: UserRole, lang: AppLanguage): NavItemDef[] {
   const ids =
     role === 'admin'
       ? ADMIN_NAV_IDS
-      : role === 'tarjimon'
-        ? TARJIMON_NAV_IDS
-        : role === 'startuper'
-          ? STARTUPER_NAV_IDS
-          : HODIM_NAV_IDS;
+      : role === 'startuper'
+        ? STARTUPER_NAV_IDS
+        : HODIM_NAV_IDS;
   return ids.map((id) => ({ id, label: navLabel(lang, id), icon: NAV_ICONS[id] }));
 }
 
@@ -238,7 +231,7 @@ export default function App() {
   const [mountedViews, setMountedViews] = useState<View[]>([]);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
-  /** Kompyuterda admin/tarjimon/startuper uchun klassik login */
+  /** Kompyuterda admin/startuper uchun klassik login */
   const [desktopStaffLogin, setDesktopStaffLogin] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopicContext | null>(() =>
     loadPersistedSelectedTopic(),
@@ -502,8 +495,6 @@ export default function App() {
         return <CaseStudies />;
       case 'tests':
         return <TestQuestions />;
-      case 'translator':
-        return <Translator />;
       default:
         return (
           <SyllabusView

@@ -104,7 +104,7 @@ class Command(BaseCommand):
                 user.set_password(password)
                 user.save(update_fields=["password", "first_name", "last_name"])
 
-                for other_role in ("admin", "hodim", "tarjimon", "startuper"):
+                for other_role in ("admin", "hodim", "startuper"):
                     other = Group.objects.filter(name=other_role).first()
                     if other is not None:
                         user.groups.remove(other)

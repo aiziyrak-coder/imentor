@@ -1,7 +1,7 @@
 import { logStaffActivity } from './staffActivityLog';
 
-/** admin — to‘liq kirish; hodim — tarjimadan boshqa modullar; tarjimon — faqat tarjima; startuper — innovatsiya loyihalari */
-export type UserRole = 'admin' | 'hodim' | 'tarjimon' | 'startuper';
+/** admin — to‘liq kirish; hodim — ta'lim modullari; startuper — innovatsiya loyihalari */
+export type UserRole = 'admin' | 'hodim' | 'startuper';
 
 export interface LocalStaffUser {
   uid: string;
@@ -40,9 +40,6 @@ export const TEST_STAFF_PASSWORD = 'TestHodim123';
 export const TEST_ADMIN_PHONE = '+998901110001';
 export const TEST_ADMIN_PASSWORD = 'AdminDemo123';
 
-export const TEST_TARJIMON_PHONE = '+998901110002';
-export const TEST_TARJIMON_PASSWORD = 'TarjimaDemo123';
-
 export const TEST_STARTUPER_PHONE = '+998901110003';
 export const TEST_STARTUPER_PASSWORD = 'StartupDemo123';
 
@@ -64,16 +61,9 @@ export const DEMO_ROLE_LOGINS: {
   {
     role: 'hodim',
     title: 'Assistant professor',
-    subtitle: 'Ta‘lim modullari (tarjimasiz)',
+    subtitle: 'Ta\'lim modullari',
     phone: TEST_STAFF_PHONE,
     password: TEST_STAFF_PASSWORD,
-  },
-  {
-    role: 'tarjimon',
-    title: 'Tarjimon',
-    subtitle: 'Faqat tarjima',
-    phone: TEST_TARJIMON_PHONE,
-    password: TEST_TARJIMON_PASSWORD,
   },
   {
     role: 'startuper',
@@ -86,7 +76,8 @@ export const DEMO_ROLE_LOGINS: {
 
 export function normalizeUserRole(user: LocalStaffUser | null | undefined): UserRole {
   const r = user?.role;
-  if (r === 'admin' || r === 'hodim' || r === 'tarjimon' || r === 'startuper') return r;
+  if (r === 'admin' || r === 'hodim' || r === 'startuper') return r;
+  if (r === 'tarjimon') return 'hodim';
   return 'hodim';
 }
 
@@ -157,24 +148,6 @@ export function ensureDefaultRoleDemosExist(): void {
     email: phoneDigitsToEmail(normalizePhoneDigits(TEST_STAFF_PHONE)),
     password: TEST_STAFF_PASSWORD,
     role: 'hodim',
-    createdAt: now,
-    updatedAt: now,
-    photoURL: null,
-  });
-
-  upsertDemoUser({
-    uid: `demo_tarjimon_${now}`,
-    displayName: 'Demo Tarjimon',
-    firstName: 'Demo',
-    lastName: 'Tarjimon',
-    phoneDisplay: TEST_TARJIMON_PHONE,
-    phoneDigits: normalizePhoneDigits(TEST_TARJIMON_PHONE),
-    faculty: 'Tarjima',
-    department: 'Tillar',
-    direction: 'Tarjimon',
-    email: phoneDigitsToEmail(normalizePhoneDigits(TEST_TARJIMON_PHONE)),
-    password: TEST_TARJIMON_PASSWORD,
-    role: 'tarjimon',
     createdAt: now,
     updatedAt: now,
     photoURL: null,

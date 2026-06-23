@@ -480,7 +480,6 @@ export default function AdminStaffManagement() {
                 >
                   <option value="hodim">{roleLabel(language, 'hodim')}</option>
                   <option value="admin">{roleLabel(language, 'admin')}</option>
-                  <option value="tarjimon">{roleLabel(language, 'tarjimon')}</option>
                   <option value="startuper">{roleLabel(language, 'startuper')}</option>
                 </select>
               </label>

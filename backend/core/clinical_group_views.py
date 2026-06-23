@@ -150,7 +150,7 @@ class ClinicalGroupMemberWriteSerializer(serializers.Serializer):
 
 
 class ClinicalGroupMemberPatchSerializer(serializers.Serializer):
-    app_role = serializers.ChoiceField(choices=("hodim", "tarjimon", "startuper"), required=False)
+    app_role = serializers.ChoiceField(choices=("hodim", "startuper"), required=False)
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     faculty = serializers.CharField(max_length=255, required=False, allow_blank=True)

@@ -29,7 +29,7 @@ python -m venv .venv
 - `POST /api/v1/auth/token/`
 - `POST /api/v1/auth/token/refresh/`
 - `POST /api/v1/auth/local-login/` (bridge for local frontend auth to JWT)
-- `GET /api/v1/auth/me/` (JWT + role: `admin|hodim|tarjimon`)
+- `GET /api/v1/auth/me/` (JWT + role: `admin|hodim|startuper`)
 - `GET/POST /api/v1/prepared-content/` (JWT + role protected)
 - `GET /api/docs/` (Swagger UI)
 

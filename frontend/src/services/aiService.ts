@@ -1,4 +1,4 @@
-import { type AppLanguage, aiLanguageName, inferPdfLanguage } from '../i18n/language';
+import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
 import { translate } from '../i18n/translations';
 import {
   extractTopicsByRegex,
@@ -18,7 +18,6 @@ import {
   assertDeepseekApiKey,
   deepseekJson,
   deepseekText,
-  deepseekWithImage,
 } from './deepseekClient';
 
 const SYS_MEDICAL =
@@ -570,62 +569,6 @@ export const aiService = {
     } catch (error) {
       console.error(error);
       return `Professional medical illustration for: ${title}`;
-    }
-  },
-
-  async translatePageVisual(imageBase64: string, targetLang: AppLanguage = 'uz'): Promise<any[]> {
-    try {
-      assertDeepseekApiKey();
-      const targetName = aiLanguageName(targetLang);
-      const raw = await deepseekWithImage({
-        model: DEEPSEEK_CHAT,
-        system:
-          'You are a professional medical/scientific document OCR and translator. ' +
-          'Detect EVERY visible text block: titles, paragraphs, captions, footnotes, table cells, figure labels, headers, page numbers with text. ' +
-          `Translate ALL text into ${targetName} using correct medical terminology. ` +
-          'Rules: output ONLY a valid JSON array (no markdown fences). ' +
-          'Each item: {"box":[ymin,xmin,ymax,xmax],"text":"translated text"}. ' +
-          'Coordinates normalized 0-1000 (ymin,xmin,ymax,xmax). ' +
-          'Do NOT leave source-language words except universal abbreviations (DNA, MRI, ECG, etc.). ' +
-          'Merge lines that belong to the same paragraph into one block. Preserve numbers, doses, and units.',
-        userText: `Extract and fully translate every text block on this page into ${targetName}. Return JSON array only.`,
-        imageBase64,
-        mimeType: 'image/jpeg',
-        maxTokens: 8192,
-      });
-      const parsed = parseAiJson<unknown>(raw);
-      if (!Array.isArray(parsed)) {
-        throw new Error('Visual translation response is not a JSON array');
-      }
-      return parsed;
-    } catch (error) {
-      console.error("Visual translation failed:", error);
-      throw error;
-    }
-  },
-
-  async translateText(text: string, targetLang: AppLanguage = 'uz', customDictionary?: Record<string, string>): Promise<string> {
-    try {
-      const targetName = aiLanguageName(targetLang);
-      let dictInstruction = '';
-      if (customDictionary && Object.keys(customDictionary).length > 0) {
-        const dictEntries = Object.entries(customDictionary).map(([k, v]) => `- ${k} -> ${v}`).join('\n');
-        dictInstruction = `\n\nUse this custom terminology dictionary:\n${dictEntries}`;
-      }
-
-      return deepseekText({
-        model: DEEPSEEK_FAST,
-        system:
-          `Professional medical translator. Translate the entire input into ${targetName}. ` +
-          'Translate every word and sentence; do not mix languages. Use standard clinical terminology.' +
-          dictInstruction,
-        user: text,
-        maxTokens: 4096,
-        temperature: 0.2,
-      });
-    } catch (error) {
-      console.error("Translation failed:", error);
-      throw error;
     }
   },
 

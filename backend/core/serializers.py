@@ -23,7 +23,7 @@ from .week_schedule import current_week_phase_code
 class LocalLoginSerializer(serializers.Serializer):
     phone_digits = serializers.CharField(max_length=20)
     password = serializers.CharField(min_length=6, max_length=128)
-    role = serializers.ChoiceField(choices=["admin", "hodim", "tarjimon", "startuper"], required=False)
+    role = serializers.ChoiceField(choices=["admin", "hodim", "startuper"], required=False)
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     display_name = serializers.CharField(max_length=255, required=False, allow_blank=True)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from rest_framework.permissions import BasePermission
 
-ALLOWED_ROLES = ("admin", "klinika_admin", "hodim", "tarjimon", "startuper")
+ALLOWED_ROLES = ("admin", "klinika_admin", "hodim", "startuper")
 
 
 def _jwt_role_claim(request) -> str | None:
@@ -52,7 +52,7 @@ def resolve_user_role(user, request=None) -> str | None:
 class HasEducationRole(BasePermission):
     """
     Allow only users with one of project roles:
-    admin, hodim, tarjimon, startuper.
+    admin, hodim, startuper.
     """
 
     message = "You do not have a permitted role for this endpoint."

@@ -17,7 +17,7 @@ import { normalizePhotoUrlForCompare } from './profilePhotoApi';
 type BackendTokenBundle = {
   access: string;
   refresh: string;
-  role: 'admin' | 'hodim' | 'tarjimon' | 'startuper';
+  role: 'admin' | 'hodim' | 'startuper';
   username: string;
   first_name?: string;
   last_name?: string;

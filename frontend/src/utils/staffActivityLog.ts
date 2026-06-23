@@ -8,7 +8,7 @@ export interface StaffActivityEntry {
   kind: ActivityKind;
   uid: string;
   displayName: string;
-  role: 'admin' | 'hodim' | 'tarjimon' | 'startuper';
+  role: 'admin' | 'hodim' | 'startuper';
   phoneDigits: string;
 }
 

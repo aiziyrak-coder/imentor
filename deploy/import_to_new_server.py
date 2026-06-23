@@ -36,7 +36,6 @@ def parse_time(s):
 USERS = [
     ("998901110001", "AdminDemo123", "admin", "Admin", "Demo"),
     ("998901112233", "TestHodim123", "hodim", "Test", "Hodim"),
-    ("998901110002", "TarjimaDemo123", "tarjimon", "Tarjimon", "Demo"),
     ("998901110003", "StartupDemo123", "startuper", "Startuper", "Demo"),
 ]
 for phone, pw, role, fn, ln in USERS:

@@ -40,7 +40,7 @@ def main() -> int:
 import json
 from django.contrib.auth.models import Group, User
 
-ALLOWED = ("admin", "hodim", "tarjimon", "startuper")
+ALLOWED = ("admin", "hodim", "startuper")
 rows = json.loads(open("/tmp/imentor_staff_provision.json", encoding="utf-8").read())
 
 def digits_only(phone: str) -> str:

@@ -257,7 +257,7 @@ def _resolve_login_role(user: User, requested_role: str) -> str:
     if requested == "admin":
         db_role = resolve_user_role(user, request=None)
         return db_role or "hodim"
-    if requested in ("hodim", "tarjimon", "startuper"):
+    if requested in ("hodim", "startuper"):
         _set_user_role_group(user, requested)
         return requested
     db_role = resolve_user_role(user, request=None)

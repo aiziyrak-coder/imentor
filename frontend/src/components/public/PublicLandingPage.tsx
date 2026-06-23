@@ -8,7 +8,7 @@ import {
   ClipboardList,
   FileText,
   GraduationCap,
-  Languages,
+  MapPin,
   Presentation,
   Rocket,
   Shield,
@@ -138,8 +138,8 @@ export default function PublicLandingPage({
     { icon: BriefcaseMedical, titleKey: 'publicLanding.featureCases' as const, descKey: 'publicLanding.featureCasesDesc' as const, color: 'emerald' as const },
     { icon: ClipboardList, titleKey: 'publicLanding.featureTests' as const, descKey: 'publicLanding.featureTestsDesc' as const, color: 'violet' as const },
     { icon: Presentation, titleKey: 'publicLanding.featurePresentation' as const, descKey: 'publicLanding.featurePresentationDesc' as const, color: 'orange' as const },
-    { icon: Languages, titleKey: 'publicLanding.featureTranslation' as const, descKey: 'publicLanding.featureTranslationDesc' as const, color: 'cyan' as const },
     { icon: Rocket, titleKey: 'publicLanding.featureStartup' as const, descKey: 'publicLanding.featureStartupDesc' as const, color: 'pink' as const },
+    { icon: MapPin, titleKey: 'publicLanding.gpsTitle' as const, descKey: 'publicLanding.gpsDesc' as const, color: 'amber' as const },
   ];
 
   const steps = [
@@ -151,7 +151,6 @@ export default function PublicLandingPage({
   const roles = [
     { icon: Shield, titleKey: 'publicLanding.roleAdmin' as const, descKey: 'publicLanding.roleAdminDesc' as const, color: 'indigo' as const },
     { icon: GraduationCap, titleKey: 'publicLanding.roleHodim' as const, descKey: 'publicLanding.roleHodimDesc' as const, color: 'emerald' as const },
-    { icon: Languages, titleKey: 'publicLanding.roleTranslator' as const, descKey: 'publicLanding.roleTranslatorDesc' as const, color: 'cyan' as const },
     { icon: Rocket, titleKey: 'publicLanding.roleStartuper' as const, descKey: 'publicLanding.roleStartuperDesc' as const, color: 'amber' as const },
   ];
 
@@ -397,7 +396,7 @@ export default function PublicLandingPage({
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">{t(language, 'publicLanding.rolesTitle')}</h2>
             <p className="text-[15px] text-slate-500 mt-3">{t(language, 'publicLanding.rolesSubtitle')}</p>
           </motion.div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {roles.map((role, i) => {
               const c = ICON_COLORS[role.color];
               return (

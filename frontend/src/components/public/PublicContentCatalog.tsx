@@ -234,14 +234,32 @@ function PublicCatalogDetail({
 type Props = {
   language: AppLanguage;
   embedded?: boolean;
+  compact?: boolean;
+  expanded?: boolean;
+  onExpandChange?: (expanded: boolean) => void;
+  previewLimit?: number;
 };
 
-export default function PublicContentCatalog({ language, embedded = false }: Props) {
+export default function PublicContentCatalog({
+  language,
+  embedded = false,
+  compact = false,
+  expanded: expandedProp,
+  onExpandChange,
+  previewLimit = 6,
+}: Props) {
+  const [expandedInternal, setExpandedInternal] = useState(false);
+  const expanded = expandedProp ?? expandedInternal;
+  const setExpanded = (v: boolean) => {
+    setExpandedInternal(v);
+    onExpandChange?.(v);
+  };
   const [kindFilter, setKindFilter] = useState<KindFilter>('');
   const [subjectCode, setSubjectCode] = useState('');
   const [search, setSearch] = useState('');
   const [author, setAuthor] = useState('');
   const [sort, setSort] = useState<'subject' | 'topic' | 'newest'>('subject');
+  const isCompactCollapsed = compact && !expanded;
   const [items, setItems] = useState<PublicCatalogItemSummary[]>([]);
   const [subjects, setSubjects] = useState<Awaited<ReturnType<typeof fetchPublicCatalogSubjects>>>([]);
   const [loading, setLoading] = useState(true);
@@ -287,49 +305,118 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
     }
   };
 
+  const previewItems = useMemo(
+    () =>
+      [...items]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, previewLimit),
+    [items, previewLimit],
+  );
+
+  const renderItemRow = (row: PublicCatalogItemSummary, compactRow = false) => (
+    <button
+      key={row.id}
+      type="button"
+      onClick={() => void openDetail(row.id)}
+      className={`w-full flex items-center gap-3 text-left rounded-2xl border border-black/[0.06] bg-white/70 hover:bg-[#083047]/[0.03] hover:border-[#083047]/10 transition-colors ${
+        compactRow ? 'px-3 py-3' : 'px-4 sm:px-5 py-4 gap-4'
+      }`}
+    >
+      <div
+        className={`rounded-xl flex items-center justify-center shrink-0 ${
+          compactRow ? 'w-9 h-9' : 'w-10 h-10'
+        } ${row.kind === 'case' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-indigo-500/10 text-indigo-700'}`}
+      >
+        {row.kind === 'case' ? <BriefcaseMedical size={compactRow ? 16 : 18} /> : <ClipboardList size={compactRow ? 16 : 18} />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className={`font-semibold text-black/90 truncate ${compactRow ? 'text-[13px]' : ''}`}>{row.topic}</p>
+        <p className={`text-black/45 mt-0.5 truncate ${compactRow ? 'text-[11px]' : 'text-[12px]'}`}>
+          {row.kind === 'case' ? t(language, 'catalog.kindCase') : t(language, 'catalog.kindTest')} ·{' '}
+          {row.question_count} · {row.author_display_name}
+        </p>
+      </div>
+      <span className={`inline-flex items-center gap-1 font-semibold text-indigo-600 shrink-0 ${compactRow ? 'text-[11px]' : 'text-[12px] gap-1.5 pl-2'}`}>
+        <Eye size={compactRow ? 13 : 14} /> {t(language, 'catalog.view')}
+      </span>
+    </button>
+  );
+
   return (
     <section
       id="public-catalog"
       className={
         embedded
-          ? 'space-y-6 p-5 sm:p-7 lg:p-8'
+          ? compact
+            ? 'space-y-4'
+            : 'space-y-6 p-5 sm:p-7 lg:p-8'
           : 'w-full px-3 sm:px-5 lg:px-8 py-6 pb-20 space-y-6'
       }
     >
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-lg">
-            <BookOpen size={26} />
-          </div>
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-black text-[#083047] tracking-tight">
-              {t(language, 'publicCatalog.title')}
-            </h2>
-            <p className="text-[14px] text-[#0b425e]/70 mt-1 max-w-2xl leading-relaxed">
-              {t(language, 'publicCatalog.subtitle')}
-            </p>
-            <div className="flex flex-wrap gap-2 mt-3">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
-                <BriefcaseMedical size={12} /> {t(language, 'publicCatalog.caseCount', { count: caseCount })}
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">
-                <ClipboardList size={12} /> {t(language, 'publicCatalog.testCount', { count: testCount })}
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
-                <Clock size={12} /> {t(language, 'catalog.delayNotice')}
-              </span>
+      {!isCompactCollapsed && (
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-lg">
+              <BookOpen size={26} />
+            </div>
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-black text-[#083047] tracking-tight">
+                {t(language, 'publicCatalog.title')}
+              </h2>
+              <p className="text-[14px] text-[#0b425e]/70 mt-1 max-w-2xl leading-relaxed">
+                {t(language, 'publicCatalog.subtitle')}
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                  <BriefcaseMedical size={12} /> {t(language, 'publicCatalog.caseCount', { count: caseCount })}
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">
+                  <ClipboardList size={12} /> {t(language, 'publicCatalog.testCount', { count: testCount })}
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+                  <Clock size={12} /> {t(language, 'catalog.delayNotice')}
+                </span>
+              </div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#0c5a7e]/20 bg-white/80 text-[13px] font-semibold shrink-0 shadow-sm hover:bg-white"
+          >
+            <RefreshCw size={16} /> {t(language, 'catalog.refresh')}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#0c5a7e]/20 bg-white/80 text-[13px] font-semibold shrink-0 shadow-sm hover:bg-white"
-        >
-          <RefreshCw size={16} /> {t(language, 'catalog.refresh')}
-        </button>
-      </div>
+      )}
 
+      {isCompactCollapsed && !detail && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+            <BriefcaseMedical size={12} /> {t(language, 'publicCatalog.caseCount', { count: caseCount })}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">
+            <ClipboardList size={12} /> {t(language, 'publicCatalog.testCount', { count: testCount })}
+          </span>
+          <div className="flex flex-wrap gap-1.5 ml-auto">
+            {(['', 'case', 'test'] as KindFilter[]).map((k) => (
+              <button
+                key={k || 'all'}
+                type="button"
+                onClick={() => setKindFilter(k)}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+                  kindFilter === k
+                    ? 'bg-[#083047] text-white border-[#083047]'
+                    : 'bg-white text-[#083047]/80 border-black/10 hover:border-[#0c5a7e]/30'
+                }`}
+              >
+                {k === '' ? t(language, 'catalog.filterAll') : k === 'case' ? t(language, 'catalog.kindCase') : t(language, 'catalog.kindTest')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!isCompactCollapsed && (
       <div className="rounded-3xl border border-white/70 bg-white/75 backdrop-blur-xl p-5 sm:p-6 lg:p-7 space-y-5 shadow-lg">
         <div className="flex flex-wrap gap-2.5">
           {(['', 'case', 'test'] as KindFilter[]).map((k) => (
@@ -400,6 +487,7 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
           </label>
         </div>
       </div>
+      )}
 
       {detailLoading && (
         <div className="flex justify-center py-8">
@@ -418,12 +506,18 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
       )}
 
       {!detail && !loading && items.length === 0 && (
-        <div className="rounded-3xl border border-white/70 bg-white/70 p-12 text-center text-black/45 text-[14px]">
-          {t(language, 'catalog.empty')}
+        <div className={`rounded-2xl border border-white/70 bg-white/70 text-center text-black/45 ${isCompactCollapsed ? 'p-8 text-[13px]' : 'p-12 text-[14px] rounded-3xl'}`}>
+          {isCompactCollapsed ? t(language, 'publicCatalog.previewEmpty') : t(language, 'catalog.empty')}
         </div>
       )}
 
-      {!detail && !loading && items.length > 0 && (
+      {!detail && !loading && items.length > 0 && isCompactCollapsed && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {previewItems.map((row) => renderItemRow(row, true))}
+        </div>
+      )}
+
+      {!detail && !loading && items.length > 0 && !isCompactCollapsed && (
         <div className="space-y-5">
           {[...grouped.entries()].map(([subjectName, rows]) => {
             const isOpen = expandedSubject === null || expandedSubject === subjectName;
@@ -446,36 +540,7 @@ export default function PublicContentCatalog({ language, embedded = false }: Pro
                 </button>
                 {isOpen && (
                   <div className="px-3 sm:px-4 pb-4 pt-1 space-y-2">
-                    {(rows as PublicCatalogItemSummary[]).map((row) => (
-                      <button
-                        key={row.id}
-                        type="button"
-                        onClick={() => void openDetail(row.id)}
-                        className="w-full flex items-center gap-4 px-4 sm:px-5 py-4 text-left rounded-2xl border border-black/[0.06] bg-white/70 hover:bg-[#083047]/[0.03] hover:border-[#083047]/10 transition-colors"
-                      >
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                            row.kind === 'case' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-indigo-500/10 text-indigo-700'
-                          }`}
-                        >
-                          {row.kind === 'case' ? <BriefcaseMedical size={18} /> : <ClipboardList size={18} />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold text-black/90 truncate">{row.topic}</p>
-                          <p className="text-[12px] text-black/45 mt-0.5">
-                            {row.kind === 'case' ? t(language, 'catalog.kindCase') : t(language, 'catalog.kindTest')} ·{' '}
-                            {row.question_count} · {row.author_display_name} ·{' '}
-                            {new Date(row.created_at).toLocaleDateString(locale)}
-                          </p>
-                          {row.document_id && (
-                            <p className="text-[10px] font-mono text-emerald-700/70 mt-0.5">{row.document_id}</p>
-                          )}
-                        </div>
-                        <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 shrink-0 pl-2">
-                          <Eye size={14} /> {t(language, 'catalog.view')}
-                        </span>
-                      </button>
-                    ))}
+                    {(rows as PublicCatalogItemSummary[]).map((row) => renderItemRow(row))}
                   </div>
                 )}
               </div>

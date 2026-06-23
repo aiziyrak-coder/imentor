@@ -76,3 +76,42 @@ body {
 .orb-float {
   animation: floatOrb 8s ease-in-out infinite;
 }
+
+@keyframes landingShimmer {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+@keyframes landingPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes landingFadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.landing-gradient-text {
+  background: linear-gradient(135deg, #34d399 0%, #22d3ee 40%, #818cf8 80%, #34d399 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: landingShimmer 6s linear infinite;
+}
+
+.landing-grid-bg {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+.landing-glow {
+  animation: landingPulse 4s ease-in-out infinite;
+}
+
+.landing-fade-up {
+  animation: landingFadeUp 0.7s ease-out both;
+}

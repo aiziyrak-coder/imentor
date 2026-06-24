@@ -28,9 +28,11 @@ import {
   buildCaseStructurePrompt,
   buildCaseKeywordsFocusPrompt,
   buildTestVarietyPrompt,
+  CASE_STUDY_FOCUS_ORDER,
   GENERATION_UNIQUENESS_RULE,
   summarizeCaseForAvoid,
   summarizeTestForAvoid,
+  type CaseStudyFocus,
 } from '../utils/generationVariety';
 import { listPreparedForTopic, loadPreparedById } from '../utils/preparedContentStore';
 import { normalizeCaseFocus } from '../utils/caseFocusLabels';
@@ -334,14 +336,68 @@ function isWeakCaseSession(data: CaseStudySession | null | undefined): boolean {
     s: (q.scenario || '').trim().length,
     a: (q.answer || '').trim().length,
   }));
-  const tooShortCount = lengths.filter((x) => x.s < 550 || x.a < 420).length;
-  return tooShortCount >= 1;
+  const tooShortCount = lengths.filter((x) => x.s < 100 || x.a < 80).length;
+  return tooShortCount >= 2;
+}
+
+const CASE_FOCUS_HINTS: Record<CaseStudyFocus, string> = {
+  profilaktika: 'profilaktika, skrining, xavf omillarini boshqarish, kasallikni oldini olish',
+  davolash: 'davolash strategiyasi, dori tanlash, kuzatuv, asoratlarni kamaytirish',
+  tashxis: 'differensial tashxis, qo\'shimcha tekshiruvlar, klinik mantiq, tashxisni asoslash',
+};
+
+async function generateSingleCaseQuestion(
+  topic: string,
+  focus: CaseStudyFocus,
+  language: AppLanguage,
+  keywordFocus: string,
+  avoid: string,
+): Promise<CaseStudyQuestion> {
+  const outLang = languageName(language);
+  const structure = buildCaseStructurePrompt(topic);
+  const request = (strict: boolean) =>
+    deepseekJson<{ scenario?: string; answer?: string; references?: MedicalReference[]; focus?: string }>({
+      model: DEEPSEEK_CHAT,
+      system:
+        `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} Return ONLY valid JSON object: ` +
+        `{"scenario":"...","answer":"...","references":[{"title":"...","url":"https://..."}]}. ` +
+        `Language: ${outLang}. focus="${focus}". ${MEDICAL_REFERENCES_AI_RULES}`,
+      user:
+        `${structure}${keywordFocus}${avoid}\n\n` +
+        `Generate ONE clinical case with focus="${focus}" (${CASE_FOCUS_HINTS[focus]}). ` +
+        'Scenario: 2–4 paragraphs with patient details. Answer: 2–4 paragraphs, focus-specific clinical reasoning. ' +
+        'Include 2 references in JSON. End answer with [1][2] style citations. ' +
+        (strict ? 'Strict valid JSON only.' : ''),
+      maxTokens: 3072,
+      temperature: strict ? 0.4 : 0.58,
+      parse: (t) => parseJSONSafe(t),
+    });
+
+  let raw: { scenario?: string; answer?: string; references?: MedicalReference[]; focus?: string };
+  try {
+    raw = await request(false);
+  } catch {
+    raw = await request(true);
+  }
+
+  return {
+    scenario: (raw.scenario || '').trim(),
+    answer: (raw.answer || '').trim(),
+    focus: normalizeCaseFocus(raw.focus, CASE_STUDY_FOCUS_ORDER.indexOf(focus)),
+    ...(normalizeMedicalReferences(raw.references, topic).length
+      ? { references: normalizeMedicalReferences(raw.references, topic) }
+      : {}),
+  };
 }
 
 function normalizeCaseSession(topic: string, data: CaseStudySession): CaseStudySession {
-  const cleanedQuestions = (data.questions || [])
-    .slice(0, 3)
-    .map((q, i) => {
+  const rawQuestions = [...(data.questions || [])].slice(0, 3);
+  while (rawQuestions.length < 3) {
+    const focus = CASE_STUDY_FOCUS_ORDER[rawQuestions.length];
+    rawQuestions.push({ scenario: '', answer: '', focus });
+  }
+
+  const cleanedQuestions = rawQuestions.map((q, i) => {
       const scenario = (q.scenario || '').trim();
       const answer = (q.answer || '').trim();
       const fallbackScenario = [
@@ -450,27 +506,48 @@ export const aiService = {
       const outLang = languageName(language);
       const avoid = previousCaseAvoidBlock(topic);
       const keywordFocus = buildCaseKeywordsFocusPrompt(keywords);
-      const requestCases = async (strict: boolean): Promise<CaseStudySession> => {
+
+      const requestBatch = async (strict: boolean): Promise<CaseStudySession> => {
         const structure = buildCaseStructurePrompt(topic);
         return deepseekJson({
           model: DEEPSEEK_CHAT,
           system: `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} 3 ta klinik case JSON: {topic, references:[...], questions:[{focus:"profilaktika"|"davolash"|"tashxis", scenario, answer, references:[...]}]}. Aynan 3 ta: 1-profilaktika, 2-davolash, 3-tashxis. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
-          user: `${structure}${keywordFocus}${avoid}\n\nHar scenario 3-5 paragraf. Har answer fokusga mos: profilaktika keysida profilaktik choralar, davolash keysida davolash rejasi, tashxis keysida differensial tashxis va asoslash. Javob oxirida [1][2] iqtiboslar. ${strict ? 'Maksimal sifat, faqat valid JSON.' : ''}`,
+          user: `${structure}${keywordFocus}${avoid}\n\nHar scenario 2-4 paragraf. Har answer fokusga mos. Javob oxirida [1][2] iqtiboslar. ${strict ? 'Maksimal sifat, faqat valid JSON.' : ''}`,
           maxTokens: 8192,
-          temperature: strict ? 0.48 : 0.72,
+          temperature: strict ? 0.45 : 0.6,
           parse: (t) => parseJSONSafe<CaseStudySession>(t),
         });
       };
 
-      let data: CaseStudySession;
+      let questions: CaseStudyQuestion[];
       try {
-        data = await requestCases(false);
-      } catch {
-        data = await requestCases(true);
+        questions = await Promise.all(
+          CASE_STUDY_FOCUS_ORDER.map((focus) =>
+            generateSingleCaseQuestion(topic, focus, language, keywordFocus, avoid),
+          ),
+        );
+      } catch (parallelError) {
+        console.warn('Parallel case generation failed, trying batch:', parallelError);
+        let data: CaseStudySession;
+        try {
+          data = await requestBatch(false);
+        } catch {
+          data = await requestBatch(true);
+        }
+        if (isWeakCaseSession(data)) {
+          data = await requestBatch(true);
+        }
+        questions = data.questions || [];
       }
-      if (isWeakCaseSession(data)) {
-        data = await requestCases(true);
-      }
+
+      const sessionRefs = mergeReferences(
+        ...questions.map((q) => normalizeMedicalReferences(q.references, topic)),
+      );
+      const data: CaseStudySession = {
+        topic,
+        questions,
+        references: sessionRefs,
+      };
       const normalized = normalizeCaseSession(topic, data);
       return keywords.length ? { ...normalized, keywords } : normalized;
     } catch (error) {

@@ -102,6 +102,7 @@ export default function CaseStudies() {
   };
 
   const parsedKeywords = useMemo(() => parseKeywordsInput(keywords), [keywords]);
+  const contentLanguage = globalTopic?.instructionLanguage ?? language;
 
   const handleGenerate = async (currentTopic: string = topic) => {
     if (!currentTopic.trim()) return;
@@ -109,7 +110,7 @@ export default function CaseStudies() {
     setLoading(true);
     setError(null);
     try {
-      const data = await aiService.generateCaseStudy(currentTopic, language, parsedKeywords);
+      const data = await aiService.generateCaseStudy(currentTopic, contentLanguage, parsedKeywords);
       await savePreparedContent('case', currentTopic, data, buildPreparedContentMeta(globalTopic));
       refreshVersions();
       const list = listPreparedForTopic('case', currentTopic);

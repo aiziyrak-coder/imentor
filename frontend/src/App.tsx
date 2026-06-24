@@ -12,7 +12,6 @@ import React, { useState, useEffect, useCallback, useMemo, createContext, useCon
 import { 
   LayoutDashboard, 
   Presentation, 
-  Languages,
   Menu, 
   X,
   Bell,
@@ -65,7 +64,6 @@ import {
 } from './utils/deviceSession';
 import PresentationBuilder from './components/PresentationBuilder';
 import CaseStudies from './components/CaseStudies';
-import Translator from './components/Translator';
 import UserProfile from './components/UserProfile';
 import SyllabusView from './components/SyllabusView';
 import TestQuestions from './components/TestQuestions';
@@ -109,7 +107,6 @@ type View =
   | 'presentation'
   | 'cases'
   | 'tests'
-  | 'translator'
   | 'lectures'
   | 'handouts'
   | 'content-catalog'
@@ -134,13 +131,12 @@ const NAV_ICONS: Record<View, LucideIcon> = {
   'content-catalog': Library,
   cases: BriefcaseMedical,
   tests: ClipboardList,
-  translator: Languages,
   profile: UserCircle,
   startup: Rocket,
   'startup-dossier': FolderOpen,
 };
 
-const HODIM_NAV_IDS: View[] = ['syllabus', 'lectures', 'presentation', 'handouts', 'translator', 'cases', 'tests', 'profile'];
+const HODIM_NAV_IDS: View[] = ['syllabus', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
 const ADMIN_NAV_IDS: View[] = [
   'admin-dashboard',
   'admin-staff',
@@ -499,8 +495,6 @@ export default function App() {
         return <CaseStudies />;
       case 'tests':
         return <TestQuestions />;
-      case 'translator':
-        return <Translator />;
       default:
         return (
           <SyllabusView

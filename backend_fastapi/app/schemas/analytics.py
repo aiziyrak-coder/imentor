@@ -5,7 +5,10 @@ from pydantic import BaseModel, Field
 
 class ActivityEventIn(BaseModel):
     event_type: str
-    duration_sec: int = 0
+    #: Bir bo'lakdagi vaqt. Yuqori chegara MARSHRUTDA qirqiladi (`MAX_EVENT_SEC`),
+    #: bu yerda emas: chegaradan oshgan bitta hodisa butun to'plamni 422 ga
+    #: olib borar va o'sha daqiqadagi barcha vaqt yo'qolardi.
+    duration_sec: int = Field(default=0, ge=0)
     client_ts_ms: int | None = None
     meta: dict = Field(default_factory=dict)
 
@@ -13,6 +16,8 @@ class ActivityEventIn(BaseModel):
 class ActivityEventsBatchIn(BaseModel):
     events: list[ActivityEventIn] = Field(default_factory=list, max_length=50)
     page: str = ""
+    #: Yuborish payti — MIJOZ soati bilan. `client_ts_ms` bilan farqi kechikish.
+    sent_at_ms: int | None = None
 
 
 class LiveTestEventIn(BaseModel):

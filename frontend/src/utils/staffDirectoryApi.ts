@@ -21,6 +21,11 @@ export type StaffDirectoryEntry = {
   is_active: boolean;
   date_joined: string;
   last_login: string | null;
+  /** Xodim hali kirmagan — paroli hamon boshlang'ich (login ro'yxati uchun). */
+  password_is_initial?: boolean;
+  /** cam.fermi.uz dan bog'langan JSHSHIR ("" — bog'lanmagan) va manbasi. */
+  pinfl?: string;
+  pinfl_source?: string;
 };
 
 function apiBaseUrl(): string {

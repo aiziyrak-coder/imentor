@@ -1,0 +1,937 @@
+{
+ "_note": "Fan va kafedra nomlarining tashqi API uchun ko'rinishi (imlo tuzatilgan, uz/ru/en qo'lda tekshirilgan). Bazadagi asl nomlar O'ZGARMAYDI - ular kalit. Yangi fan qo'shilsa: `titles` ga sof nomni qo'shing (aliases - bazadagi boshqacha yozilishi). `subjects` - nomdan ajratib bo'lmaydigan qiymatlar (subject_code bo'yicha).",
+ "titles": [
+  {
+   "uz": "Akusherlik va ginekologiya",
+   "ru": "Акушерство и гинекология",
+   "en": "Obstetrics and Gynecology",
+   "aliases": [
+    "Akusher ginekologiya"
+   ]
+  },
+  {
+   "uz": "Akusherlik",
+   "ru": "Акушерство",
+   "en": "Obstetrics"
+  },
+  {
+   "uz": "Akusherlik va ginekologiya. Bolalar ginekologiyasi",
+   "ru": "Акушерство и гинекология. Детская гинекология",
+   "en": "Obstetrics and Gynecology. Pediatric Gynecology"
+  },
+  {
+   "uz": "Akusherlik va ginekologiya. Pediatriya",
+   "ru": "Акушерство и гинекология. Педиатрия",
+   "en": "Obstetrics and Gynecology. Pediatrics"
+  },
+  {
+   "uz": "Biofizika",
+   "ru": "Биофизика",
+   "en": "Biophysics"
+  },
+  {
+   "uz": "Biokimyo",
+   "ru": "Биохимия",
+   "en": "Biochemistry"
+  },
+  {
+   "uz": "Dinshunoslik",
+   "ru": "Религиоведение",
+   "en": "Religious Studies",
+   "aliases": [
+    "Dinshunislik"
+   ]
+  },
+  {
+   "uz": "Falsafa",
+   "ru": "Философия",
+   "en": "Philosophy"
+  },
+  {
+   "uz": "O‘zbekistonning eng yangi tarixi",
+   "ru": "Новейшая история Узбекистана",
+   "en": "Modern History of Uzbekistan",
+   "aliases": [
+    "O'zbekistinning eng yangi tarixi"
+   ]
+  },
+  {
+   "uz": "Bolalar yuqumli kasalliklari",
+   "ru": "Детские инфекционные болезни",
+   "en": "Pediatric Infectious Diseases"
+  },
+  {
+   "uz": "Sud tibbiyoti va vrach faoliyatining huquqiy asoslari",
+   "ru": "Судебная медицина и правовые основы врачебной деятельности",
+   "en": "Forensic Medicine and Legal Basis of Medical Practice",
+   "aliases": [
+    "Sud tibbiyoti va vrach faoliyatining asoslari",
+    "Sud tibbiyoti va vrach"
+   ]
+  },
+  {
+   "uz": "Xirurgik kasalliklar",
+   "ru": "Хирургические болезни",
+   "en": "Surgical Diseases"
+  },
+  {
+   "uz": "Anesteziologiya va reanimatologiya",
+   "ru": "Анестезиология и реаниматология",
+   "en": "Anesthesiology and Intensive Care",
+   "aliases": [
+    "Anesteziologiya, reanimatologiya"
+   ]
+  },
+  {
+   "uz": "Endokrinologiya",
+   "ru": "Эндокринология",
+   "en": "Endocrinology",
+   "aliases": [
+    "Endokrinalogiya"
+   ]
+  },
+  {
+   "uz": "Funksional diagnostika",
+   "ru": "Функциональная диагностика",
+   "en": "Functional Diagnostics"
+  },
+  {
+   "uz": "Patologik fiziologiya",
+   "ru": "Патологическая физиология",
+   "en": "Pathophysiology"
+  },
+  {
+   "uz": "Klinik anatomiya (operativ jarrohlik va topografik anatomiya)",
+   "ru": "Клиническая анатомия (оперативная хирургия и топографическая анатомия)",
+   "en": "Clinical Anatomy (Operative Surgery and Topographic Anatomy)"
+  },
+  {
+   "uz": "Normal fiziologiya",
+   "ru": "Нормальная физиология",
+   "en": "Normal Physiology"
+  },
+  {
+   "uz": "Odam anatomiyasi",
+   "ru": "Анатомия человека",
+   "en": "Human Anatomy"
+  },
+  {
+   "uz": "Psixologiya",
+   "ru": "Психология",
+   "en": "Psychology"
+  },
+  {
+   "uz": "Tibbiy kimyo",
+   "ru": "Медицинская химия",
+   "en": "Medical Chemistry"
+  },
+  {
+   "uz": "Tibbiyot kasbiga kirish",
+   "ru": "Введение в медицинскую профессию",
+   "en": "Introduction to the Medical Profession"
+  },
+  {
+   "uz": "Patologik anatomiya",
+   "ru": "Патологическая анатомия",
+   "en": "Pathological Anatomy",
+   "aliases": [
+    "Pathological anatomy"
+   ]
+  },
+  {
+   "uz": "Dermatovenerologiya",
+   "ru": "Дерматовенерология",
+   "en": "Dermatovenereology"
+  },
+  {
+   "uz": "Dermatovenerologiya va bolalar dermatovenerologiyasi",
+   "ru": "Дерматовенерология и детская дерматовенерология",
+   "en": "Dermatovenereology and Pediatric Dermatovenereology"
+  },
+  {
+   "uz": "Tibbiy radiologiya",
+   "ru": "Медицинская радиология",
+   "en": "Medical Radiology"
+  },
+  {
+   "uz": "Yuqumli kasalliklar",
+   "ru": "Инфекционные болезни",
+   "en": "Infectious Diseases",
+   "aliases": [
+    "Yuqumli kasalliklar (Infectious diseases)"
+   ]
+  },
+  {
+   "uz": "Gigiyena, harbiy gigiyena. Tibbiy ekologiya",
+   "ru": "Гигиена, военная гигиена. Медицинская экология",
+   "en": "Hygiene, Military Hygiene. Medical Ecology",
+   "aliases": [
+    "Hygiene, military hygiene. Medical ecology",
+    "Gigiena, harbiy gigiena. Tibbiy ekologiya"
+   ]
+  },
+  {
+   "uz": "Bolalar kasalliklari propedevtikasi",
+   "ru": "Пропедевтика детских болезней",
+   "en": "Propaedeutics of Childhood Diseases",
+   "aliases": [
+    "Bolalar kasalliklari propedevikasi"
+   ]
+  },
+  {
+   "uz": "Ekologiya",
+   "ru": "Экология",
+   "en": "Ecology"
+  },
+  {
+   "uz": "Epidemiologiya",
+   "ru": "Эпидемиология",
+   "en": "Epidemiology"
+  },
+  {
+   "uz": "Farmakologiya",
+   "ru": "Фармакология",
+   "en": "Pharmacology"
+  },
+  {
+   "uz": "Dori vositalarining instrumental tahlil usullari",
+   "ru": "Инструментальные методы анализа лекарственных средств",
+   "en": "Instrumental Methods of Drug Analysis"
+  },
+  {
+   "uz": "Farmasevtik ma’lumot",
+   "ru": "Фармацевтическая информация",
+   "en": "Pharmaceutical Information",
+   "aliases": [
+    "Farmasevtik ma'lumot"
+   ]
+  },
+  {
+   "uz": "Farmasevtikada boshqaruv",
+   "ru": "Управление в фармации",
+   "en": "Pharmaceutical Management"
+  },
+  {
+   "uz": "Farmasevtik biotexnologiya",
+   "ru": "Фармацевтическая биотехнология",
+   "en": "Pharmaceutical Biotechnology"
+  },
+  {
+   "uz": "Tibbiyot va farmasevtika tovarshunosligi",
+   "ru": "Медицинское и фармацевтическое товароведение",
+   "en": "Medical and Pharmaceutical Commodity Science"
+  },
+  {
+   "uz": "Farmakognoziya",
+   "ru": "Фармакогнозия",
+   "en": "Pharmacognosy"
+  },
+  {
+   "uz": "Farmasevtik bioetika",
+   "ru": "Фармацевтическая биоэтика",
+   "en": "Pharmaceutical Bioethics"
+  },
+  {
+   "uz": "Farmasevtik kimyo",
+   "ru": "Фармацевтическая химия",
+   "en": "Pharmaceutical Chemistry"
+  },
+  {
+   "uz": "Farmasevtik texnologiya",
+   "ru": "Фармацевтическая технология",
+   "en": "Pharmaceutical Technology"
+  },
+  {
+   "uz": "Biologik kimyo",
+   "ru": "Биологическая химия",
+   "en": "Biological Chemistry"
+  },
+  {
+   "uz": "Analitik kimyo",
+   "ru": "Аналитическая химия",
+   "en": "Analytical Chemistry"
+  },
+  {
+   "uz": "Farmasevtik botanika",
+   "ru": "Фармацевтическая ботаника",
+   "en": "Pharmaceutical Botany"
+  },
+  {
+   "uz": "Farmasevtik yordam",
+   "ru": "Фармацевтическая помощь",
+   "en": "Pharmaceutical Care"
+  },
+  {
+   "uz": "Fizik va kolloid kimyo",
+   "ru": "Физическая и коллоидная химия",
+   "en": "Physical and Colloid Chemistry"
+  },
+  {
+   "uz": "Organik kimyo",
+   "ru": "Органическая химия",
+   "en": "Organic Chemistry"
+  },
+  {
+   "uz": "Patologiya",
+   "ru": "Патология",
+   "en": "Pathology"
+  },
+  {
+   "uz": "Ekologiya va gigiyena",
+   "ru": "Экология и гигиена",
+   "en": "Ecology and Hygiene"
+  },
+  {
+   "uz": "Gigiyena va ekologiya",
+   "ru": "Гигиена и экология",
+   "en": "Hygiene and Ecology",
+   "aliases": [
+    "Gigiena va ekologiya"
+   ]
+  },
+  {
+   "uz": "Noorganik kimyo",
+   "ru": "Неорганическая химия",
+   "en": "Inorganic Chemistry"
+  },
+  {
+   "uz": "Mutaxassislikka kirish",
+   "ru": "Введение в специальность",
+   "en": "Introduction to the Specialty"
+  },
+  {
+   "uz": "Ta’limda axborot texnologiyalari",
+   "ru": "Информационные технологии в образовании",
+   "en": "Information Technologies in Education",
+   "aliases": [
+    "Ta'limda axborot texnologiyalari"
+   ]
+  },
+  {
+   "uz": "Tibbiy biologiya",
+   "ru": "Медицинская биология",
+   "en": "Medical Biology"
+  },
+  {
+   "uz": "Funksional diagnostikada hamshiralik ishi",
+   "ru": "Сестринское дело в функциональной диагностике",
+   "en": "Nursing in Functional Diagnostics",
+   "aliases": [
+    "Funksional diagnostika hamshirasi"
+   ]
+  },
+  {
+   "uz": "Gistologiya",
+   "ru": "Гистология",
+   "en": "Histology",
+   "aliases": [
+    "Glstologiya"
+   ]
+  },
+  {
+   "uz": "Hamshiralik ishi",
+   "ru": "Сестринское дело",
+   "en": "Nursing"
+  },
+  {
+   "uz": "Ichki kasalliklar propedevtikasi",
+   "ru": "Пропедевтика внутренних болезней",
+   "en": "Propaedeutics of Internal Diseases",
+   "aliases": [
+    "Ichki kasallikalr propedevtikasi"
+   ]
+  },
+  {
+   "uz": "Ichki kasalliklar",
+   "ru": "Внутренние болезни",
+   "en": "Internal Diseases"
+  },
+  {
+   "uz": "Ichki kasalliklar, harbiy dala terapiyasi",
+   "ru": "Внутренние болезни, военно-полевая терапия",
+   "en": "Internal Diseases, Military Field Therapy",
+   "aliases": [
+    "Ichki kasalliklar, XDT"
+   ]
+  },
+  {
+   "uz": "Infeksion nazorat. Klinik epidemiologiya",
+   "ru": "Инфекционный контроль. Клиническая эпидемиология",
+   "en": "Infection Control. Clinical Epidemiology"
+  },
+  {
+   "uz": "Jamoat salomatligi",
+   "ru": "Общественное здоровье",
+   "en": "Public Health"
+  },
+  {
+   "uz": "Klinik endodontiya",
+   "ru": "Клиническая эндодонтия",
+   "en": "Clinical Endodontics"
+  },
+  {
+   "uz": "Klinik restavratsion stomatologiya",
+   "ru": "Клиническая реставрационная стоматология",
+   "en": "Clinical Restorative Dentistry"
+  },
+  {
+   "uz": "Klinik farmakologiya",
+   "ru": "Клиническая фармакология",
+   "en": "Clinical Pharmacology",
+   "aliases": [
+    "Klinika farmakologiya"
+   ]
+  },
+  {
+   "uz": "Kommunal gigiyena",
+   "ru": "Коммунальная гигиена",
+   "en": "Communal Hygiene",
+   "aliases": [
+    "Коммунальная гигиена"
+   ]
+  },
+  {
+   "uz": "Lotin tili va tibbiy terminologiya",
+   "ru": "Латинский язык и медицинская терминология",
+   "en": "Latin and Medical Terminology",
+   "aliases": [
+    "Lotin tilli va tibbiy terminalogiya"
+   ]
+  },
+  {
+   "uz": "Mehnat gigiyenasi",
+   "ru": "Гигиена труда",
+   "en": "Occupational Hygiene"
+  },
+  {
+   "uz": "Mikrobiologiya, virusologiya va immunologiya",
+   "ru": "Микробиология, вирусология и иммунология",
+   "en": "Microbiology, Virology and Immunology",
+   "aliases": [
+    "Mikrobiologiya, virusologiya, immunologiya"
+   ]
+  },
+  {
+   "uz": "Nevrologiya",
+   "ru": "Неврология",
+   "en": "Neurology"
+  },
+  {
+   "uz": "Nevrologiya, bolalar nevrologiyasi",
+   "ru": "Неврология, детская неврология",
+   "en": "Neurology, Pediatric Neurology"
+  },
+  {
+   "uz": "Nutritsiologiya",
+   "ru": "Нутрициология",
+   "en": "Nutritional Science"
+  },
+  {
+   "uz": "Oftalmologiya",
+   "ru": "Офтальмология",
+   "en": "Ophthalmology"
+  },
+  {
+   "uz": "Tibbiyotda axborot texnologiyalari. Tibbiy va biologik fizika",
+   "ru": "Информационные технологии в медицине. Медицинская и биологическая физика",
+   "en": "Information Technologies in Medicine. Medical and Biological Physics",
+   "aliases": [
+    "Tibbiyotda axborot texnologiyalari Tibbiy va biologik fizika"
+   ]
+  },
+  {
+   "uz": "Tibbiy va biologik fizika. Tibbiyotda axborot texnologiyalari",
+   "ru": "Медицинская и биологическая физика. Информационные технологии в медицине",
+   "en": "Medical and Biological Physics. Information Technologies in Medicine",
+   "aliases": [
+    "Tibbiy va biologik fizika Tibbiyotda axborot texnologiyalari"
+   ]
+  },
+  {
+   "uz": "Dalillarga asoslangan tibbiyot",
+   "ru": "Доказательная медицина",
+   "en": "Evidence-Based Medicine"
+  },
+  {
+   "uz": "Oilaviy shifokorlikda akusherlik va ginekologiya",
+   "ru": "Акушерство и гинекология в семейной медицине",
+   "en": "Obstetrics and Gynecology in Family Medicine"
+  },
+  {
+   "uz": "Anatomiya",
+   "ru": "Анатомия",
+   "en": "Anatomy"
+  },
+  {
+   "uz": "Oliy matematika",
+   "ru": "Высшая математика",
+   "en": "Higher Mathematics"
+  },
+  {
+   "uz": "Onkologiyada hamshiralik ishi",
+   "ru": "Сестринское дело в онкологии",
+   "en": "Nursing in Oncology"
+  },
+  {
+   "uz": "Ortopedik stomatologiya propedevtikasi",
+   "ru": "Пропедевтика ортопедической стоматологии",
+   "en": "Propaedeutics of Prosthetic Dentistry"
+  },
+  {
+   "uz": "O‘zbek (rus) tili. O‘zbek tilining sohada qo‘llanilishi. Tibbiyotda xorijiy til",
+   "ru": "Узбекский (русский) язык. Узбекский язык в профессиональной сфере. Иностранный язык в медицине",
+   "en": "Uzbek (Russian) Language. Uzbek for Professional Use. Foreign Language in Medicine",
+   "aliases": [
+    "O'zbek (rus) tili. O'zbek tilini sohada qo'llanilishi. Tibbiyotda xorijiy til",
+    "O'zbek (Rus tili). O'zbek tilini sohada qo'llanilishi. Tibbiyotda xorijiy til"
+   ]
+  },
+  {
+   "uz": "Tez tibbiy yordam",
+   "ru": "Скорая медицинская помощь",
+   "en": "Emergency Medical Care"
+  },
+  {
+   "uz": "Jamoat salomatligi. Marketing, menejment",
+   "ru": "Общественное здоровье. Маркетинг, менеджмент",
+   "en": "Public Health. Marketing, Management",
+   "aliases": [
+    "Public Health. Marketing management"
+   ]
+  },
+  {
+   "uz": "Ichki kasalliklar. Klinik allergologiya, immunologiya. Kasb kasalliklari",
+   "ru": "Внутренние болезни. Клиническая аллергология, иммунология. Профессиональные болезни",
+   "en": "Internal Diseases. Clinical Allergology, Immunology. Occupational Diseases"
+  },
+  {
+   "uz": "Harbiy dala jarrohligi",
+   "ru": "Военно-полевая хирургия",
+   "en": "Military Field Surgery",
+   "aliases": [
+    "Xarbiy dala jarrohligi"
+   ]
+  },
+  {
+   "uz": "Gistologiya, sitologiya, embriologiya",
+   "ru": "Гистология, цитология, эмбриология",
+   "en": "Histology, Cytology, Embryology"
+  },
+  {
+   "uz": "Pediatriyada hamshiralik ishi",
+   "ru": "Сестринское дело в педиатрии",
+   "en": "Nursing in Pediatrics"
+  },
+  {
+   "uz": "Preklinik restavratsion stomatologiya",
+   "ru": "Доклиническая реставрационная стоматология",
+   "en": "Preclinical Restorative Dentistry"
+  },
+  {
+   "uz": "Psixiatriya, narkologiya",
+   "ru": "Психиатрия, наркология",
+   "en": "Psychiatry, Addiction Medicine"
+  },
+  {
+   "uz": "Psixiatriya, narkologiya, bolalar psixiatriyasi",
+   "ru": "Психиатрия, наркология, детская психиатрия",
+   "en": "Psychiatry, Addiction Medicine, Child Psychiatry"
+  },
+  {
+   "uz": "Psixiatriya va narkologiyada hamshiralik ishi",
+   "ru": "Сестринское дело в психиатрии и наркологии",
+   "en": "Nursing in Psychiatry and Addiction Medicine"
+  },
+  {
+   "uz": "Reabilitologiya",
+   "ru": "Реабилитология",
+   "en": "Rehabilitation Medicine"
+  },
+  {
+   "uz": "Sog‘liqni saqlash etikasi. Hamshiralik amaliyotida kommunikatsiya. Tibbiy faoliyatning huquqiy asoslari",
+   "ru": "Этика здравоохранения. Коммуникация в сестринской практике. Правовые основы медицинской деятельности",
+   "en": "Healthcare Ethics. Communication in Nursing Practice. Legal Basis of Medical Practice"
+  },
+  {
+   "uz": "Stomatologik kasalliklar profilaktikasi",
+   "ru": "Профилактика стоматологических заболеваний",
+   "en": "Prevention of Dental Diseases"
+  },
+  {
+   "uz": "Tibbiy biologiya. Gistologiya, sitologiya va embriologiya",
+   "ru": "Медицинская биология. Гистология, цитология и эмбриология",
+   "en": "Medical Biology. Histology, Cytology and Embryology"
+  },
+  {
+   "uz": "Marketing, menejment",
+   "ru": "Маркетинг, менеджмент",
+   "en": "Marketing, Management",
+   "aliases": [
+    "Marketing management"
+   ]
+  },
+  {
+   "uz": "Fiziologiya. Yuz-jag‘ sohasi fiziologiyasi",
+   "ru": "Физиология. Физиология челюстно-лицевой области",
+   "en": "Physiology. Physiology of the Maxillofacial Region",
+   "aliases": [
+    "Fiziologiya- YuJS fiziologiyasi"
+   ]
+  },
+  {
+   "uz": "Gigiyena. Tibbiy ekologiya",
+   "ru": "Гигиена. Медицинская экология",
+   "en": "Hygiene. Medical Ecology"
+  },
+  {
+   "uz": "Og‘iz bo‘shlig‘i gigiyenasi",
+   "ru": "Гигиена полости рта",
+   "en": "Oral Hygiene"
+  },
+  {
+   "uz": "Tibbiy kimyo. Biokimyo",
+   "ru": "Медицинская химия. Биохимия",
+   "en": "Medical Chemistry. Biochemistry"
+  },
+  {
+   "uz": "Stomatologiyada mahalliy og‘riqsizlantirish usullari",
+   "ru": "Методы местного обезболивания в стоматологии",
+   "en": "Local Anesthesia Methods in Dentistry"
+  },
+  {
+   "uz": "Stomatologiyaga kirish",
+   "ru": "Введение в стоматологию",
+   "en": "Introduction to Dentistry"
+  },
+  {
+   "uz": "Klinik laboratoriya tashxisi. Immunferment tahlili",
+   "ru": "Клиническая лабораторная диагностика. Иммуноферментный анализ",
+   "en": "Clinical Laboratory Diagnostics. Enzyme Immunoassay"
+  },
+  {
+   "uz": "Tibbiy biologiya. Umumiy genetika",
+   "ru": "Медицинская биология. Общая генетика",
+   "en": "Medical Biology. General Genetics"
+  },
+  {
+   "uz": "Tibbiy psixologiya",
+   "ru": "Медицинская психология",
+   "en": "Medical Psychology"
+  },
+  {
+   "uz": "Epidemiologiya. Harbiy epidemiologiya",
+   "ru": "Эпидемиология. Военная эпидемиология",
+   "en": "Epidemiology. Military Epidemiology"
+  },
+  {
+   "uz": "Bolalar va o‘smirlar gigiyenasi",
+   "ru": "Гигиена детей и подростков",
+   "en": "Hygiene of Children and Adolescents"
+  },
+  {
+   "uz": "Ovqatlanish gigiyenasi",
+   "ru": "Гигиена питания",
+   "en": "Nutritional Hygiene"
+  },
+  {
+   "uz": "Xalq tabobati falsafasi",
+   "ru": "Философия народной медицины",
+   "en": "Philosophy of Traditional Medicine"
+  },
+  {
+   "uz": "Umumiy xirurgiya",
+   "ru": "Общая хирургия",
+   "en": "General Surgery"
+  },
+  {
+   "uz": "Universal progressiv model",
+   "ru": "Универсальная прогрессивная модель",
+   "en": "Universal Progressive Model"
+  },
+  {
+   "uz": "Urologiya",
+   "ru": "Урология",
+   "en": "Urology"
+  },
+  {
+   "uz": "Yuqumli kasalliklar. Bolalar yuqumli kasalliklari",
+   "ru": "Инфекционные болезни. Детские инфекционные болезни",
+   "en": "Infectious Diseases. Pediatric Infectious Diseases"
+  },
+  {
+   "uz": "Yuqumli kasalliklarda hamshiralik ishi",
+   "ru": "Сестринское дело при инфекционных болезнях",
+   "en": "Nursing in Infectious Diseases",
+   "aliases": [
+    "Yuqumlik kasalliklarda hamshiralik ishi"
+   ]
+  },
+  {
+   "uz": "Yuz-jag‘ kasalliklari va jarohatlari",
+   "ru": "Заболевания и травмы челюстно-лицевой области",
+   "en": "Maxillofacial Diseases and Injuries"
+  },
+  {
+   "uz": "Zamonaviy raqamli tibbiyot",
+   "ru": "Современная цифровая медицина",
+   "en": "Modern Digital Medicine"
+  }
+ ],
+ "departments": [
+  {
+   "uz": "Akusherlik va ginekologiya",
+   "ru": "Кафедра акушерства и гинекологии",
+   "en": "Department of Obstetrics and Gynecology"
+  },
+  {
+   "uz": "Anesteziologiya va reanimatologiya, Pediatriya-2",
+   "ru": "Кафедра анестезиологии и реаниматологии, педиатрии 2",
+   "en": "Department of Anesthesiology, Intensive Care and Pediatrics 2",
+   "aliases": [
+    "Anesteziologiya va reanimotologiya, Pediatriya-2"
+   ]
+  },
+  {
+   "uz": "Biotibbiyot muhandisligi, biofizika va axborot texnologiyalari",
+   "ru": "Кафедра биомедицинской инженерии, биофизики и информационных технологий",
+   "en": "Department of Biomedical Engineering, Biophysics and Information Technologies"
+  },
+  {
+   "uz": "Dermatovenerologiya va allergologiya",
+   "ru": "Кафедра дерматовенерологии и аллергологии",
+   "en": "Department of Dermatovenereology and Allergology"
+  },
+  {
+   "uz": "Endokrinologiya, gematologiya va ftiziatriya",
+   "ru": "Кафедра эндокринологии, гематологии и фтизиатрии",
+   "en": "Department of Endocrinology, Hematology and Phthisiology",
+   "aliases": [
+    "Endokrinologiya,gemotologiya va ftiziatriya sillabus",
+    "Endokrinologiya gematologiya va ftizatriya"
+   ]
+  },
+  {
+   "uz": "Epidemiologiya va yuqumli kasalliklar hamshiralik ishi",
+   "ru": "Кафедра эпидемиологии и сестринского дела при инфекционных болезнях",
+   "en": "Department of Epidemiology and Infectious Disease Nursing",
+   "aliases": [
+    "Epidemiologiya va yuqumli kasalliklar, hamshiralik ishi"
+   ]
+  },
+  {
+   "uz": "Fakultativ terapiya (UASH)",
+   "ru": "Кафедра факультетской терапии (ВОП)",
+   "en": "Department of Faculty Therapy (General Practice)",
+   "aliases": [
+    "Fakultativ  terapiya (UASH)"
+   ]
+  },
+  {
+   "uz": "Fakultet va gospital jarrohlik",
+   "ru": "Кафедра факультетской и госпитальной хирургии",
+   "en": "Department of Faculty and Hospital Surgery",
+   "aliases": [
+    "Fakultativ va gospital jarrohlik"
+   ]
+  },
+  {
+   "uz": "Fiziologiya",
+   "ru": "Кафедра физиологии",
+   "en": "Department of Physiology"
+  },
+  {
+   "uz": "Gistologiya va biologiya",
+   "ru": "Кафедра гистологии и биологии",
+   "en": "Department of Histology and Biology",
+   "aliases": [
+    "GISTOLOGIYA BIOLOGIYA"
+   ]
+  },
+  {
+   "uz": "Gospital terapiya",
+   "ru": "Кафедра госпитальной терапии",
+   "en": "Department of Hospital Therapy"
+  },
+  {
+   "uz": "Ichki kasalliklar propedevtikasi",
+   "ru": "Кафедра пропедевтики внутренних болезней",
+   "en": "Department of Propaedeutics of Internal Diseases",
+   "aliases": [
+    "Ichki kasalliklar propedevtikasi kafedrasi",
+    "Ichki kasallilar propedevtikasi"
+   ]
+  },
+  {
+   "uz": "Ijtimoiy fanlar",
+   "ru": "Кафедра социальных наук",
+   "en": "Department of Social Sciences"
+  },
+  {
+   "uz": "Kommunal va mehnat gigiyenasi",
+   "ru": "Кафедра коммунальной гигиены и гигиены труда",
+   "en": "Department of Communal and Occupational Hygiene"
+  },
+  {
+   "uz": "Lotin tili",
+   "ru": "Кафедра латинского языка",
+   "en": "Department of Latin Language"
+  },
+  {
+   "uz": "Lotin tili, pedagogika va psixologiya",
+   "ru": "Кафедра латинского языка, педагогики и психологии",
+   "en": "Department of Latin, Pedagogy and Psychology",
+   "aliases": [
+    "Lotin tilli, pedagogika va psixalogiya"
+   ]
+  },
+  {
+   "uz": "Mikrobiologiya, virusologiya va immunologiya",
+   "ru": "Кафедра микробиологии, вирусологии и иммунологии",
+   "en": "Department of Microbiology, Virology and Immunology",
+   "aliases": [
+    "Mikrobiologiya,virusologiya,immunologiya",
+    "Mikrobiologiya, Virusalogiya va immunologiya"
+   ]
+  },
+  {
+   "uz": "Nevrologiya va psixiatriya",
+   "ru": "Кафедра неврологии и психиатрии",
+   "en": "Department of Neurology and Psychiatry",
+   "aliases": [
+    "Nevrologiya va psixatriya"
+   ]
+  },
+  {
+   "uz": "Normal anatomiya",
+   "ru": "Кафедра нормальной анатомии",
+   "en": "Department of Normal Anatomy"
+  },
+  {
+   "uz": "Yu. Nishonov nomidagi normal anatomiya",
+   "ru": "Кафедра нормальной анатомии имени Ю. Нишонова",
+   "en": "Yu. Nishonov Department of Normal Anatomy",
+   "aliases": [
+    "Yu. Nishonov nomidagi Normal anatomiya"
+   ]
+  },
+  {
+   "uz": "Ovqatlanish, bolalar va o‘smirlar gigiyenasi",
+   "ru": "Кафедра гигиены питания, детей и подростков",
+   "en": "Department of Nutritional Hygiene and Hygiene of Children and Adolescents",
+   "aliases": [
+    "Ovqatlanish, Bolalar va o 'smirlar gigienasi"
+   ]
+  },
+  {
+   "uz": "O‘zbek va xorijiy tillar",
+   "ru": "Кафедра узбекского и иностранных языков",
+   "en": "Department of Uzbek and Foreign Languages",
+   "aliases": [
+    "O'zbek va xorijiy tillar kafedrasi"
+   ]
+  },
+  {
+   "uz": "Patologik fiziologiya va patologik anatomiya",
+   "ru": "Кафедра патологической физиологии и патологической анатомии",
+   "en": "Department of Pathophysiology and Pathological Anatomy"
+  },
+  {
+   "uz": "Pediatriya",
+   "ru": "Кафедра педиатрии",
+   "en": "Department of Pediatrics"
+  },
+  {
+   "uz": "Pediatriya 1",
+   "ru": "Кафедра педиатрии 1",
+   "en": "Department of Pediatrics 1"
+  },
+  {
+   "uz": "Pediatriya 2",
+   "ru": "Кафедра педиатрии 2",
+   "en": "Department of Pediatrics 2"
+  },
+  {
+   "uz": "Preventiv tibbiyot",
+   "ru": "Кафедра профилактической медицины",
+   "en": "Department of Preventive Medicine",
+   "aliases": [
+    "Preventiv"
+   ]
+  },
+  {
+   "uz": "Stomatologiya va otorinolaringologiya",
+   "ru": "Кафедра стоматологии и оториноларингологии",
+   "en": "Department of Dentistry and Otorhinolaryngology",
+   "aliases": [
+    "Stomatologiya va otorinoloringologiya"
+   ]
+  },
+  {
+   "uz": "Terapiya yo‘nalishidagi fanlar",
+   "ru": "Кафедра терапевтических дисциплин",
+   "en": "Department of Therapeutic Disciplines",
+   "aliases": [
+    "Terapiya yo'nalishidagi fanlar"
+   ]
+  },
+  {
+   "uz": "Terapiya (UASH)",
+   "ru": "Кафедра терапии (ВОП)",
+   "en": "Department of Therapy (General Practice)",
+   "aliases": [
+    "Terapiya UASH"
+   ]
+  },
+  {
+   "uz": "Tibbiy va biologik kimyo",
+   "ru": "Кафедра медицинской и биологической химии",
+   "en": "Department of Medical and Biological Chemistry"
+  },
+  {
+   "uz": "Travmatologiya va ortopediya",
+   "ru": "Кафедра травматологии и ортопедии",
+   "en": "Department of Traumatology and Orthopedics",
+   "aliases": [
+    "Travmatologiya va ortapediya"
+   ]
+  },
+  {
+   "uz": "Umumiy xirurgiya",
+   "ru": "Кафедра общей хирургии",
+   "en": "Department of General Surgery"
+  },
+  {
+   "uz": "Urologiya va onkologiya",
+   "ru": "Кафедра урологии и онкологии",
+   "en": "Department of Urology and Oncology"
+  },
+  {
+   "uz": "Vrachlar malakasini oshirish va qayta tayyorlash",
+   "ru": "Кафедра повышения квалификации и переподготовки врачей",
+   "en": "Department of Advanced Training and Retraining of Physicians",
+   "aliases": [
+    "Vrachlar malakasini oshirish va qayta tayyorlash kafedrasi"
+   ]
+  },
+  {
+   "uz": "Xalq tabobati va farmakologiya",
+   "ru": "Кафедра народной медицины и фармакологии",
+   "en": "Department of Traditional Medicine and Pharmacology",
+   "aliases": [
+    "Xalq tabobati va Farmakologiya",
+    "Xalq tabobati va farmakologiya kafedrasi"
+   ]
+  }
+ ],
+ "subjects": {
+  "xt-di-2026-2027-11s-marketing-management": {
+   "programme_code": "davolash"
+  },
+  "xt-di-2026-2027-12s-marketing-management": {
+   "programme_code": "davolash"
+  },
+  "xt-di-2026-2027-6s-public-health-marketing-management": {
+   "programme_code": "davolash"
+  }
+ }
+}

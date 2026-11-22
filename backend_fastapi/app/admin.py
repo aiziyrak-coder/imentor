@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
+from sqlalchemy import select
 from starlette.requests import Request
 
 from app.core.config import get_settings
-from app.core.db import engine
+from app.core.db import SessionLocal, engine
 from app.core.security import verify_password
 from app.models.book import SubjectBook
 from app.models.clinical_group import ClinicalGroup
@@ -13,12 +16,14 @@ from app.models.content import AcademicDepartment, CourseSyllabus, StaffCourseSe
 from app.models.device_pairing import DevicePairingSession
 from app.models.live_test import LiveTestSession
 from app.models.staff_location import CampusBuilding, StaffScheduleSlot
-from app.models.startup import StartupProjectApplication
 from app.models.user import User
+from app.services.staff_department import pick_department_name
 from app.services.auth_service import get_user_by_username, resolve_user_role_from_db
 
 settings = get_settings()
 
+
+logger = logging.getLogger(__name__)
 
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
@@ -75,6 +80,45 @@ class AcademicDepartmentAdmin(ModelView, model=AcademicDepartment):
     name_plural = "Kafedralar"
     column_list = [AcademicDepartment.id, AcademicDepartment.name, AcademicDepartment.code, AcademicDepartment.is_active]
 
+    async def on_model_change(self, data, model, is_created, request) -> None:
+        """Nusxa kafedra yaratilishiga yo'l qo'ymaydi.
+
+        Shu panelda kafedra hech qanday tekshiruvsiz qo'shilardi va bir xil
+        kafedra bazada ikki marta paydo bo'lardi: "Nevrologiya va
+        Psixiatriya" va "Nevrologiya va psixatriya". Sillabuslar bittasiga,
+        xodimlar va darsliklar ikkinchisiga bog'lanib qolardi — natijada
+        638 xodimdan 349 tasi o'z kafedrasida bitta ham fan ko'rmagan.
+
+        Tekshiruv `pick_department_name` bilan bajariladi — xodim
+        biriktirishda ishlatiladigan o'sha moslashtiruvchi: apostrof, imlo
+        va "kafedrasi" qo'shimchasini hisobga oladi.
+        """
+        if not is_created:
+            return
+        name = str((data or {}).get("name") or "").strip()
+        if not name:
+            return
+        try:
+            with SessionLocal() as session:
+                existing = list(
+                    session.execute(select(AcademicDepartment.name)).scalars().all()
+                )
+            match = pick_department_name(name, existing)
+        except Exception:  # tekshiruv yiqilsa ish to'xtamasin
+            logger.exception("Kafedra nusxasini tekshirib bo'lmadi: %s", name)
+            return
+
+        # YARATISHDA har qanday moslik nusxa hisoblanadi — aynan bir xil nom
+        # ham. Tahrirlashda bu tekshiruv umuman bajarilmaydi (yuqorida
+        # `is_created` bo'yicha chiqib ketiladi).
+        if match:
+            raise ValueError(
+                f"Bunday kafedra allaqachon bor: \"{match}\". "
+                "Yangi yozuv ochilsa, fanlar bir kafedraga, xodimlar "
+                "boshqasiga bog'lanib qoladi. Mavjudini tahrirlang yoki "
+                "nomini aniq boshqacha yozing."
+            )
+
 
 class CourseSyllabusAdmin(ModelView, model=CourseSyllabus):
     name = "Fan syllabus"
@@ -126,18 +170,9 @@ class LiveTestSessionAdmin(ModelView, model=LiveTestSession):
     name_plural = "Jonli test sessiyalari"
     column_list = [LiveTestSession.id, LiveTestSession.session_key, LiveTestSession.owner_key, LiveTestSession.is_closed]
     can_create = False
+    # Sessiya o'chirilsa talabalarning test natijalari ham (CASCADE) o'chib ketardi (2026-10-23).
+    can_delete = False
     form_excluded_columns = [LiveTestSession.payload]
-
-
-class StartupApplicationAdmin(ModelView, model=StartupProjectApplication):
-    name = "Startap arizasi"
-    name_plural = "Startap arizalari"
-    column_list = [
-        StartupProjectApplication.id,
-        StartupProjectApplication.owner_key,
-        StartupProjectApplication.title,
-        StartupProjectApplication.status,
-    ]
 
 
 class ClinicalGroupAdmin(ModelView, model=ClinicalGroup):
@@ -189,7 +224,6 @@ def register_admin(app) -> Admin:
         CampusBuildingAdmin,
         StaffScheduleSlotAdmin,
         LiveTestSessionAdmin,
-        StartupApplicationAdmin,
         ClinicalGroupAdmin,
         SubjectBookAdmin,
         DevicePairingSessionAdmin,

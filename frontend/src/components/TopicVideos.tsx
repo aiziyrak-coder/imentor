@@ -1,35 +1,66 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { BookOpen, ExternalLink, Loader2, Youtube } from 'lucide-react';
+import { BookOpen, ExternalLink, Loader2, Plus, Trash2, Video, Youtube } from 'lucide-react';
 import { motion } from 'motion/react';
 import { GlobalTopicContext, AppNavigationContext } from '../App';
 import { useUiText } from '../i18n/useUiText';
+import { postActivityEvents } from '../utils/analyticsApi';
 import { useLocalizedTopic } from '../i18n/useLocalizedTopic';
-import { fetchTopicVideos, type TopicVideo } from '../utils/topicVideoApi';
+import {
+  createTopicVideo,
+  deleteTopicVideo,
+  fetchTopicVideos,
+  VIDEO_PROVIDER_LABEL,
+  videoUrlOk,
+  type TopicVideo,
+} from '../utils/topicVideoApi';
+import { backendErrorMessage } from '../utils/apiError';
 import { useYoutubeTitle } from '../utils/youtubeTitle';
 import StaffPageLayout from './staff/StaffPageLayout';
 import StaffTopicHeader from './staff/StaffTopicHeader';
 import StaffEmptyState from './staff/StaffEmptyState';
-import StaffPanel from './staff/StaffPanel';
-import { staffBtnGhost } from './staff/staffUi';
+import { staffBtnGhost, staffBtnPrimary, staffInput } from './staff/staffUi';
 import { isTopicContextComplete, topicContextKey } from '../utils/syllabusTopicContext';
 
 function VideoCard({
   video,
   playing,
   onPlay,
+  deleting = false,
+  onDelete,
 }: {
   video: TopicVideo;
   playing: boolean;
   onPlay: () => void;
+  deleting?: boolean;
+  onDelete?: () => void;
 }) {
   const { t } = useUiText();
   // Admin sarlavha yozmagan bo'lsa — YouTube'dan asl nomi olinadi (ID emas).
-  const displayTitle = useYoutubeTitle(video.youtube_id, video.title);
+  const isYoutube = !video.provider || video.provider === 'youtube';
+  // Admin sarlavha yozmagan bo'lsa — YouTube'dan asl nomi olinadi (ID emas). Boshqa saytda — havola.
+  const ytTitle = useYoutubeTitle(isYoutube ? video.youtube_id : '', video.title);
+  const displayTitle = isYoutube ? ytTitle : video.title;
+  const providerLabel = VIDEO_PROVIDER_LABEL[video.provider || 'youtube'] || 'Video';
 
   return (
-    <motion.div layout className="ios-glass rounded-2xl border border-white/70 overflow-hidden shadow-sm">
+    <motion.div layout className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/[0.06]">
       <div className="relative w-full bg-black" style={{ aspectRatio: '16 / 9' }}>
-        {playing ? (
+        {!isYoutube && video.kind === 'link' ? (
+          // Ichiga qo'yib bo'lmaydigan sayt — yangi oynada ochiladi (2026-11-19).
+          <a
+            href={video.youtube_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onPlay}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
+          >
+            <ExternalLink size={26} />
+            <span className="text-[13px] font-semibold">{t('video.openLink')}</span>
+            <span className="max-w-[90%] truncate text-[11px] text-slate-300">{video.youtube_url}</span>
+          </a>
+        ) : playing && !isYoutube && video.kind === 'video' ? (
+          <video src={video.embed_url} controls autoPlay playsInline className="absolute inset-0 h-full w-full bg-black" />
+        ) : playing ? (
           <iframe
             src={`${video.embed_url}${video.embed_url.includes('?') ? '&' : '?'}autoplay=1`}
             title={displayTitle || video.youtube_id}
@@ -47,33 +78,55 @@ function VideoCard({
             className="group absolute inset-0 w-full h-full"
             aria-label={t('video.play')}
           >
-            <img
-              src={`https://img.youtube.com/vi/${video.youtube_id}/hqdefault.jpg`}
-              alt=""
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover"
-            />
+            {isYoutube ? (
+              <img
+                src={`https://img.youtube.com/vi/${video.youtube_id}/hqdefault.jpg`}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            ) : (
+              <span className="absolute inset-0 flex items-end justify-start bg-gradient-to-br from-slate-700 to-slate-900 p-3">
+                <span className="rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold text-white">{providerLabel}</span>
+              </span>
+            )}
             <span className="absolute inset-0 flex items-center justify-center bg-black/25 group-hover:bg-black/10 transition-colors">
-              <span className="w-14 h-14 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-lg">
-                <Youtube size={26} />
+              <span className={`flex h-12 w-12 items-center justify-center rounded-full text-white ${isYoutube ? 'bg-rose-600' : 'bg-indigo-600'}`}>
+                {isYoutube ? <Youtube size={26} /> : <Video size={24} />}
               </span>
             </span>
           </button>
         )}
       </div>
       <div className="p-3 space-y-1.5">
-        <p className="text-[13px] font-semibold text-black/85 line-clamp-2 leading-snug">
+        <p className="text-[13px] font-semibold text-slate-800 line-clamp-2 leading-snug">
           {displayTitle || t('video.untitled')}
         </p>
-        <a
-          href={video.youtube_url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#083047]/70 hover:text-[#083047]"
-        >
-          <ExternalLink size={12} />
-          {t('video.openOnYoutube')}
-        </a>
+        {video.author_name && (
+          <p className="text-[11px] text-slate-400">{t('video.addedBy', { name: video.author_name })}</p>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <a
+            href={video.youtube_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-900"
+          >
+            <ExternalLink size={12} />
+            {isYoutube ? t('video.openOnYoutube') : t('video.openOn', { site: providerLabel })}
+          </a>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              {t('video.delete')}
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   );
@@ -82,17 +135,25 @@ function VideoCard({
 /**
  * O'qituvchi uchun "Videolar" bo'limi.
  *
- * Videolarni admin panel biriktiradi (Admin → Videolar), o'qituvchi tanlangan
- * mavzu bo'yicha ularni shu sahifada ko'radi. Ro'yxat faqat o'qish uchun.
+ * Ilgari videoni faqat admin biriktirardi (Admin → Videolar). Endi o'qituvchi
+ * taqdimot yuklagani kabi mavzuga YouTube havolasini o'zi qo'shadi va o'zi
+ * qo'shganini o'chiradi (server `can_delete` bilan belgilaydi). Server faqat
+ * o'qituvchining O'Z videolarini qaytaradi (`_only_own`).
  */
 export default function TopicVideos() {
-  const { t } = useUiText();
+  const { t, language } = useUiText();
   const globalTopic = useContext(GlobalTopicContext);
   const { openSyllabus } = useContext(AppNavigationContext);
   const localizedTopic = useLocalizedTopic(globalTopic);
   const [videos, setVideos] = useState<TopicVideo[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const topicKey = topicContextKey(globalTopic);
   const requestSeq = useRef(0);
 
@@ -108,6 +169,7 @@ export default function TopicVideos() {
     }
     const seq = ++requestSeq.current;
     setLoading(true);
+    setLoadError(false);
     try {
       const rows = await fetchTopicVideos({
         syllabusId,
@@ -117,6 +179,11 @@ export default function TopicVideos() {
       if (seq !== requestSeq.current) return;
       setVideos(rows);
       setActiveId(null);
+    } catch {
+      if (seq !== requestSeq.current) return;
+      // Boshqa mavzuning videolari ekranda qolib ketmasin.
+      setVideos([]);
+      setLoadError(true);
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
@@ -126,9 +193,65 @@ export default function TopicVideos() {
     void loadVideos();
   }, [loadVideos]);
 
+  // Mavzu almashganda oldingi mavzuning "Video qo'shildi" xabari va
+  // yarim yozilgan havola qolib ketmasin.
+  useEffect(() => {
+    setMessage(null);
+    setUrl('');
+    setTitle('');
+  }, [topicKey]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!globalTopic || !syllabusId || !topicCode) return;
+    if (!videoUrlOk(url)) {
+      setMessage({ ok: false, text: t('video.invalidUrl') });
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      await createTopicVideo({
+        syllabusId,
+        variantLabel: variantLabel || 'asosiy',
+        topicCode,
+        topic: globalTopic.title,
+        title: title.trim(),
+        youtubeUrl: url.trim(),
+      });
+      setUrl('');
+      setTitle('');
+      setMessage({ ok: true, text: t('video.added') });
+      await loadVideos();
+    } catch (err) {
+      // Server xabari faqat interfeys tilida bo'lsa ko'rsatiladi.
+      setMessage({ ok: false, text: backendErrorMessage(err, language) || t('video.addFailed') });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (video: TopicVideo) => {
+    if (!window.confirm(t('video.deleteConfirm'))) return;
+    setDeletingId(video.id);
+    setMessage(null);
+    try {
+      await deleteTopicVideo(video.id);
+      await loadVideos();
+    } catch {
+      setMessage({ ok: false, text: t('video.deleteFailed') });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (!globalTopic?.title || !isTopicContextComplete(globalTopic)) {
     return (
-      <StaffPageLayout>
+      <StaffPageLayout
+        title={t('nav.videos')}
+        icon={Video}
+        accent="rose"
+      >
         <StaffEmptyState
           icon={BookOpen}
           title={t('video.noTopicTitle')}
@@ -141,7 +264,11 @@ export default function TopicVideos() {
   }
 
   return (
-    <StaffPageLayout>
+    <StaffPageLayout
+      title={t('nav.videos')}
+      icon={Video}
+      accent="rose"
+    >
       <StaffTopicHeader
         moduleLabel={t('video.title')}
         topic={localizedTopic}
@@ -158,14 +285,58 @@ export default function TopicVideos() {
         }
       />
 
+      <form
+        onSubmit={(e) => void handleAdd(e)}
+        className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] sm:p-4"
+      >
+        <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
+          <Youtube size={16} className="text-rose-600" />
+          {t('video.addTitle')}
+        </p>
+        <div className="flex flex-col gap-2 lg:flex-row">
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={t('video.urlPlaceholder')}
+            inputMode="url"
+            className={`${staffInput} min-w-0 lg:flex-[3]`}
+          />
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t('video.namePlaceholder')}
+            maxLength={255}
+            className={`${staffInput} min-w-0 lg:flex-[2]`}
+          />
+          <button
+            type="submit"
+            disabled={saving || !url.trim()}
+            className={`${staffBtnPrimary} shrink-0 justify-center disabled:opacity-50`}
+          >
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+            {t('video.add')}
+          </button>
+        </div>
+        {message && (
+          <p className={`mt-2 text-[12.5px] font-medium ${message.ok ? 'text-emerald-700' : 'text-rose-600'}`}>
+            {message.text}
+          </p>
+        )}
+      </form>
+
       {loading ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="animate-spin text-[#083047]/60" size={36} />
+          <Loader2 className="animate-spin text-slate-300" size={36} />
+        </div>
+      ) : loadError ? (
+        <div className="mx-auto max-w-sm px-4 py-16 text-center">
+          <p className="text-[13px] font-medium leading-relaxed text-rose-600">{t('video.errorLoad')}</p>
         </div>
       ) : videos.length === 0 ? (
-        <StaffPanel className="py-12 text-center text-black/45 text-[14px]">
-          {t('video.empty')}
-        </StaffPanel>
+        <div className="mx-auto max-w-sm px-4 py-16 text-center">
+          <Video size={22} className="mx-auto mb-3 text-slate-300" />
+          <p className="text-[13px] leading-relaxed text-slate-500">{t('video.empty')}</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {videos.map((v) => (
@@ -173,14 +344,28 @@ export default function TopicVideos() {
               key={v.id}
               video={v}
               playing={activeId === v.id}
-              onPlay={() => setActiveId(v.id)}
+              deleting={deletingId === v.id}
+              onDelete={v.can_delete ? () => void handleDelete(v) : undefined}
+              onPlay={() => {
+                setActiveId(v.id);
+                // Hisobot uchun: o'qituvchi qaysi videoni ochgani.
+                void postActivityEvents(
+                  [
+                    {
+                      event_type: 'content_view',
+                      meta: { kind: 'video', youtube_id: v.youtube_id, title: v.title || '' },
+                    },
+                  ],
+                  'videos',
+                );
+              }}
             />
           ))}
         </div>
       )}
 
       {videos.length > 0 && (
-        <p className="text-center text-[12px] text-black/40">
+        <p className="text-center text-[12px] text-slate-400">
           {t('video.totalCount', { count: videos.length })}
         </p>
       )}

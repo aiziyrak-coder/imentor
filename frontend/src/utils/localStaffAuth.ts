@@ -22,7 +22,7 @@ export interface LocalStaffUser {
   /** Unix ms — oxirgi kirish yoki tizimdagi so‘nggi faollik */
   lastActiveAt?: number;
   photoURL?: string | null;
-  /** Legacy optional fields (eski startuper profili) */
+  /** Talaba yoki xodim (talaba kirishida `student`) */
   participantKind?: 'student' | 'employee';
   /** Talaba: o‘quv guruhi */
   studyGroup?: string;
@@ -84,8 +84,6 @@ export function getDemoRoleLogins(): DemoRoleLogin[] {
 export function normalizeUserRole(user: LocalStaffUser | null | undefined): UserRole {
   const r = user?.role as string | undefined;
   if (r === 'admin' || r === 'hodim' || r === 'student') return r;
-  // Legacy roles
-  if (r === 'startuper' || r === 'tarjimon') return 'hodim';
   return 'hodim';
 }
 

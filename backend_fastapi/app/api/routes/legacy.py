@@ -5,7 +5,7 @@
 - `/api/v1/syllabuses/` — Django docstring'ida ochiq "Legacy: per-user
   syllabus (deprecated)" deb belgilangan, yangi katalog CourseSyllabus.
 - `/api/v1/ai-jobs/{job_id}/` — Django'da Celery job-queue holatini
-  so'raydi. FastAPI'da AI endpointlar sinxron (Faza 6/Startup-AI qarori),
+  so'raydi. FastAPI'da AI endpointlar sinxron (Faza 6 qarori),
   shuning uchun job hech qachon yaratilmaydi — bu endpoint doim
   "topilmadi" qaytaradi (arxitektura farqi, funksional yo'qotish emas).
 """

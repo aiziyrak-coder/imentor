@@ -87,6 +87,42 @@ export function clipWords(text: string, maxWords: number): string {
   return words.slice(0, maxWords).join(' ');
 }
 
+/** Gap oxirida tursa ham jumla tugamagan bo'ladigan bog'lovchi/ko'makchi so'zlar. */
+const DANGLING_TAIL =
+  /^(?:va|hamda|yoki|bilan|uchun|esa|ham|kabi|orqali|sifatida|bo['‘’ʻʼ`]yicha|katta|ko['‘’ʻʼ`]proq|bir|и|или|с|для|как|and|or|with|for|of|the|a|an|to|in|on)$/i;
+
+/**
+ * `clipWords` gapni so'z o'rtasida jimgina kesadi ("…katta ahamiyat kasb"). Bu esa jumlani
+ * mantiqiy tugatadi: avval limit ichidagi OXIRGI TUGAGAN GAPGA (kamida 60% saqlanadi) qaytadi;
+ * bo'lmasa so'zlarni limitda kesadi, osilib qolgan bog'lovchini olib tashlab "…" qo'yadi, shunda
+ * qirqilgani yashirin qolmaydi.
+ */
+export function clipWordsSmart(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(' ');
+  const head = words.slice(0, maxWords);
+  const minKeep = Math.max(1, Math.ceil(maxWords * 0.6));
+  for (let i = head.length - 1; i >= minKeep - 1; i -= 1) {
+    if (/[.!?]["'»”’)]*$/.test(head[i])) return head.slice(0, i + 1).join(' ');
+  }
+  while (head.length > minKeep && DANGLING_TAIL.test(head[head.length - 1].replace(/[,;:]+$/, ''))) head.pop();
+  const last = head.length - 1;
+  head[last] = head[last].replace(/[,;:–—-]+$/, '');
+  return `${head.join(' ')}…`;
+}
+
+/** Mazmun bermaydigan yakuniy/xizmat slaydlari (uch tilda). */
+const FILLER_SLIDE_TITLE_RE =
+  /^(?:taqdimot(?:ni)? (?:yakun\w*|tugadi|tayyorlandi)|yakun|e'?tiboringiz uchun rahmat|rahmat|tashakkur|savollar(?: va (?:javoblar|muhokama))?|manbalar|foydalanilgan (?:manbalar|adabiyotlar)|adabiyotlar|thank you|thanks|end of (?:the )?(?:presentation|lecture)|questions(?: and (?:answers|discussion))?|q ?& ?a|references(?: and further reading)?|additional notes|спасибо(?: за внимание)?|благодарю за внимание|вопросы|конец (?:презентации|лекции)|литература|список литературы|источники(?: информации)?)[\s!.?]*$/i;
+
+export function isFillerSlideTitle(title: string): boolean {
+  return FILLER_SLIDE_TITLE_RE.test(title.replace(/[’‘`ʻʼ]/g, "'").trim());
+}
+
+function capitalizeFirst(text: string): string {
+  return text ? text.charAt(0).toLocaleUpperCase() + text.slice(1) : text;
+}
+
 function asSlideType(raw: unknown): SlideType {
   const s = String(raw || '').trim().toLowerCase();
   return (SLIDE_TYPES as readonly string[]).includes(s) ? (s as SlideType) : 'content_bullets';
@@ -95,7 +131,7 @@ function asSlideType(raw: unknown): SlideType {
 function normalizeBullets(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((b) => clipWords(String(b || '').trim(), MAX_WORDS_PER_BULLET))
+    .map((b) => clipWordsSmart(String(b || '').trim(), MAX_WORDS_PER_BULLET))
     .filter((b) => b.length >= 3)
     .slice(0, MAX_BULLETS);
 }
@@ -121,6 +157,22 @@ const IMAGE_SLIDE_TYPES: SlideType[] = [
   'case_study',
 ];
 
+/**
+ * Raqam haqiqiymi yoki model qoldirgan bo'sh joy.
+ *
+ * Model `key_stat` ni HAR slaydda qaytaradi, ma'lumot bo'lmasa `{number: "0", label: ""}`.
+ * Ilgari bu "bor" deb hisoblanib, statistika slaydida faqat bitta "0" kartochkasi
+ * chizilar, asosiy matn (bullets) esa tashlab yuborilardi — o'qituvchilar
+ * "1–2 sahifa bor, qolgani bo'sh" deb shikoyat qilishgan (2026-09-24).
+ */
+export function isRealStat(stat: { number?: string; label?: string } | null | undefined): boolean {
+  if (!stat) return false;
+  const number = String(stat.number || '').trim();
+  const label = String(stat.label || '').trim();
+  if (!label) return false;
+  return Boolean(number) && !/^(0|—|-|–|n\/a)$/i.test(number);
+}
+
 function normalizeBody(raw: unknown, slideType: SlideType): SlideBody {
   const b = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const body: SlideBody = {};
@@ -128,7 +180,12 @@ function normalizeBody(raw: unknown, slideType: SlideType): SlideBody {
   body.bullets =
     slideType === 'references' ? normalizeReferenceBullets(b.bullets) : normalizeBullets(b.bullets);
 
-  if (b.key_stat && typeof b.key_stat === 'object') {
+  // Sxema `key_stat` ni HAR slaydda majburiy qiladi va model uni bo'sh
+  // qoldirmay "14 — Yakuniy fikrlar", "3 — asosiy bosqich" kabi soxta raqam
+  // bilan to'ldiradi. Prod'da 400 taqdimotdan 545 ta matnli slayd shu sabab
+  // `statistics` ga aylanib, birinchi punkt o'rniga shu soxta qator chizilgan
+  // (2026-10-20). Faqat model o'zi statistika slaydi degan joyda olinadi.
+  if (slideType === 'statistics' && b.key_stat && typeof b.key_stat === 'object') {
     const ks = b.key_stat as Record<string, unknown>;
     body.key_stat = {
       number: String(ks.number || '').trim().slice(0, 24),
@@ -136,7 +193,7 @@ function normalizeBody(raw: unknown, slideType: SlideType): SlideBody {
     };
   }
 
-  if (Array.isArray(b.stats)) {
+  if (slideType === 'statistics' && Array.isArray(b.stats)) {
     body.stats = b.stats
       .slice(0, 4)
       .map((row) => {
@@ -146,9 +203,9 @@ function normalizeBody(raw: unknown, slideType: SlideType): SlideBody {
           label: clipWords(String(r.label || ''), 16),
         };
       })
-      .filter((x) => x.number || x.label);
-  } else if (body.key_stat && (slideType === 'statistics' || !body.stats?.length)) {
-    body.stats = [body.key_stat];
+      .filter((x) => isRealStat(x));
+  } else if (isRealStat(body.key_stat) && (slideType === 'statistics' || !body.stats?.length)) {
+    body.stats = [body.key_stat as { number: string; label: string }];
   }
 
   if (Array.isArray(b.columns)) {
@@ -173,8 +230,8 @@ function normalizeBody(raw: unknown, slideType: SlideType): SlideBody {
       const r = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
       return {
         criteria: clipWords(String(r.criteria || r.criterion || ''), 12),
-        left: clipWords(String(r.left || ''), 14),
-        right: clipWords(String(r.right || ''), 14),
+        left: clipWordsSmart(String(r.left || ''), 14),
+        right: clipWordsSmart(String(r.right || ''), 14),
       };
     });
   }
@@ -185,7 +242,7 @@ function normalizeBody(raw: unknown, slideType: SlideType): SlideBody {
       return {
         step_number: Number(s.step_number) || i + 1,
         label: clipWords(String(s.label || s.title || ''), 10),
-        description: clipWords(String(s.description || s.detail || ''), 28),
+        description: clipWordsSmart(String(s.description || s.detail || ''), 28),
       };
     });
   }
@@ -201,7 +258,7 @@ function hasDataForType(slide: ContentSlide, type: SlideType): boolean {
   const b = slide.body;
   switch (type) {
     case 'statistics':
-      return (b.stats?.length || 0) >= 2 || Boolean(b.key_stat?.number);
+      return (b.stats || []).filter((x) => isRealStat(x)).length >= 2;
     case 'comparison_table':
       return (b.comparison_rows?.length || 0) >= 2;
     case 'process_flow':
@@ -255,103 +312,6 @@ function diversifyTypes(slides: ContentSlide[]): ContentSlide[] {
   });
 }
 
-function fallbackSlides(title: string, subject: string): ContentSlide[] {
-  return [
-    {
-      slide_type: 'title',
-      title,
-      subtitle: subject,
-      body: { bullets: [] },
-      image_query: 'medical education lecture hall',
-    },
-    {
-      slide_type: 'agenda',
-      title: 'Dars rejasi',
-      body: {
-        bullets: [
-          'Asosiy tushunchalar',
-          'Klinik belgilari',
-          'Diagnostika',
-          'Davolash tamoyillari',
-          'Xulosa',
-        ],
-      },
-    },
-    {
-      slide_type: 'content_bullets',
-      title: 'Asosiy tushunchalar',
-      body: {
-        bullets: [
-          'Markaziy taʼriflar: asosiy atamalar klinik kontekstda ochiladi va talaba uchun amaliy mezon beriladi.',
-          'Tasniflash: asosiy turlari farqlovchi belgilari bilan ajratiladi va davolash yoʻnalishiga bogʻlanadi.',
-          'Normal va patologik holat farqi: qaysi belgilar ogohlantiruvchi ekanligi aniq koʻrsatiladi.',
-          'Amaliy xulosa: shikoyatdan birinchi diagnostik qadamgacha qisqa klinik zanjir beriladi.',
-        ],
-      },
-      image_query: 'medical anatomy diagram',
-    },
-    {
-      slide_type: 'statistics',
-      title: 'Klinik ahamiyat',
-      body: {
-        stats: [
-          { number: '1/3', label: 'Uchrash chastotasi' },
-          { number: '72h', label: 'Erkta tashxis oynasi' },
-          { number: '90%', label: 'Toʻgʻri davoda natija' },
-        ],
-      },
-    },
-    {
-      slide_type: 'process_flow',
-      title: 'Diagnostika ketma-ketligi',
-      body: {
-        process_steps: [
-          { step_number: 1, label: 'Anamnez', description: 'Shikoyat va xavf omillari' },
-          { step_number: 2, label: 'Koʻrik', description: 'Obyektiv belgilar' },
-          { step_number: 3, label: 'Tekshiruv', description: 'Laboratoriya yoki instrumental' },
-          { step_number: 4, label: 'Qaror', description: 'Tashxis va reja' },
-        ],
-      },
-    },
-    {
-      slide_type: 'comparison_table',
-      title: 'Differensial jihatlar',
-      body: {
-        comparison_rows: [
-          { criteria: 'Boshlanishi', left: 'Oʻtkir', right: 'Surunkali' },
-          { criteria: 'Belgilar', left: 'Yorqin', right: 'Sekin' },
-          { criteria: 'Yondashuv', left: 'Shoshilinch', right: 'Kuzatuv' },
-        ],
-      },
-    },
-    {
-      slide_type: 'case_study',
-      title: 'Klinik holat',
-      body: {
-        bullets: [
-          'Yosh bemor asosiy shikoyat bilan keladi va muhim anamnez elementi klinik yoʻnalishni belgilaydi.',
-          'Birinchi differensial gipoteza shikoyat va obyektiv topilmalar asosida shakllanadi.',
-          'Keyingi diagnostik qadam: eng xavfsiz va informativ tekshiruvdan boshlanadi.',
-          'Qaror: tashxis ehtimoli va bemor xavfsizligi boʻyicha birinchi chora tanlanadi.',
-        ],
-      },
-      image_query: 'clinical dermatology patient examination',
-    },
-    {
-      slide_type: 'summary',
-      title: 'Xulosa',
-      body: {
-        bullets: [
-          'Taʼrif: asosiy tushunchalar aniq mezonlar bilan esda qolishi kerak.',
-          'Erkta belgilar: ogohlantiruvchi simptomlarni oʻz vaqtida tanib olish muhim.',
-          'Diagnostika: ketma-ketlik arzon va xavfsiz usullardan murakkabgacha boradi.',
-          'Davolash: individual yondashuv monitoring va profilaktika bilan birga olib boriladi.',
-        ],
-      },
-    },
-  ];
-}
-
 /** OpenAI response_format.json_schema uchun */
 export const PRESENTATION_JSON_SCHEMA = {
   name: 'imentor_presentation_content',
@@ -363,17 +323,16 @@ export const PRESENTATION_JSON_SCHEMA = {
       presentation_title: { type: 'string' },
       subject_area: { type: 'string' },
       author: { type: 'string' },
-      // DIQQAT: OpenAI strict Structured Outputs `minItems`/`maxItems` ni
-      // QO'LLAMAYDI — ular bo'lsa so'rov 400 bilan yiqilib, har generatsiya
-      // sxemasiz prompt-fallback'ga tushib qolardi. Slaydlar soni promptda
-      // va normalizatsiyada (MIN_SLIDES..MAX_SLIDES) nazorat qilinadi.
+      // Supported by current non-fine-tuned OpenAI models; verified on the live model.
       slides: {
         type: 'array',
+        minItems: 20,
+        maxItems: 25,
         items: {
           type: 'object',
           additionalProperties: false,
           properties: {
-            slide_type: { type: 'string', enum: [...SLIDE_TYPES] },
+            slide_type: { type: 'string', enum: SLIDE_TYPES.filter(type => type !== 'references') },
             title: { type: 'string' },
             subtitle: { type: 'string' },
             body: {
@@ -479,9 +438,11 @@ export function normalizePresentationContent(
   raw: Partial<PresentationContent> | null | undefined,
   defaults: { title: string; subject: string; author?: string },
 ): PresentationContent {
-  const presentation_title = String(raw?.presentation_title || defaults.title || 'Taqdimot')
-    .trim()
-    .slice(0, 120);
+  const presentation_title = capitalizeFirst(
+    String(raw?.presentation_title || defaults.title || 'Taqdimot')
+      .trim()
+      .slice(0, 120),
+  );
   const subject_area = String(raw?.subject_area || defaults.subject || '')
     .trim()
     .slice(0, 80);
@@ -492,19 +453,35 @@ export function normalizePresentationContent(
   const mapped: ContentSlide[] = [];
   for (const [i, s] of (Array.isArray(raw?.slides) ? raw!.slides! : []).entries()) {
     const slide_type = asSlideType(s?.slide_type);
-    const title = String(s?.title || `Slayd ${i + 1}`)
-      .trim()
-      .slice(0, 90);
-    if (!title) continue;
+    const rawTitle = String(s?.title || '').trim();
+    // Sarlavhasiz slayd — `presentation_continue` minItems ni to'ldirish uchun
+    // bo'sh slayd qaytaradi. Ilgari ular "Slayd 15", "Slayd 16"… bo'lib
+    // taqdimotga tushardi (prod'da 400 taqdimotdan ~10% ida).
+    if (i > 0 && (!rawTitle || /^(?:slayd|slide|слайд)\s*\d+$/i.test(rawTitle))) continue;
+    // "sentence case" ni gpt-4.1-mini butunlay kichik harf deb tushundi
+    // (harness, 2026-10-20: 60 sarlavhadan 58 tasi kichik harfda boshlangan).
+    const title = capitalizeFirst((rawTitle || `Slayd ${i + 1}`).slice(0, 90));
     const body = normalizeBody(s?.body, slide_type);
-    if (
+    // Eski saqlangan taqdimotlarda bo'sh slaydga sarlavha punkt qilib qo'yilgan.
+    if (i > 0 && body.bullets?.length === 1 && body.bullets[0] === clipWords(title, MAX_WORDS_PER_BULLET)) {
+      body.bullets = [];
+    }
+    const empty =
       !body.bullets?.length &&
       !body.stats?.length &&
       !body.columns?.length &&
       !body.comparison_rows?.length &&
       !body.process_steps?.length &&
-      !body.quote_text
-    ) {
+      !body.quote_text;
+    // Mazmunsiz slayd — "Taqdimot yakuni", "Thank you", "Manbalar",
+    // "Savollar". Ilgari ularga sarlavhaning o'zi punkt qilib qo'yilardi va
+    // prod'da 400 taqdimotda 269 ta shunday bo'sh slayd chiqqan. Faqat
+    // birinchi (muqova) slayd mazmunsiz bo'lishi mumkin.
+    // `references` — tizimning o'z manbalar slaydi, `summary` — yakuniy xulosa:
+    // sarlavhasi "Manbalar"/"Taqdimot yakuni" bo'lsa ham mazmuni bor.
+    const keepsTitle = slide_type === 'references' || slide_type === 'summary';
+    if (i > 0 && (empty || (!keepsTitle && isFillerSlideTitle(title)))) continue;
+    if (empty) {
       body.bullets = [clipWords(title, MAX_WORDS_PER_BULLET)];
     }
     const image_query = s?.image_query
@@ -521,18 +498,13 @@ export function normalizePresentationContent(
       speaker_notes: s?.speaker_notes ? String(s.speaker_notes).trim().slice(0, 800) : undefined,
       imageUrl: typeof s?.imageUrl === 'string' ? s.imageUrl : undefined,
       imageCredit: typeof s?.imageCredit === 'string' ? s.imageCredit : undefined,
+      imageSourceUrl: typeof s?.imageSourceUrl === 'string' ? s.imageSourceUrl : undefined,
     });
   }
   let slides = mapped;
 
-  if (slides.length < MIN_SLIDES_WITH_FILLER) {
-    const fb = fallbackSlides(presentation_title, subject_area);
-    for (const filler of fb) {
-      if (slides.length >= MIN_SLIDES_WITH_FILLER) break;
-      if (slides.some((s) => s.title.toLowerCase() === filler.title.toLowerCase())) continue;
-      slides.push(filler);
-    }
-  }
+  // Never invent filler slides, medical statistics or Uzbek text when AI returns a short deck.
+  if (!slides.length) throw new Error('Presentation has no usable slides.');
 
   // Birinchi slayd title bo'lsin
   if (slides[0] && slides[0].slide_type !== 'title') {
@@ -549,6 +521,13 @@ export function normalizePresentationContent(
   } else if (slides[0]) {
     slides[0] = { ...slides[0], slide_type: 'title' };
   }
+  // Muqova faqat bitta. Model bo'lim boshini ham `title` deb belgilaydi
+  // (prod'da bir taqdimotda 16 tagacha) — ular muqova shablonida chizilib,
+  // punktlari yo'qolardi. Ikkinchi qism (`presentation_continue`) ham
+  // ko'pincha yana muqova bilan boshlanadi.
+  slides = slides.map((s, i) =>
+    i > 0 && s.slide_type === 'title' ? { ...s, slide_type: 'content_bullets' as SlideType } : s,
+  );
 
   // Xulosa HAR DOIM oxirida bo'lsin. Model ba'zan bir nechta "summary"
   // slaydini o'rtada ham yaratadi — bunda oxirgisi yakuniy xulosa sifatida

@@ -47,5 +47,8 @@ export function shouldHodimUseMobileCompanion(
   isMobileDevice?: boolean,
 ): boolean {
   if (!user || (user.role ?? 'hodim') !== 'hodim') return false;
+  // QR orqali ulangan sessiya ta'rifi bo'yicha KOMPYUTERdagi sessiya (telefon QR'ni skanerlaydi, o'zi
+  // ulanmaydi). Oyna tor yoki ekran sensorli bo'lsa ham ish stoli ochiladi (2026-11-16).
+  if (isDesktopPairedSession(user.uid)) return false;
   return isMobileDevice ?? isLikelyPhoneOrSmallTablet();
 }

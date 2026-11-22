@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import AuthContext, require_roles
+from app.api.deps import AuthContext, get_auth_allow_pending_password, require_roles
 from app.core.db import get_db
-from app.core.security import hash_password, verify_password
+from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
+from app.core.staff_login import normalize_listener_login
 from app.models.staff_location import StaffProfile
 from app.models.user import User
 from app.schemas.staff_admin import (
@@ -21,10 +22,11 @@ from app.schemas.staff_admin import (
     ChangePasswordRequest,
     MeOut,
 )
-from app.services import auth_service
+from app.services import auth_service, user_security
+from app.services import password_policy_service as pwd_policy
 from app.services import file_storage as storage
 from app.services import staff_department as staff_dept
-from app.services import staff_profile
+from app.services import staff_merge, staff_pinfl, staff_profile
 from app.services.pagination import paginate
 
 router = APIRouter()
@@ -43,20 +45,85 @@ def me(db: Session = Depends(get_db), auth: AuthContext = Depends(require_roles(
         last_name=auth.user.last_name or "",
         photo_url=staff_profile.staff_photo_url_for_user(auth.user.username, db),
         student_id=auth.student_id,
+        pinfl=staff_pinfl.pinfl_for(db, auth.user.username) if auth.role != "student" else "",
     )
+
+
+# Parol uchun eng kam uzunlik. Frontend ham shuni tekshiradi, lekin
+# server tekshirmasa to'g'ridan-to'g'ri so'rov bilan bitta harfli parol
+# qo'yish mumkin edi.
+MIN_PASSWORD_LENGTH = 6
 
 
 @router.post("/auth/change-password/")
 def change_password(
     payload: ChangePasswordRequest,
     db: Session = Depends(get_db),
-    auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    # Talaba ham kiradi: uning paroli tashqi tizimda va bu yerda
+    # o'zgartirib bo'lmaydi — lekin buni AYTIB berish kerak. Ilgari u
+    # 403 olardi va ekranda "joriy parol noto'g'ri" deb ko'rinardi.
+    #
+    # Parolni majburiy almashtirish kutilayotgan token ham o'tadi — aks
+    # holda bunday foydalanuvchi hech qachon o'z parolini qo'ya olmasdi.
+    auth: AuthContext = Depends(get_auth_allow_pending_password),
 ) -> dict:
-    if not verify_password(payload.current_password, auth.user.password):
+    if auth.role not in ALL_ROLES:
+        raise HTTPException(status_code=403, detail="Ruxsat yo'q.")
+    stored = auth.user.password or ""
+    pending = pwd_policy.must_change(db, auth.user.username)
+
+    # Django "ishlatib bo'lmaydigan parol" ni "!" bilan boshlanadigan qatorda
+    # saqlaydi; tashqi tizim orqali kiradigan hisoblarda esa u umuman bo'sh.
+    if not stored or stored.startswith("!"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Bu hisobda mahalliy parol yo'q — siz tizimga tashqi hisob "
+                "orqali kirasiz. Parolni o'sha tizimdan o'zgartiring yoki "
+                "administratorga murojaat qiling."
+            ),
+        )
+
+    current_ok = verify_password(payload.current_password, stored)
+    if not current_ok and pending:
+        # Boshlang'ich parol pasport bo'lsa, uni "AD 2383789" deb ham yozishadi.
+        current_ok = verify_password(normalize_listener_login(payload.current_password), stored)
+    if not current_ok:
         raise HTTPException(status_code=400, detail="Joriy parol noto'g'ri.")
-    auth.user.password = hash_password(payload.new_password)
+
+    new_password = payload.new_password
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Yangi parol kamida {MIN_PASSWORD_LENGTH} belgidan iborat bo'lishi kerak.",
+        )
+    if new_password == payload.current_password or verify_password(new_password, stored):
+        raise HTTPException(
+            status_code=400, detail="Yangi parol eskisidan farq qilishi kerak."
+        )
+    # Login bilan bir xil parol — pasport raqami yoki telefon — ro'yxatlarda
+    # ochiq yuradi, ya'ni bu parol emas.
+    if normalize_listener_login(new_password) == normalize_listener_login(auth.user.username):
+        raise HTTPException(
+            status_code=400, detail="Parol loginingiz bilan bir xil bo'lmasin."
+        )
+
+    auth.user.password = hash_password(new_password)
+    pwd_policy.clear(db, auth.user.username)
+    # Eski parol bilan ochilgan BOSHQA qurilmalardagi sessiyalar yopiladi (2026-11-17, G8);
+    # shu qurilma uchun yangi tokenlar qaytariladi — foydalanuvchi chiqib ketmaydi.
+    user_security.revoke_tokens(db, auth.user)
     db.commit()
-    return {"ok": True}
+    claims: dict = {"role": auth.role}
+    if auth.student_id:
+        claims["student_id"] = auth.student_id
+    if auth.group_name:
+        claims["group_name"] = auth.group_name
+    return {
+        "ok": True,
+        "access": create_access_token(auth.user.id, claims),
+        "refresh": create_refresh_token(auth.user.id, claims),
+    }
 
 
 @router.post("/auth/admin-provision-staff/", status_code=status.HTTP_200_OK)
@@ -79,11 +146,14 @@ def admin_provision_staff(
     else:
         if payload.password.strip():
             user.password = hash_password(payload.password.strip())
+            # Admin parolni tiklasa — eski parol bilan ochilgan sessiyalar yopiladi (2026-11-17).
+            user_security.revoke_tokens(db, user)
         user.first_name = payload.first_name.strip() or user.first_name
         user.last_name = payload.last_name.strip() or user.last_name
 
     role = payload.role
-    if role == "admin" and username not in auth_service.demo_admin_phone_allowlist():
+    # Admin rolini faqat superuser beradi (2026-11-17, D3: `DEMO_ADMIN_PHONES` ro'yxati olib tashlandi).
+    if role == "admin" and not auth.user.is_superuser:
         role = "hodim"
     auth_service.set_user_role_group(db, user, role)
 
@@ -166,11 +236,12 @@ async def upload_avatar(
 ) -> AvatarResponse:
     if not storage.validate_avatar_extension(file.filename or ""):
         raise HTTPException(status_code=400, detail="Faqat rasm (JPG, PNG, WEBP, GIF) yuklash mumkin.")
-    content = await file.read()
+    # Chegaragacha o'qiladi (G10): ilgari butun fayl xotiraga olinib, keyin rad etilardi.
+    content = await storage.read_upload_limited(
+        file, storage.AVATAR_MAX_BYTES, too_large_detail="Rasm hajmi 2 MB dan oshmasligi kerak."
+    )
     if not storage.verify_image_magic(content[:16]):
         raise HTTPException(status_code=400, detail="Fayl haqiqiy rasm emas.")
-    if len(content) > storage.AVATAR_MAX_BYTES:
-        raise HTTPException(status_code=400, detail="Rasm hajmi 2 MB dan oshmasligi kerak.")
 
     owner_key = auth.user.username
     profile = db.execute(select(StaffProfile).where(StaffProfile.owner_key == owner_key)).scalar_one_or_none()
@@ -229,8 +300,22 @@ def admin_staff_list(
         ).scalars().all()
     }
 
+    # Birlashtirilib nofaol qilingan takror hisoblar ro'yxatda ko'rinmaydi.
+    merged = staff_merge.merged_usernames(db)
+    links = {
+        p.owner_key: p
+        for p in db.execute(
+            select(staff_pinfl.StaffPinfl).where(
+                staff_pinfl.StaffPinfl.is_active.is_(True),
+                staff_pinfl.StaffPinfl.owner_key.in_([u.username for u in users] or [""]),
+            )
+        ).scalars().all()
+    }
+
     rows = []
     for u in users:
+        if u.username in merged and not u.is_active:
+            continue
         role = auth_service.resolve_user_role_from_db(db, u) or ""
         if role not in allowed_roles:
             continue
@@ -253,6 +338,15 @@ def admin_staff_list(
                 is_active=u.is_active,
                 date_joined=u.date_joined,
                 last_login=u.last_login,
+                # Hech qachon kirmagan + mahalliy paroli bor = boshlang'ich
+                # parol hamon amalda. Kirgan bo'lsa parolini o'zi biladi.
+                password_is_initial=(
+                    u.last_login is None
+                    and bool(u.password)
+                    and not u.password.startswith("!")
+                ),
+                pinfl=links[u.username].pinfl if u.username in links else "",
+                pinfl_source=links[u.username].link_source if u.username in links else "",
             ).model_dump()
         )
     return paginate(rows, request, default_page_size=200, max_page_size=1000)

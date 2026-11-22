@@ -36,6 +36,12 @@ class PreparedContentPayloadIn(BaseModel):
     payload: dict
 
 
+class TranslationReviewIn(BaseModel):
+    """Tarjimani o'qituvchi tasdiqladi (`true`) yoki tasdiqni bekor qildi (`false`)."""
+
+    reviewed: bool = True
+
+
 class PreparedContentOut(BaseModel):
     id: int
     owner_key: str
@@ -67,3 +73,6 @@ class PreparedContentSummaryOut(BaseModel):
     author_display_name: str = ""
     created_at: dt.datetime
     can_delete: bool = False
+    #: Bo'sh bo'lmasa — material eskirgan (masalan klinik bo'lmagan fanga bemor
+    #: ssenariysi). Tarixda ko'rinadi, lekin avtomatik yuklanmaydi.
+    retired_reason: str = ""

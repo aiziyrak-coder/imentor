@@ -14,23 +14,32 @@ import {
 import { markDesktopPairedSession } from '../../utils/deviceSession';
 import { useUiText } from '../../i18n/useUiText';
 
-type Props = {
-  onOtherRoles: () => void;
-  /** Talaba/Xodim tab bar ko'rsatilsinmi (login modal ichida — ha; post-login
-   * majburiy pairing ekranida — yo'q). */
-  showRoleTabs?: boolean;
-  onSelectTalaba?: () => void;
-};
+/** Oyna ochiq qolib ketsa cheksiz sessiya yaratilmasin: ~1 soatdan keyin to'xtaydi. */
+const MAX_AUTO_REFRESH = 6;
 
-export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSelectTalaba }: Props) {
+/**
+ * Kompyuterda xodim FAQAT shu yerdan kiradi.
+ *
+ * Ilgari "boshqa rollar" havolasi parol oynasini ochardi; u olib tashlandi —
+ * kirish telefonda bo'lishi kerak, chunki joylashuv faqat telefonda qayd
+ * etiladi (2026-10-02). Administrator uchun alohida manzil: `/admin`.
+ */
+export default function DesktopHodimQrLogin() {
   const { t } = useUiText();
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expiresLabel, setExpiresLabel] = useState('');
+  // Muddat tugashiga qolgan soniya — jonli sanoq (2026-11-16). Ilgari «~07:15» kabi SOAT ko'rsatilardi:
+  // u doskaning soat mintaqasida chiqib (Toshkent emas) va o'zgarmay turib, «QR qotib qoldi» degan taassurot berardi.
+  const [deadline, setDeadline] = useState(0);
+  const [left, setLeft] = useState(0);
   const [waitingPhone, setWaitingPhone] = useState(false);
+  // Kod endi ishlamaydi: so'rov to'xtagan (bir soatlik chegara) yoki sanoq tugagan, yangisi hali kelmagan.
+  const stale = !!qrDataUrl && !loading && (!waitingPhone || (deadline > 0 && left === 0));
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const aliveRef = useRef(true);
+  const autoRefreshRef = useRef(0);
+  const startPairingRef = useRef<() => Promise<void>>(async () => {});
   const desktopSecretRef = useRef('');
 
   const stopPoll = useCallback(() => {
@@ -58,8 +67,11 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
         color: { dark: '#083047', light: '#ffffff' },
       });
       setQrDataUrl(url);
-      const exp = new Date(created.expires_at);
-      setExpiresLabel(exp.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }));
+      const ttl = created.expires_in && created.expires_in > 0
+        ? created.expires_in
+        : Math.max(60, Math.round((new Date(created.expires_at).getTime() - Date.now()) / 1000));
+      setDeadline(performance.now() + ttl * 1000);
+      setLeft(ttl);
       setWaitingPhone(true);
 
       pollRef.current = setInterval(async () => {
@@ -72,6 +84,13 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
           if (!aliveRef.current) return;
           if (st.status === 'expired') {
             stopPoll();
+            // Muddati tugagan QR o'zi yangilanadi — o'qituvchi tugma qidirmasin,
+            // telefon esa ekrandagi yangi kodni darhol skanerlay oladi.
+            if (autoRefreshRef.current < MAX_AUTO_REFRESH) {
+              autoRefreshRef.current += 1;
+              void startPairingRef.current();
+              return;
+            }
             setWaitingPhone(false);
             setError(t('auth.qrExpired'));
             return;
@@ -125,6 +144,30 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
     }
   }, [stopPoll, t]);
 
+  startPairingRef.current = startPairing;
+
+  useEffect(() => {
+    const wake = () => {
+      if (document.hidden || pollRef.current) return;
+      autoRefreshRef.current = 0;
+      void startPairingRef.current();
+    };
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('focus', wake);
+    return () => {
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener('focus', wake);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!deadline) return undefined;
+    const tick = () => setLeft(Math.max(0, Math.round((deadline - performance.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [deadline]);
+
   useEffect(() => {
     aliveRef.current = true;
     void startPairing();
@@ -145,24 +188,6 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
           {t('auth.qrSubtitle')}
         </p>
       </div>
-
-      {showRoleTabs && (
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-black/[0.04] p-1">
-          <button
-            type="button"
-            onClick={onSelectTalaba}
-            className="rounded-lg py-2 text-[13px] font-semibold text-black/45 transition"
-          >
-            {t('auth.loginModeStudent')}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg py-2 text-[13px] font-semibold bg-white text-black/90 shadow-sm transition"
-          >
-            {t('auth.loginModeStaff')}
-          </button>
-        </div>
-      )}
 
       <div className="rounded-2xl border border-sky-100 bg-sky-50/90 px-3.5 py-2.5">
         <div className="flex items-center gap-2 mb-1.5">
@@ -187,11 +212,24 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
           </div>
         ) : qrDataUrl ? (
           <>
-            <img src={qrDataUrl} alt={t('auth.qrAlt')} className="w-[210px] h-[210px] rounded-xl" />
-            {expiresLabel && (
-              <p className="text-[12px] text-black/45">{t('auth.qrExpires', { time: expiresLabel })}</p>
+            <div className="relative">
+              <img src={qrDataUrl} alt={t('auth.qrAlt')}
+                className={`w-[210px] h-[210px] rounded-xl transition ${stale ? 'opacity-15 blur-[2px]' : ''}`} />
+              {stale && (
+                <button
+                  type="button"
+                  onClick={() => { autoRefreshRef.current = 0; void startPairing(); }}
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl text-sky-800"
+                >
+                  <RefreshCw size={30} />
+                  <span className="text-[14px] font-bold">{t('auth.qrNew')}</span>
+                </button>
+              )}
+            </div>
+            {deadline > 0 && !stale && (
+              <p className="text-[12px] text-black/45 tabular-nums">{t('auth.qrExpires', { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` })}</p>
             )}
-            {waitingPhone && (
+            {waitingPhone && !stale && (
               <p className="text-[13px] text-sky-700 font-medium text-center animate-pulse">
                 {t('auth.qrWaiting')}
               </p>
@@ -205,7 +243,10 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
 
         <button
           type="button"
-          onClick={() => void startPairing()}
+          onClick={() => {
+            autoRefreshRef.current = 0;
+            void startPairing();
+          }}
           className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-sky-200 bg-white text-sky-800 font-semibold text-[14px] hover:bg-sky-50 transition-colors"
         >
           <RefreshCw size={16} />
@@ -213,13 +254,7 @@ export default function DesktopHodimQrLogin({ onOtherRoles, showRoleTabs, onSele
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={onOtherRoles}
-        className="w-full text-center text-[13px] font-semibold text-black/50 hover:text-sky-700 underline underline-offset-2"
-      >
-        {t('auth.otherRoles')}
-      </button>
+      <p className="w-full text-center text-[12.5px] text-black/45">{t('auth.phoneOnlyHint')}</p>
     </div>
   );
 }

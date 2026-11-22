@@ -1,3 +1,4 @@
+import { markGeoFailed, markGeoGranted } from './geoConsent';
 import { postStaffLocationPing } from './staffLocationApi';
 
 /** Hodim joylashuvi yangilanganda (xarita va UI uchun) */
@@ -166,6 +167,7 @@ export function requestOneShotStaffLocationPing(): Promise<StaffGeoDetail> {
     }
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        markGeoGranted();
         const now = Date.now();
         const accuracy_m = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
         try {
@@ -187,7 +189,10 @@ export function requestOneShotStaffLocationPing(): Promise<StaffGeoDetail> {
         dispatchStaffGeoUpdate(detail);
         resolve(detail);
       },
-      (err) => reject(err),
+      (err) => {
+        markGeoFailed(err);
+        reject(err);
+      },
       {
         enableHighAccuracy: true,
         maximumAge: 0,

@@ -48,6 +48,12 @@ class TopicVideoOut(BaseModel):
     embed_url: str
     author_name: str
     created_at: dt.datetime
+    # Faqat qo'shgan o'qituvchi (yoki admin) o'chira oladi — tugma shunga qarab chiqadi.
+    can_delete: bool = False
+    # Qaysi sayt (2026-11-19): youtube | gdrive | vimeo | rutube | mover | telegram | file | link.
+    provider: str = "youtube"
+    # iframe — sayt pleyeri; video — HTML5 pleyer (fayl); link — faqat yangi oynada ochiladi.
+    kind: str = "iframe"
 
 
 class TopicVideoCreateRequest(BaseModel):

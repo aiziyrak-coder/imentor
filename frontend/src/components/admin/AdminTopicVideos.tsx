@@ -26,12 +26,14 @@ function VideoRow({
 }) {
   const { t } = useUiText();
   // Sarlavha kiritilmagan bo'lsa — YouTube'dan asl nomi olinadi.
-  const displayTitle = useYoutubeTitle(video.youtube_id, video.title);
+  const isYoutube = !video.provider || video.provider === 'youtube';
+  const ytTitle = useYoutubeTitle(isYoutube ? video.youtube_id : '', video.title);
+  const displayTitle = isYoutube ? ytTitle : video.title || video.youtube_url;
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       <img
-        src={`https://img.youtube.com/vi/${video.youtube_id}/default.jpg`}
+        src={isYoutube ? `https://img.youtube.com/vi/${video.youtube_id}/default.jpg` : 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw=='}
         alt=""
         className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0"
       />

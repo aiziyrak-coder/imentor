@@ -25,6 +25,7 @@ function inferKind(ref: MedicalReference): SourceKind {
 
 const KIND_LINK: Record<SourceKind, string> = {
   book: 'font-semibold text-emerald-800',
+  protocol: 'font-semibold text-amber-800',
   pubmed: 'font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900',
   scholar: 'font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900',
   journal: 'font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900',
@@ -33,6 +34,7 @@ const KIND_LINK: Record<SourceKind, string> = {
 
 const KIND_BADGE: Record<SourceKind, string> = {
   book: 'bg-emerald-700 text-white',
+  protocol: 'bg-amber-600 text-white',
   pubmed: 'bg-blue-600 text-white',
   scholar: 'bg-indigo-600 text-white',
   journal: 'bg-blue-600 text-white',
@@ -41,9 +43,12 @@ const KIND_BADGE: Record<SourceKind, string> = {
 
 function kindLabel(
   kind: SourceKind,
-  t: (key: 'staff.medical.sourceBook' | 'staff.medical.sourceJournal' | 'staff.medical.sourceWeb') => string,
+  t: (
+    key: 'staff.medical.sourceBook' | 'staff.medical.sourceProtocol' | 'staff.medical.sourceJournal' | 'staff.medical.sourceWeb',
+  ) => string,
 ): string {
   if (kind === 'book') return t('staff.medical.sourceBook');
+  if (kind === 'protocol') return t('staff.medical.sourceProtocol');
   if (kind === 'wikipedia') return t('staff.medical.sourceWeb');
   return t('staff.medical.sourceJournal');
 }
@@ -108,7 +113,7 @@ export default function MedicalReferencesList({
                     <ExternalLink size={12} className="shrink-0 opacity-70" />
                   </a>
                 ) : (
-                  <span className={KIND_LINK.book}>{ref.title}</span>
+                  <span className={KIND_LINK[kind === 'protocol' ? 'protocol' : 'book']}>{ref.title}</span>
                 )}
                 <span className="text-slate-500">
                   {ref.pages ? ` — ${ref.pages}-bet` : ''}

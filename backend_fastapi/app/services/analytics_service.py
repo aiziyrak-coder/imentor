@@ -152,6 +152,10 @@ def active_minutes_between(db: Session, owner_key: str, start: dt.datetime, end:
     return int(sess_rows or 0)
 
 
+class DuplicateAttemptError(Exception):
+    """Shu talabaning shu sessiyadagi urinishi allaqachon arxivda bor."""
+
+
 def create_student_attempt_from_submission(
     db: Session,
     *,
@@ -159,7 +163,15 @@ def create_student_attempt_from_submission(
     submission: LiveTestSubmission,
     started_at: dt.datetime | None = None,
     duration_sec: int = 0,
+    strict: bool = False,
 ) -> StudentTestAttempt | None:
+    """Topshiriqdan arxiv urinishini yozadi.
+
+    `strict=True` (talabaning o'zi topshirganda): urinish allaqachon bo'lsa
+    `DuplicateAttemptError` — chaqiruvchi tranzaksiyani bekor qiladi. Ilgari mavjud
+    urinish jimgina qaytarilardi va parallel ikkinchi topshiriq ham yozilib qolardi
+    (2026-11-17 auditi, G14). Qayta tiklash skripti esa standart rejimda ishlaydi.
+    """
     existing = db.execute(
         select(StudentTestAttempt).where(
             StudentTestAttempt.session_id == session.id,
@@ -167,6 +179,8 @@ def create_student_attempt_from_submission(
         )
     ).scalar_one_or_none()
     if existing:
+        if strict and (submission.student_id or ""):
+            raise DuplicateAttemptError(f"session={session.id} student={submission.student_id}")
         return existing
 
     payload = session.payload if isinstance(session.payload, dict) else {}
@@ -180,12 +194,14 @@ def create_student_attempt_from_submission(
         session_id=session.id,
         student_id=submission.student_id or "",
         participant_key=submission.participant_key or "",
-        first_name=submission.first_name or "",
-        last_name=submission.last_name or "",
+        first_name=(submission.first_name or "")[:128],
+        last_name=(submission.last_name or "")[:128],
         subject_code=session.subject_code or "",
-        topic=str(payload.get("topic") or ""),
-        topic_code=str(payload.get("topicCode") or payload.get("topic_code") or ""),
-        variant_label=str(payload.get("variantLabel") or payload.get("variant_label") or ""),
+        # Ustun chegarasidan uzun mavzu (bir nechta mavzu birlashtirilgan) butun
+        # sessiyani yakunlashni yiqitardi — natija yozilmay qolardi (2026-10-22).
+        topic=str(payload.get("topic") or "")[:512],
+        topic_code=str(payload.get("topicCode") or payload.get("topic_code") or "")[:64],
+        variant_label=str(payload.get("variantLabel") or payload.get("variant_label") or "")[:128],
         questions_snapshot=questions,
         answers_final=list(submission.answers or []),
         score=correct,
@@ -231,6 +247,15 @@ def attach_live_test_events(
     events: list[dict],
 ) -> int:
     count = 0
+    # Talaba topshirib bo'lgan bo'lsa — voqealar uning urinishiga bog'lanadi (2026-10-23):
+    # ilgari doim attempt_id=None edi va urinish bo'yicha hisobotlar (sahifadan chiqib
+    # turgan vaqt) topshirishdan keyin kelgan voqealarni ko'rmasdi.
+    attempt_id = None
+    if student_id:
+        attempt_id = db.execute(
+            select(StudentTestAttempt.id).where(
+                StudentTestAttempt.session_id == session_id, StudentTestAttempt.student_id == student_id)
+        ).scalar()
     for raw in events[:200]:
         if not isinstance(raw, dict):
             continue
@@ -248,7 +273,7 @@ def attach_live_test_events(
                 pass
         db.add(
             StudentTestAttemptEvent(
-                attempt_id=None,
+                attempt_id=attempt_id,
                 session_id=session_id,
                 student_id=student_id[:64],
                 participant_key=participant_key[:64],

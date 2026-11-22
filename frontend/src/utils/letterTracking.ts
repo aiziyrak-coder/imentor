@@ -26,7 +26,7 @@
  * So'z chegarasi (2+ probel) bu naqshni uzadi — demak yopishtirish faqat
  * haqiqiy "ajralgan harflar" ketma-ketligi ustida bajariladi.
  */
-const TRACKED_RUN = /(?<!\S)((?:\S{1,3} ){4,}\S{1,3})(?!\S)/g;
+const TRACKED_RUN = /(^|\s)((?:\S{1,3} ){4,}\S{1,3})(?!\S)/g;
 
 function shouldGlue(run: string): boolean {
   const tokens = run.split(' ');
@@ -49,11 +49,11 @@ function shouldGlue(run: string): boolean {
  */
 export function undoLetterTracking(text: string): string {
   if (!text) return text;
-  return text.replace(TRACKED_RUN, (run) => {
-    if (!shouldGlue(run)) return run;
+  return text.replace(TRACKED_RUN, (match, boundary: string, run: string) => {
+    if (!shouldGlue(run)) return match;
     // Tinish belgisidan keyin so'z chegarasi tiklanadi — harflar
     // yopishtirilgandan keyingi yagona ishonchli signal shu.
-    return run.replace(/ /g, '').replace(/([,.;:!?])(?=[^\s,.;:!?])/g, '$1 ');
+    return boundary + run.replace(/ /g, '').replace(/([,.;:!?])(?=[^\s,.;:!?])/g, '$1 ');
   });
 }
 

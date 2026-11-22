@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   Sparkles,
+  Trash2,
   Upload,
   X,
   ZoomIn,
@@ -14,9 +15,11 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { GlobalTopicContext, AppNavigationContext } from '../App';
 import { useUiText } from '../i18n/useUiText';
+import { postActivityEvents } from '../utils/analyticsApi';
 import { useLocalizedTopic } from '../i18n/useLocalizedTopic';
 import { backendErrorMessage } from '../utils/apiError';
 import {
+  deleteHandout,
   fetchHandoutsForTopic,
   getHandoutFileBlobUrl,
   handoutLanguage,
@@ -24,6 +27,7 @@ import {
   uploadHandout,
   HANDOUT_FILE_ACCEPT,
   isAllowedHandoutFile,
+  pruneHandoutBlobCache,
   type TopicHandoutItem,
 } from '../utils/handoutApi';
 import { generateAndUploadTopicHandouts } from '../utils/handoutGenerate';
@@ -31,9 +35,12 @@ import StaffPageLayout from './staff/StaffPageLayout';
 import StaffTopicHeader from './staff/StaffTopicHeader';
 import StaffEmptyState from './staff/StaffEmptyState';
 import StaffErrorAlert from './staff/StaffErrorAlert';
-import StaffPanel from './staff/StaffPanel';
 import { staffBtnGhost, staffBtnPrimary, staffBtnSecondary } from './staff/staffUi';
 import { isTopicContextComplete, topicContextKey } from '../utils/syllabusTopicContext';
+import { contentLanguageFor } from '../utils/syllabusInstructionLanguage';
+
+/** `generateAndUploadTopicHandouts` fayl nomi: `tarqatma-<kod>-<til>.png`. */
+const AI_HANDOUT_FILE_RE = /^tarqatma-.+-(uz|ru|en)\.png$/i;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -96,7 +103,7 @@ function HandoutThumb({ item }: { item: TopicHandoutItem }) {
 
   if (failed || !src) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center bg-black/5 text-black/30 text-[11px]">
+      <div className="absolute inset-0 flex items-center justify-center bg-black/5 text-slate-300 text-[11px]">
         {failed ? t('handout.imageFailed') : t('common.loading')}
       </div>
     );
@@ -149,7 +156,7 @@ function HandoutLightbox({ items, index, onClose, onIndexChange }: LightboxProps
         <div className="min-w-0 flex-1 pr-3">
           <p className="text-[15px] font-semibold truncate">{item.title || item.file_name}</p>
           <p className="text-[12px] text-white/60 truncate">
-            {index + 1} / {items.length} · {item.author_name || item.owner_key}
+            {index + 1} / {items.length}{item.author_name ? ` · ${item.author_name}` : ''}
           </p>
         </div>
         {fileSrc && (
@@ -233,9 +240,14 @@ export default function HandoutMaterials() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [busy, setBusy] = useState<'upload' | 'generate' | null>(null);
   const [progress, setProgress] = useState('');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const topicKey = topicContextKey(globalTopic);
   const requestSeq = useRef(0);
+  // Uzoq jarayon (yuklash, AI infografika) tugaganda o'qituvchi boshqa mavzuda bo'lishi
+  // mumkin: eski mavzuning ro'yxati va xatosi yangi mavzu sahifasiga tushmasin (2026-10-23).
+  const topicKeyRef = useRef(topicKey);
+  topicKeyRef.current = topicKey;
 
   const loadHandouts = useCallback(async () => {
     if (!topicKey || !globalTopic?.title) {
@@ -249,13 +261,9 @@ export default function HandoutMaterials() {
     try {
       const list = await fetchHandoutsForTopic(globalTopic);
       if (seq !== requestSeq.current) return;
-      const prefer = language;
-      list.sort((a, b) => {
-        const ap = handoutLanguage(a) === prefer ? 0 : 1;
-        const bp = handoutLanguage(b) === prefer ? 0 : 1;
-        return ap - bp;
-      });
       setItems(list);
+      // Boshqa mavzularning rasm/PDF fayllari xotirada to'planib qolmasin.
+      pruneHandoutBlobCache(list.map((x) => x.id));
     } catch (e) {
       if (seq !== requestSeq.current) return;
       setError(
@@ -272,19 +280,103 @@ export default function HandoutMaterials() {
     void loadHandouts();
   }, [loadHandouts]);
 
-  const handleUploadFiles = async (list: FileList | null) => {
-    if (!globalTopic || !isTopicContextComplete(globalTopic)) return;
-    const picked = Array.from(list || []).filter(isAllowedHandoutFile);
-    if (picked.length === 0) return;
-    setBusy('upload');
+  useEffect(() => {
+    setLightboxIndex(null);
+  }, [topicKey, language]);
+
+  /**
+   * Ko'rinadigan tarqatmalar.
+   *
+   * AI infografika har doim uch tilda (uz/ru/en) yaratiladi — ekranda faqat
+   * interfeys tilidagisi chiqadi (ilgari uchala til aralash ko'rsatilardi).
+   * O'qituvchi o'zi yuklagan fayllar o'zgarishsiz qoladi.
+   */
+  const isAiHandout = (item: TopicHandoutItem) => AI_HANDOUT_FILE_RE.test(item.file_name || '');
+  const hasAiInLanguage = items.some((item) => isAiHandout(item) && handoutLanguage(item) === language);
+  const visibleItems = items.filter(
+    (item) => !isAiHandout(item) || !hasAiInLanguage || handoutLanguage(item) === language,
+  );
+
+  /** O'chirish: o'zi yuklagani yoki o'z fanidagi tarqatma (server `can_delete` beradi). */
+  const handleDelete = async (item: TopicHandoutItem) => {
+    if (!window.confirm(t('handout.deleteConfirm'))) return;
+    setDeletingId(item.id);
     setError(null);
     try {
-      for (const file of picked) {
-        await uploadHandout({ topic: globalTopic, file, language });
+      // AI infografika uch tilda bir vaqtda yaratiladi — o'chirilganda uning
+      // boshqa tildagi nusxalari ham o'chadi (aks holda til almashganda
+      // "o'chirilgan" tarqatma qaytib chiqardi).
+      if (AI_HANDOUT_FILE_RE.test(item.file_name || '')) {
+        const base = item.file_name.replace(/-(uz|ru|en)\.png$/i, '');
+        const created = Date.parse(item.created_at);
+        const siblings = items.filter(
+          (other) =>
+            other.id !== item.id &&
+            other.can_delete === true &&
+            AI_HANDOUT_FILE_RE.test(other.file_name || '') &&
+            other.file_name.replace(/-(uz|ru|en)\.png$/i, '') === base &&
+            Math.abs(Date.parse(other.created_at) - created) < 10 * 60 * 1000,
+        );
+        for (const sibling of siblings) await deleteHandout(sibling.id);
       }
+      await deleteHandout(item.id);
+      setLightboxIndex(null);
       await loadHandouts();
-    } catch (err) {
-      setError(backendErrorMessage(err) || t('handout.errorUpload'));
+    } catch {
+      setError(t('handout.deleteFailed'));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleUploadFiles = async (list: FileList | null) => {
+    if (!globalTopic || !isTopicContextComplete(globalTopic)) return;
+    const all = Array.from(list || []);
+    const picked = all.filter(isAllowedHandoutFile);
+    const rejected = all.filter((f) => !isAllowedHandoutFile(f)).map((f) => f.name);
+    // Ruxsat etilmagan fayl indamay tashlab yuborilmaydi — nomi aytiladi.
+    const rejectedMsg = rejected.length
+      ? t('handout.errorFileTypeSkipped', { names: rejected.join(', ') })
+      : '';
+    if (picked.length === 0) {
+      setError(rejectedMsg || null);
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+    setBusy('upload');
+    setError(null);
+    const startKey = topicKey;
+    // Fayl FAN tilida belgilanadi (interfeys tilida emas) — ma'ruza/test bilan bir xil qoida.
+    const fileLanguage = contentLanguageFor(globalTopic, language);
+    const failed: string[] = [];
+    let lastErr: unknown = null;
+    try {
+      // Bittasi yiqilsa qolganlari to'xtab qolmaydi; oxirida qaysilari
+      // yuklanmagani aytiladi.
+      for (const file of picked) {
+        try {
+          await uploadHandout({ topic: globalTopic, file, language: fileLanguage });
+        } catch (err) {
+          failed.push(file.name);
+          lastErr = err;
+        }
+      }
+      if (topicKeyRef.current !== startKey) return;
+      await loadHandouts();
+      const parts: string[] = [];
+      if (failed.length) {
+        parts.push(
+          picked.length > 1
+            ? t('handout.uploadPartial', {
+                done: picked.length - failed.length,
+                failed: failed.length,
+                names: failed.join(', '),
+              })
+            : backendErrorMessage(lastErr) || t('handout.errorUpload'),
+        );
+      }
+      if (rejectedMsg) parts.push(rejectedMsg);
+      if (parts.length) setError(parts.join(' '));
     } finally {
       setBusy(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -296,6 +388,7 @@ export default function HandoutMaterials() {
     setBusy('generate');
     setError(null);
     setProgress(t('handout.progressAi'));
+    const startKey = topicKey;
     try {
       await generateAndUploadTopicHandouts({
         topicTitle: globalTopic.title,
@@ -311,9 +404,9 @@ export default function HandoutMaterials() {
           else setProgress(t('handout.progressUpload', { lang: (lang || '').toUpperCase() }));
         },
       });
-      await loadHandouts();
+      if (topicKeyRef.current === startKey) await loadHandouts();
     } catch (err) {
-      setError(backendErrorMessage(err) || t('handout.errorGenerate'));
+      if (topicKeyRef.current === startKey) setError(backendErrorMessage(err) || t('handout.errorGenerate'));
     } finally {
       setBusy(null);
       setProgress('');
@@ -322,7 +415,11 @@ export default function HandoutMaterials() {
 
   if (!globalTopic?.title || !isTopicContextComplete(globalTopic)) {
     return (
-      <StaffPageLayout>
+      <StaffPageLayout
+        title={t('nav.handouts')}
+        icon={FileText}
+        accent="teal"
+      >
         <StaffEmptyState
           icon={BookOpen}
           title={t('handout.noTopicTitle')}
@@ -335,7 +432,11 @@ export default function HandoutMaterials() {
   }
 
   return (
-    <StaffPageLayout>
+    <StaffPageLayout
+      title={t('nav.handouts')}
+      icon={FileText}
+      accent="teal"
+    >
       <StaffTopicHeader
         moduleLabel={t('handout.title')}
         topic={localizedTopic}
@@ -382,30 +483,43 @@ export default function HandoutMaterials() {
       />
 
       {progress ? (
-        <StaffPanel className="py-3 px-4 text-[13px] text-[#083047] font-medium">{progress}</StaffPanel>
+        <p className="text-[12.5px] font-medium text-slate-500">{progress}</p>
       ) : null}
 
       {error && <StaffErrorAlert message={error} />}
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="animate-spin text-[#083047]/60" size={36} />
+          <Loader2 className="animate-spin text-slate-300" size={36} />
         </div>
-      ) : items.length === 0 ? (
-        <StaffPanel className="py-12 text-center text-black/45 text-[14px]">
-          {t('handout.empty')}
-        </StaffPanel>
+      ) : visibleItems.length === 0 ? (
+        <div className="mx-auto max-w-sm px-4 py-16 text-center">
+          <FileText size={22} className="mx-auto mb-3 text-slate-300" />
+          <p className="text-[13px] leading-relaxed text-slate-500">{t('handout.empty')}</p>
+        </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-          {items.map((item, idx) => (
+          {visibleItems.map((item, idx) => (
             <motion.div
               key={item.id}
               layout
-              className="group relative ios-glass rounded-2xl border border-white/70 overflow-hidden shadow-sm"
+              className="group relative overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/[0.06]"
             >
               <button
                 type="button"
-                onClick={() => setLightboxIndex(idx)}
+                onClick={() => {
+                  setLightboxIndex(idx);
+                  // Hisobot uchun: o'qituvchi qaysi tarqatmani ochgani.
+                  void postActivityEvents(
+                    [
+                      {
+                        event_type: 'content_view',
+                        meta: { kind: 'handout', title: item.title || item.file_name || '' },
+                      },
+                    ],
+                    'handouts',
+                  );
+                }}
                 className="block w-full aspect-[4/3] bg-black/5 relative"
               >
                 <HandoutThumb item={item} />
@@ -414,28 +528,40 @@ export default function HandoutMaterials() {
                 </span>
               </button>
               <div className="p-2.5 space-y-1">
-                <p className="text-[12px] font-semibold text-black/85 line-clamp-2 leading-snug">
+                <p className="text-[12px] font-semibold text-slate-800 line-clamp-2 leading-snug">
                   {item.title || item.file_name}
                 </p>
-                <p className="text-[10px] text-black/35">
+                <p className="text-[10px] text-slate-400">
                   {item.kind === 'pdf' ? 'PDF' : t('handout.kindImage')} · {formatSize(item.file_size)}
                 </p>
               </div>
+              {item.can_delete === true && (
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(item)}
+                  disabled={deletingId === item.id}
+                  className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 text-rose-600 shadow-sm ring-1 ring-slate-900/10 transition hover:bg-rose-50 disabled:opacity-50"
+                  aria-label={t('handout.delete')}
+                  title={t('handout.delete')}
+                >
+                  {deletingId === item.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                </button>
+              )}
             </motion.div>
           ))}
         </div>
       )}
 
-      {items.length > 0 && (
-        <p className="text-center text-[12px] text-black/40">
-          {t('handout.totalCount', { count: items.length })}
+      {visibleItems.length > 0 && (
+        <p className="text-center text-[12px] text-slate-400">
+          {t('handout.totalCount', { count: visibleItems.length })}
         </p>
       )}
 
       <AnimatePresence>
-        {lightboxIndex !== null && items[lightboxIndex] && (
+        {lightboxIndex !== null && visibleItems[lightboxIndex] && (
           <HandoutLightbox
-            items={items}
+            items={visibleItems}
             index={lightboxIndex}
             onClose={() => setLightboxIndex(null)}
             onIndexChange={setLightboxIndex}

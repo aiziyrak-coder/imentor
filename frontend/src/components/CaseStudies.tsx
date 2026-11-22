@@ -1,4 +1,8 @@
-import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
+import type { AppLanguage } from '../i18n/language';
+import { postActivityEvents } from '../utils/analyticsApi';
+import { topicTitleFor } from '../utils/syllabusI18n';
+import { contentLanguageFor } from '../utils/syllabusInstructionLanguage';
+import React, { useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import { pushAppNotification } from '../utils/notifications';
 import {
   Stethoscope,
@@ -20,20 +24,25 @@ import { useUiText } from '../i18n/useUiText';
 import { getCurrentLocalUser, normalizeUserRole } from '../utils/localStaffAuth';
 import { appendCaseStudyToLibrary } from '../utils/staffContentLibrary';
 import {
-  listPreparedForTopicSynced,
+  listPreparedForTopicResult,
   loadPreparedByIdSynced,
   savePreparedContent,
   deletePreparedContent,
   type PreparedContentSummary,
+  type PreparedListResult,
 } from '../utils/preparedContentStore';
 import { buildPreparedContentMeta } from '../utils/preparedContentMeta';
+import type { PreparedContentMeta } from '../utils/preparedContentStore';
 import ContentTopicToolbar, { StaffToolbarButton } from './staff/ContentTopicToolbar';
 import { useLocalizedTopic } from '../i18n/useLocalizedTopic';
 import StaffPageLayout from './staff/StaffPageLayout';
 import StaffErrorAlert from './staff/StaffErrorAlert';
 import StaffLoading from './staff/StaffLoading';
 import StaffPanel from './staff/StaffPanel';
-import { isTopicContextComplete } from '../utils/syllabusTopicContext';
+import TranslationGate from './staff/TranslationGate';
+import TranslationReviewBar from './staff/TranslationReviewBar';
+import { useTranslatedPayload } from '../i18n/useTranslatedPayload';
+import { isTopicContextComplete, topicContextKey } from '../utils/syllabusTopicContext';
 import MedicalReferencesList from './staff/MedicalReferencesList';
 import CaseAnswerView from './staff/CaseAnswerView';
 import CaseScenarioView from './staff/CaseScenarioView';
@@ -52,11 +61,11 @@ import { hydrateGenerationScope, makeGenerationScope } from '../utils/subjectDom
 import {
   caseFocusAccentBorderClass,
   caseFocusBadgeClass,
-  caseFocusIconBgClass,
   caseFocusLabel,
   sortCaseQuestionsByFocus,
 } from '../utils/caseFocusLabels';
 import type { CaseStudyFocus } from '../utils/generationVariety';
+import QuestionSource from './staff/QuestionSource';
 
 const CASE_FOCUS_ICONS: Record<CaseStudyFocus, typeof ShieldCheck> = {
   profilaktika: ShieldCheck,
@@ -70,34 +79,83 @@ export default function CaseStudies() {
   const { t } = useUiText();
   const [topic, setTopic] = useState(globalTopic ? globalTopic.title : '');
   const [keywords, setKeywords] = useState('');
-  const [loading, setLoading] = useState(false);
+  /** Qaysi mavzu uchun keys yaratilmoqda — bir vaqtda bittasi. */
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
   const [downloadingCasesPdf, setDownloadingCasesPdf] = useState(false);
   const [downloadingKeyPdf, setDownloadingKeyPdf] = useState(false);
   const [caseSession, setCaseSession] = useState<CaseStudySession | null>(null);
   const [revealedAnswers, setRevealedAnswers] = useState<boolean[]>([]);
   const [versions, setVersions] = useState<PreparedContentSummary[]>([]);
+  /** Versiyalar ro'yxati Bazadan kelmadi — "hali saqlanmagan" deb ko'rsatilmaydi. */
+  const [versionsLoadFailed, setVersionsLoadFailed] = useState(false);
+  /** "Qayta urinish" — mavzuni ochish (oxirgi keysni yuklash) effektini qayta ishga tushiradi. */
+  const [openTick, setOpenTick] = useState(0);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Saqlash yiqilganda — "Qayta saqlash" uchun kutayotgan ish. */
-  const [pendingSave, setPendingSave] = useState<{ topic: string; data: CaseStudySession } | null>(
-    null,
-  );
+  const [pendingSave, setPendingSave] = useState<{
+    topic: string;
+    data: CaseStudySession;
+    /** Yiqilgan paytdagi mavzu — qayta urinish ASL mavzuga yozadi. */
+    key: string;
+    meta: PreparedContentMeta;
+  } | null>(null);
   const [retryingSave, setRetryingSave] = useState(false);
+  /** Ekrandagi keys qaysi tilda (tarjima tugmalari va PDF shu tilda). */
+  const [caseViewLang, setCaseViewLang] = useState<AppLanguage>(language);
+
+  const topicKey = topicContextKey(globalTopic) || topic.trim();
+  const topicKeyRef = useRef(topicKey);
+  topicKeyRef.current = topicKey;
+  const loading = generatingKey !== null && generatingKey === topicKey;
+  const busyElsewhere = generatingKey !== null && generatingKey !== topicKey;
+  const languageRef = useRef(language);
+  languageRef.current = language;
+
+  /** Ro'yxat natijasini qo'llash: xato bo'lsa eski ro'yxat o'chirilmaydi, faqat
+   *  xato belgisi qo'yiladi (bo'sh "hali saqlanmagan" holati chiqmasin). */
+  const applyVersionsResult = useCallback((res: PreparedListResult) => {
+    if (res.ok) {
+      setVersions(res.items);
+      setVersionsLoadFailed(false);
+    } else {
+      console.warn('Case versions load failed', res.error);
+      setVersionsLoadFailed(true);
+    }
+  }, []);
 
   const refreshVersions = useCallback(() => {
     if (!topic.trim()) {
       setVersions([]);
+      setVersionsLoadFailed(false);
       return;
     }
-    void listPreparedForTopicSynced('case', globalTopic ?? topic).then(setVersions);
-  }, [topic, globalTopic]);
+    // Faqat hali shu mavzuda bo'lsak (2026-10-23): tez almashtirilganda oldingi mavzuning
+    // kech kelgan ro'yxati yangi mavzunikini almashtirardi.
+    const startKey = topicKeyRef.current;
+    void listPreparedForTopicResult('case', globalTopic ?? topic).then((res) => {
+      if (topicKeyRef.current === startKey) applyVersionsResult(res);
+    });
+  }, [topic, globalTopic, applyVersionsResult]);
 
   /** `keepKeywords` — foydalanuvchi kiritgan kalit so'zlar saqlanib qolsin.
    * Ilgari Bazadan variant ochilganda inputdagi yangi kalit so'zlar
    * yuklangan sessiyanikiga almashtirilardi va yozilgani yo'qolardi. */
+  // Keys interfeys tilida ko'rsatiladi; til tugmasi bilan boshqa tilda ham
+  // ko'rish mumkin. Tarjima tayyor bo'lmasa — "Tarjima qilinmoqda…".
+  useEffect(() => {
+    setCaseViewLang(language);
+  }, [language]);
+  const {
+    view: caseView,
+    status: caseStatus,
+    retry: retryCaseTranslation,
+  } = useTranslatedPayload(caseSession, activeVersionId, caseViewLang, (next) => setCaseSession(next));
+
   const applySession = useCallback(
     (data: CaseStudySession, versionId: string | null, keepKeywords = false) => {
       setCaseSession(data);
+      setCaseViewLang(languageRef.current);
       setRevealedAnswers(new Array(data.questions.length).fill(false));
       setActiveVersionId(versionId);
       if (!keepKeywords && data.keywords?.length) {
@@ -125,22 +183,43 @@ export default function CaseStudies() {
     }
     let mounted = true;
     const lookup = globalTopic ?? topic;
-    // Sahifa TOZA ochiladi — avval yaratilgan keys avtomatik ochilmaydi.
-    // Shu mavzuda saqlangani bo'lsa, tepadagi banner orqali Bazadan ochiladi.
+    setCaseSession(null);
+    setActiveVersionId(null);
+    setError(null);
+    // Shu mavzuda saqlangan OXIRGI keys avtomatik ochiladi — "Ma'ruza matni"
+    // bilan bir xil. Ilgari sahifa bo'sh ochilardi va o'qituvchi hech narsa
+    // yo'q deb pullik generatsiyani qayta bosardi.
     (async () => {
-      const list = await listPreparedForTopicSynced('case', lookup);
+      const res = await listPreparedForTopicResult('case', lookup);
       if (!mounted) return;
-      setVersions(list);
-      setCaseSession(null);
-      setActiveVersionId(null);
+      applyVersionsResult(res);
+      const list = res.items;
+      if (!list[0]) return;
+      const data = await loadPreparedByIdSynced<CaseStudySession>('case', list[0].id);
+      if (!mounted) return;
+      if (!data) {
+        // Ro'yxatda bor, lekin ochilmadi — jim bo'sh sahifa emas, sababi aytiladi.
+        setError(t('case.errorLoadVersion'));
+        return;
+      }
+      applySession(data, list[0].id, true);
     })();
     return () => {
       mounted = false;
     };
-  }, [topic, globalTopic, applySession]);
+  }, [topic, globalTopic, applySession, openTick]);
+
+  /** "Qayta urinish": ekranda keys bo'lmasa — oxirgisini ham ochadi; bo'lsa —
+   *  faqat ro'yxat yangilanadi (ekrandagi ish tegilmaydi). */
+  const handleRetryVersions = () => {
+    if (caseSession) refreshVersions();
+    else setOpenTick((n) => n + 1);
+  };
 
   const handleSelectVersion = async (id: string) => {
+    const startKey = topicKeyRef.current;
     const data = await loadPreparedByIdSynced<CaseStudySession>('case', id);
+    if (topicKeyRef.current !== startKey) return;
     if (!data) {
       setError(t('case.errorLoadVersion'));
       return;
@@ -159,7 +238,9 @@ export default function CaseStudies() {
           setCaseSession(null);
           setActiveVersionId(null);
         }
-        setVersions(await listPreparedForTopicSynced('case', globalTopic ?? topic));
+        // O'chirilgan yozuv ro'yxat yangilanmasa ham ko'rinmasin.
+        setVersions((list) => list.filter((x) => x.id !== id));
+        applyVersionsResult(await listPreparedForTopicResult('case', globalTopic ?? topic));
       } catch (err) {
         console.error('Delete case version failed', err);
         setError(t('toolbar.deleteFailed'));
@@ -168,7 +249,7 @@ export default function CaseStudies() {
   };
 
   const parsedKeywords = useMemo(() => parseKeywordsInput(keywords), [keywords]);
-  const contentLanguage = language;
+  const contentLanguage = contentLanguageFor(globalTopic, language);
   const generationDomain = useMemo(
     () =>
       makeGenerationScope({
@@ -181,44 +262,72 @@ export default function CaseStudies() {
   );
 
   const handleGenerate = async (currentTopic: string = topic) => {
-    if (!currentTopic.trim()) return;
+    if (!currentTopic.trim() || generatingKey !== null) return;
 
-    setLoading(true);
+    // Generatsiya boshlangan mavzu — o'qituvchi orada boshqa mavzuga o'tsa,
+    // natija o'sha mavzu sahifasiga tushmaydi, faqat o'z mavzusiga saqlanadi.
+    const startKey = topicKey;
+    const startContext = globalTopic;
+    const meta = buildPreparedContentMeta(startContext);
+    const stillHere = () => topicKeyRef.current === startKey;
+    setGeneratingKey(startKey);
     setError(null);
     try {
-      const lectureText = await loadLatestLectureText(globalTopic ?? currentTopic);
+      const lectureText = await loadLatestLectureText(startContext ?? currentTopic);
       const scope = await hydrateGenerationScope({
         topic: currentTopic,
-        context: globalTopic,
+        context: startContext,
         lectureText,
       });
-      const data = await aiService.generateCaseStudy(
-        currentTopic,
-        contentLanguage,
-        parsedKeywords,
-        globalTopic?.subjectCode,
+      // Shu mavzuda boshqa o'qituvchilarning keyslari bo'lsa — AI'siz (2026-10-22).
+      // AI'ga mavzu nomi material TILIDA (2026-11-12): aks holda ruscha matn o'zbekcha sarlavha bilan chiqardi.
+      const promptTopic = await topicTitleFor(startContext?.syllabusId, currentTopic, contentLanguage);
+      const generated = await aiService.composeCaseStudy({
+        topic: promptTopic,
+        language: contentLanguage,
+        keywords: parsedKeywords,
+        subjectCode: startContext?.subjectCode,
         scope,
-      );
+        context: startContext
+          ? { syllabusId: startContext.syllabusId, topicCode: meta.topicCode, topicNorm: meta.topicNorm }
+          : null,
+      });
+      // Asosiy til belgilanadi — server qolgan ikki tilga fonda tarjima qiladi.
+      const data: CaseStudySession = { ...generated, primaryLanguage: contentLanguage };
       // Avval ekranga chiqaramiz: generatsiya bir necha daqiqa vaqt va pul
       // oladi, saqlash yiqilsa ham natija foydalanuvchida qolishi kerak.
-      applySession(data, null);
+      if (stillHere()) applySession(data, null);
       try {
-        await savePreparedContent('case', currentTopic, data, buildPreparedContentMeta(globalTopic));
-        pushAppNotification({
-          title: t('common.doneTitle'),
-          body: t('case.readyToast'),
-          titleKey: 'common.doneTitle',
-          bodyKey: 'case.readyToast',
-          level: 'success',
-        });
-        const list = await listPreparedForTopicSynced('case', globalTopic ?? currentTopic);
-        setVersions(list);
-        applySession(data, list[0]?.id ?? null);
+        const savedId = await savePreparedContent('case', currentTopic, data, meta);
+        if (stillHere()) {
+          pushAppNotification({
+            title: t('common.doneTitle'),
+            body: t('case.readyToast'),
+            titleKey: 'common.doneTitle',
+            bodyKey: 'case.readyToast',
+            level: 'success',
+          });
+          const res = await listPreparedForTopicResult('case', startContext ?? currentTopic);
+          if (stillHere()) {
+            applyVersionsResult(res);
+            applySession(data, savedId ?? res.items[0]?.id ?? null);
+          }
+        } else {
+          pushAppNotification({
+            title: t('common.doneTitle'),
+            body: t('common.readyOtherTopic', { title: currentTopic }),
+            titleKey: 'common.doneTitle',
+            bodyKey: 'common.readyOtherTopic',
+            bodyParams: { title: currentTopic },
+            topicSyllabusId: startContext?.syllabusId,
+            level: 'success',
+          });
+        }
       } catch (saveErr) {
         console.error('Case save failed', saveErr);
         // Keys ekranda turibdi — bir bosishda qayta saqlash imkoni beriladi.
-        setPendingSave({ topic: currentTopic, data });
-        setError(t('common.saveFailedKeepWork'));
+        setPendingSave({ topic: currentTopic, data, key: startKey, meta });
+        if (stillHere()) setError(t('common.saveFailedKeepWork'));
       }
       try {
         const u = getCurrentLocalUser();
@@ -229,14 +338,23 @@ export default function CaseStudies() {
             session: data,
           });
         }
-      } catch {
-        /* bazaga yozish ixtiyoriy */
+      } catch (libErr) {
+        // Kutubxonaga yozish ixtiyoriy, lekin jim yutilmaydi — o'qituvchi keys
+        // kutubxonada bor deb o'ylamasin (2026-11-17 audit).
+        console.warn('Case library append failed', libErr);
+        pushAppNotification({
+          title: t('common.warningTitle'),
+          body: t('case.libraryAddFailed'),
+          titleKey: 'common.warningTitle',
+          bodyKey: 'case.libraryAddFailed',
+          level: 'warning',
+        });
       }
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (stillHere()) window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      setError(messageFromAiError(err, t('case.errorGenerate'), language));
+      if (stillHere()) setError(messageFromAiError(err, t('case.errorGenerate'), language));
     } finally {
-      setLoading(false);
+      setGeneratingKey(null);
     }
   };
 
@@ -246,17 +364,20 @@ export default function CaseStudies() {
     void (async () => {
       setRetryingSave(true);
       try {
-        await savePreparedContent(
+        const savedId = await savePreparedContent(
           'case',
           pendingSave.topic,
           pendingSave.data,
-          buildPreparedContentMeta(globalTopic),
+          pendingSave.meta,
         );
+        const sameTopic = pendingSave.key === topicKeyRef.current;
         setPendingSave(null);
         setError(null);
-        const list = await listPreparedForTopicSynced('case', globalTopic ?? pendingSave.topic);
-        setVersions(list);
-        setActiveVersionId(list[0]?.id ?? null);
+        if (sameTopic) {
+          const res = await listPreparedForTopicResult('case', globalTopic ?? pendingSave.topic);
+          applyVersionsResult(res);
+          setActiveVersionId(savedId ?? res.items[0]?.id ?? null);
+        }
       } catch (err) {
         console.error('Case retry save failed', err);
         setError(t('common.saveFailedKeepWork'));
@@ -267,6 +388,14 @@ export default function CaseStudies() {
   };
 
   const handleRevealAnswer = (qIndex: number) => {
+    // Keysdan FOYDALANILDI (2026-11-19, rektor: "sahifada turishi emas, foydalanishi muhim"): javob ochilgani —
+    // keys talabalar bilan muhokama qilingani. Oldindan tayyorlangan keys ham shu bilan hisobga kiradi.
+    if (!revealedAnswers[qIndex]) {
+      void postActivityEvents(
+        [{ event_type: 'content_view', meta: { kind: 'case', action: 'reveal', q: qIndex + 1, title: (topic || '').slice(0, 120) } }],
+        'cases',
+      );
+    }
     setRevealedAnswers((prev) => {
       const next = [...prev];
       next[qIndex] = !next[qIndex];
@@ -275,10 +404,10 @@ export default function CaseStudies() {
   };
 
   const handleDownloadCasesPdf = async () => {
-    if (!caseSession) return;
+    if (!caseView || caseStatus !== 'ready') return;
     setDownloadingCasesPdf(true);
     try {
-      await downloadCaseScenariosPdf(caseSession, language);
+      await downloadCaseScenariosPdf(caseView, caseViewLang);
     } catch (err) {
       console.error('Case PDF error:', err);
       setError(t('case.errorPdf'));
@@ -288,10 +417,10 @@ export default function CaseStudies() {
   };
 
   const handleDownloadKeyPdf = async () => {
-    if (!caseSession) return;
+    if (!caseView || caseStatus !== 'ready') return;
     setDownloadingKeyPdf(true);
     try {
-      await downloadCaseAnswerKeyPdf(caseSession, language);
+      await downloadCaseAnswerKeyPdf(caseView, caseViewLang);
     } catch (err) {
       console.error('Case key PDF error:', err);
       setError(t('case.errorPdf'));
@@ -307,8 +436,8 @@ export default function CaseStudies() {
   /** Ekranda klinik mantiq bo'yicha: tashxis → davolash → profilaktika.
    *  Saralash ko'rsatishda bajarilgani uchun eski keyslar ham to'g'ri chiqadi. */
   const orderedQuestions = useMemo(
-    () => (caseSession ? sortCaseQuestionsByFocus(caseSession.questions) : []),
-    [caseSession],
+    () => (caseView ? sortCaseQuestionsByFocus(caseView.questions) : []),
+    [caseView],
   );
 
   const citeUrlsFromRefs = (refs?: MedicalReference[]): Record<number, string> => {
@@ -323,7 +452,12 @@ export default function CaseStudies() {
   };
 
   return (
-    <StaffPageLayout spacious className="print:p-0 print:max-w-none print:m-0">
+    <StaffPageLayout
+      title={t('nav.cases')}
+      icon={Stethoscope}
+      accent="violet"
+       spacious className="print:p-0 print:max-w-none print:m-0"
+    >
       <ContentTopicToolbar
         moduleLabel={t('case.create')}
         topic={staffTopic}
@@ -332,21 +466,29 @@ export default function CaseStudies() {
         topicLabel={t('case.topicLabel')}
         topicPlaceholder={t('case.topicPlaceholder')}
         createLabel={t('case.create')}
-        loading={loading}
+        loading={loading || busyElsewhere}
         onCreate={() => void handleGenerate(topic)}
         lockTopicFromSyllabus={Boolean(staffTopic)}
         versions={versions}
+        versionsLoadFailed={versionsLoadFailed}
+        onRetryVersions={handleRetryVersions}
         activeVersionId={activeVersionId}
         onSelectVersion={(id) => void handleSelectVersion(id)}
         onDeleteVersion={handleDeleteVersion}
         versionsTitle={t('case.savedVersions')}
-        hint={t(generationDomain === 'academic' ? 'case.modeAcademic' : 'case.modeClinical')}
+        hint={t(
+          generationDomain === 'academic'
+            ? 'case.modeAcademic'
+            : generationDomain === 'biomedical'
+              ? 'case.modeBiomedical'
+              : 'case.modeClinical',
+        )}
         extra={
           <div className="space-y-2">
             <label className={`flex items-center gap-2 ${staffLabel}`}>
               <Tags size={14} />
               {t('case.keywordsLabel')}
-              <span className="text-black/35">({t('case.keywordsOptional')})</span>
+              <span className="text-slate-300">({t('case.keywordsOptional')})</span>
             </label>
             <input
               value={keywords}
@@ -355,16 +497,19 @@ export default function CaseStudies() {
               disabled={loading}
               className={staffInput}
             />
-            <p className="text-[11px] text-black/45">{t('case.keywordsHint')}</p>
+            <p className="text-[11px] text-slate-400">{t('case.keywordsHint')}</p>
           </div>
         }
       />
 
-      {error && (
+      {busyElsewhere && (
+        <p className="text-[12.5px] font-medium text-slate-500">{t('common.busyOtherTopic')}</p>
+      )}
+      {(error || pendingSave?.key === topicKey) && (
         <StaffErrorAlert
-          message={error}
-          actionLabel={pendingSave ? t('common.retrySave') : undefined}
-          onAction={pendingSave ? handleRetrySave : undefined}
+          message={error || t('common.saveFailedKeepWork')}
+          actionLabel={pendingSave?.key === topicKey ? t('common.retrySave') : undefined}
+          onAction={pendingSave?.key === topicKey ? handleRetrySave : undefined}
           actionBusy={retryingSave}
         />
       )}
@@ -374,46 +519,70 @@ export default function CaseStudies() {
         />
       )}
 
-      {!loading && !caseSession && topic.trim() && (
-        <StaffPanel className="p-10 text-center print:hidden">
-          <Stethoscope strokeWidth={2} size={32} className="mx-auto text-[#083047]/50 mb-4" />
-          <p className="text-[14px] text-black/55 max-w-md mx-auto">
-            {t('case.noSavedHint', { action: t('case.create') })}
-          </p>
-        </StaffPanel>
-      )}
-
       {!loading && caseSession && (
-        <div className="space-y-5 print:hidden">
-          <StaffPanel className="p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-5">
+          {/* Chop etishda (Ctrl+P) asboblar paneli yashiriladi, keyslar esa
+              javoblari bilan chiqadi. Ilgari butun blok `print:hidden` edi va
+              pastdagi chop etish qismi hech qachon ko'rinmasdi. */}
+          <StaffPanel className="p-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
             {/* Sarlavha interfeys tilida — sessiyada asl (o'zbekcha) matn turadi. */}
             <p className={`text-[14px] font-semibold ${STAFF_HEADING}`}>
-              {staffTopic && staffTopic.title && caseSession.topic === globalTopic?.title
+              {staffTopic?.translating
+                ? t('common.translating')
+                : staffTopic && staffTopic.title && caseSession.topic === globalTopic?.title
                 ? staffTopic.title
-                : caseSession.topic}
+                : caseView?.topic || caseSession.topic}
             </p>
             <div className="flex flex-wrap gap-2">
-              <StaffToolbarButton onClick={() => void handleGenerate(topic)} disabled={loading}>
+              {/* Til almashtirgich — Test bo'limidagi bilan bir xil ko'rinish,
+                  faol til ajralib turadi. */}
+              <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-200">
+                {(['uz', 'ru', 'en'] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    type="button"
+                    aria-pressed={caseViewLang === lang}
+                    onClick={() => setCaseViewLang(lang)}
+                    className={`px-3 py-1.5 text-xs font-semibold uppercase disabled:opacity-50 ${
+                      caseViewLang === lang
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-white text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    {lang}
+                  </button>
+                ))}
+              </div>
+              <StaffToolbarButton onClick={() => void handleGenerate(topic)} disabled={loading || busyElsewhere}>
                 <RefreshCw size={16} />
                 {t('case.regenerate')}
               </StaffToolbarButton>
-              <StaffToolbarButton onClick={() => void handleDownloadCasesPdf()} disabled={downloadingCasesPdf}>
+              <StaffToolbarButton
+                onClick={() => void handleDownloadCasesPdf()}
+                disabled={downloadingCasesPdf || caseStatus !== 'ready'}
+              >
                 {downloadingCasesPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
                 {t('case.downloadCasesPdf')}
               </StaffToolbarButton>
-              <StaffToolbarButton onClick={() => void handleDownloadKeyPdf()} disabled={downloadingKeyPdf}>
+              <StaffToolbarButton
+                onClick={() => void handleDownloadKeyPdf()}
+                disabled={downloadingKeyPdf || caseStatus !== 'ready'}
+              >
                 {downloadingKeyPdf ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
                 {t('case.downloadKeyPdf')}
               </StaffToolbarButton>
             </div>
           </StaffPanel>
 
-          {caseSession.keywords && caseSession.keywords.length > 0 && (
+          {/* Kalit so'zlar o'qituvchi kiritgan tilda — boshqa tilda ko'rilganda yashiriladi. */}
+          {caseStatus === 'ready' &&
+            (caseSession.primaryLanguage ?? caseViewLang) === caseViewLang &&
+            caseSession.keywords && caseSession.keywords.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {caseSession.keywords.map((kw) => (
                 <span
                   key={kw}
-                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-slate-100 text-[#083047] text-[12px] font-semibold"
+                  className="inline-flex items-center gap-1 text-[12px] font-medium text-slate-500"
                 >
                   <Tags size={12} /> {kw}
                 </span>
@@ -422,38 +591,46 @@ export default function CaseStudies() {
           )}
 
           <div className="flex items-center gap-2 print:hidden">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-[#083047]/50">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               {t('case.viewLabel')}
             </p>
-            <div className="h-px flex-1 bg-black/5" />
+            <div className="h-px flex-1 bg-slate-900/[0.07]" />
           </div>
 
+          <TranslationGate status={caseStatus} onRetry={retryCaseTranslation}>
+          <TranslationReviewBar
+            payload={caseSession}
+            versionId={activeVersionId}
+            lang={caseViewLang}
+            onPayload={(next) => setCaseSession(next)}
+          />
           <div className="space-y-4">
             {orderedQuestions.map((q, i) => {
-              const FocusIcon = q.focus ? CASE_FOCUS_ICONS[q.focus] : Stethoscope;
+              // Model yoki eski saqlangan keys ro'yxatda yo'q `focus` qaytarsa
+              // ikonka undefined bo'lib, butun sahifa React #130 bilan yiqilardi
+              // (2026-10-12/13 jurnalida 38 marta, sinf doskalarida).
+              const FocusIcon = (q.focus && CASE_FOCUS_ICONS[q.focus]) || Stethoscope;
               const revealed = revealedAnswers[i];
               return (
                 <StaffPanel
                   key={i}
                   large
-                  className={`overflow-hidden border-l-4 ${caseFocusAccentBorderClass(q.focus)} print:shadow-none print:border print:break-inside-avoid`}
+                  className={`overflow-hidden border-l-2 ${caseFocusAccentBorderClass(q.focus)} print:shadow-none print:border print:break-inside-avoid`}
                 >
                   <div className="p-5 sm:p-7 flex items-start gap-4">
-                    <div
-                      className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${caseFocusIconBgClass(q.focus)}`}
-                    >
-                      <FocusIcon size={20} strokeWidth={2} />
+                    <div className="mt-0.5 shrink-0 text-slate-300">
+                      <FocusIcon size={17} strokeWidth={2} />
                     </div>
                     <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wide text-black/35">
+                        <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                           {t('case.questionLabel')} {i + 1}
                         </span>
                         {q.focus && (
                           <span
                             className={`px-2 py-0.5 rounded-lg border text-[10px] font-bold uppercase tracking-wide ${caseFocusBadgeClass(q.focus)}`}
                           >
-                            {caseFocusLabel(q.focus, language, caseSession.domain)}
+                            {caseFocusLabel(q.focus, caseViewLang, caseSession.domain)}
                           </span>
                         )}
                       </div>
@@ -461,10 +638,11 @@ export default function CaseStudies() {
                           qalinroq va kengroq satr oralig'i bilan. */}
                       <CaseScenarioView
                         text={q.scenario}
-                        language={language}
+                        language={caseViewLang}
                         focus={q.focus}
                         domain={caseSession.domain}
                       />
+                      <QuestionSource references={q.references} max={3} />
                     </div>
                   </div>
 
@@ -486,7 +664,7 @@ export default function CaseStudies() {
                       >
                         <h4 className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-slate-600">
                           <KeyRound size={14} className="shrink-0" />
-                          {caseSession.domain === 'academic' ? t('case.academicOpinion') : t('case.clinicalOpinion')}
+                          {caseSession.domain === 'clinical' ? t('case.clinicalOpinion') : t('case.academicOpinion')}
                         </h4>
                         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4 sm:px-5 sm:py-5">
                           <CaseAnswerView
@@ -509,7 +687,7 @@ export default function CaseStudies() {
                   {/* Print: har doim javobni ko'rsatish */}
                   <div className="hidden print:block px-7 pb-7 pl-[84px] space-y-3">
                     <h4 className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wide text-slate-600">
-                      {caseSession.domain === 'academic' ? t('case.academicOpinion') : t('case.clinicalOpinion')}
+                      {caseSession.domain === 'clinical' ? t('case.clinicalOpinion') : t('case.academicOpinion')}
                     </h4>
                     <CaseAnswerView
                       text={q.answer}
@@ -534,6 +712,7 @@ export default function CaseStudies() {
               <MedicalReferencesList references={caseSession.references} />
             )}
           </div>
+          </TranslationGate>
         </div>
       )}
     </StaffPageLayout>

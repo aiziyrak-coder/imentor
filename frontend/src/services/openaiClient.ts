@@ -6,11 +6,14 @@
 import { httpJson } from '../api/httpClient';
 import { type MedicalReference } from '../utils/medicalReferences';
 import { ensureBackendAccessToken, getBackendAccessToken } from '../utils/backendAuth';
-import { pdfjsLib } from '../utils/pdfjsSetup';
+import { pushAppNotification } from '../utils/notifications';
+import { translate } from '../i18n/translations';
+import { getAppLanguage } from '../i18n/language';
 
-export const OPENAI_CHAT = 'gpt-4o';
-export const OPENAI_FAST = 'gpt-4o-mini';
-export const OPENAI_REASONER = 'gpt-4o';
+// Server baribir arzon modelni ishlatadi; bu yerda ham qimmat nom qolmasin.
+export const OPENAI_CHAT = 'gpt-4.1-nano';
+export const OPENAI_FAST = 'gpt-4.1-nano';
+export const OPENAI_REASONER = 'gpt-4.1-nano';
 
 /** Eski importlar bilan moslik */
 export const DEEPSEEK_CHAT = OPENAI_CHAT;
@@ -65,6 +68,8 @@ type ContentPart =
   | { type: 'image_url'; image_url: { url: string } };
 
 async function extractTextFromPdfBase64(pdfBase64: string): Promise<string> {
+  // pdfjs (~800 kB) faqat PDF o'qilganda yuklanadi (2026-11-17).
+  const { pdfjsLib } = await import('../utils/pdfjsSetup');
   const binary = atob(pdfBase64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -83,6 +88,37 @@ async function extractTextFromPdfBase64(pdfBase64: string): Promise<string> {
 
 export type BookContext = { subjectCode: string; topicQuery: string };
 
+/** Server qisqa vaqt javob bermasa (502/503/504 — yangilanish paytida konteyner qayta ishga tushadi)
+ * shu oraliqlar bilan qayta uriniladi: jami ~1,7 daqiqa (konteyner qayta ishga tushishi ~1 daqiqa) (2026-11-16: o'qituvchilar deploy paytida
+ * "test yaratmayapti" deb turgan — so'rov 502 bilan uzilib, xato darhol ko'rsatilardi). */
+export const SERVER_RESTART_RETRY_DELAYS_MS = [4_000, 8_000, 15_000, 30_000, 45_000];
+
+const transientStatus = (e: unknown): boolean => {
+  const status = e && typeof e === 'object' && 'status' in e ? Number((e as { status: unknown }).status) : -1;
+  return status === 502 || status === 503 || status === 504;
+};
+
+export async function withServerRestartRetry<T>(
+  run: () => Promise<T>,
+  delays: number[] = SERVER_RESTART_RETRY_DELAYS_MS,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  /** `fetch` ulanishi uzilgani (TypeError) ham vaqtinchalik hisoblanadimi — oqimli so'rov uchun. */
+  networkToo = false,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await run();
+    } catch (e) {
+      const transient = transientStatus(e) || (networkToo && e instanceof TypeError);
+      if (!transient || attempt >= delays.length) throw e;
+      await sleep(delays[attempt]);
+    }
+  }
+}
+
+/** Server bergan raqamlangan manba parchasi (P… darslik, K… protokol). */
+export type BookFragment = { id: string; title: string; pages?: string; kind?: 'book' | 'protocol' };
+
 async function chatViaBackend(params: {
   model: string;
   messages: ChatMessage[];
@@ -90,13 +126,19 @@ async function chatViaBackend(params: {
   temperature?: number;
   bookContext?: BookContext;
   responseFormat?: Record<string, unknown>;
+  /** Qaysi funksiya — server sarfni shu nom bilan yozadi. */
+  purpose?: string;
   /** Server RAG uchun ISHLATGAN darsliklar (AI o'ylab topgani emas). */
   onBookReferences?: (refs: MedicalReference[]) => void;
+  /** Test (2026-11-18): raqamlangan parchalar — savoldagi `source` shu raqam. */
+  onBookFragments?: (fragments: BookFragment[]) => void;
+  timeoutMs?: number;
 }): Promise<string> {
-  const call = async (token: string) =>
-    httpJson<{ content?: string; detail?: string; book_references?: MedicalReference[] }>(`${apiBaseUrl()}/v1/education-ai/completion/`, {
+  const call = (token: string) => withServerRestartRetry(() => callOnce(token));
+  const callOnce = async (token: string) =>
+    httpJson<{ content?: string; detail?: string; book_references?: MedicalReference[]; book_fragments?: BookFragment[] }>(`${apiBaseUrl()}/v1/education-ai/completion/`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'X-iMentor-Client': IMENTOR_CLIENT },
       body: {
         model: params.model,
         messages: params.messages,
@@ -106,8 +148,9 @@ async function chatViaBackend(params: {
           ? { subject_code: params.bookContext.subjectCode, topic_query: params.bookContext.topicQuery }
           : {}),
         ...(params.responseFormat ? { response_format: params.responseFormat } : {}),
+        ...(params.purpose ? { purpose: params.purpose } : {}),
       },
-      timeoutMs: 290_000,
+      timeoutMs: params.timeoutMs ?? 290_000,
     });
 
   let token = await ensureBackendAccessToken().catch(async () => {
@@ -122,6 +165,9 @@ async function chatViaBackend(params: {
     if (!text) throw new Error(data.detail || 'OpenAI: bo‘sh javob (server proxy)');
     if (Array.isArray(data.book_references) && data.book_references.length) {
       params.onBookReferences?.(data.book_references);
+    }
+    if (Array.isArray(data.book_fragments) && data.book_fragments.length) {
+      params.onBookFragments?.(data.book_fragments);
     }
     return text;
   } catch (e: unknown) {
@@ -141,12 +187,19 @@ async function chatViaBackend(params: {
 /** SSE oqim orqali javob qabul qilib, har bir bo'lakni `onDelta`ga
  * yuboradi (matn generatsiya bo'lgan sari darhol ko'rsatish uchun).
  * Umumiy generatsiya vaqti bir xil, lekin foydalanuvchi kutish tuyg'usi yo'q. */
-async function chatViaBackendStream(params: {
+/** Oqimli so'rov ham server qayta ishga tushganda (502/503/504 yoki ulanish uzilsa) qayta uriniladi.
+ * `onDelta` har safar to'liq matnni oladi, shuning uchun qayta boshlangan oqim matnni ikkilantirmaydi. */
+function chatViaBackendStream(params: Parameters<typeof chatViaBackendStreamOnce>[0]): Promise<string> {
+  return withServerRestartRetry(() => chatViaBackendStreamOnce(params), SERVER_RESTART_RETRY_DELAYS_MS, undefined, true);
+}
+
+async function chatViaBackendStreamOnce(params: {
   model: string;
   messages: ChatMessage[];
   maxTokens: number;
   temperature?: number;
   bookContext?: BookContext;
+  purpose?: string;
   onDelta: (text: string) => void;
   onBookReferences?: (refs: MedicalReference[]) => void;
 }): Promise<string> {
@@ -157,83 +210,137 @@ async function chatViaBackendStream(params: {
   });
 
   const doStream = async (authToken: string): Promise<string> => {
-    const res = await fetch(`${apiBaseUrl()}/v1/education-ai/completion/stream/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({
-        model: params.model,
-        messages: params.messages,
-        max_tokens: params.maxTokens,
-        temperature: params.temperature ?? 0.35,
-        ...(params.bookContext?.subjectCode
-          ? { subject_code: params.bookContext.subjectCode, topic_query: params.bookContext.topicQuery }
-          : {}),
-      }),
-    });
+    // Server jim turganda har 15 s ": ping" yuboradi — 2 daqiqa hech narsa
+    // kelmasa ulanish o'lgan: uziladi va qaytadan so'raladi.
+    const controller = new AbortController();
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_MS);
+    };
+    armIdle();
+    try {
+      const res = await fetch(`${apiBaseUrl()}/v1/education-ai/completion/stream/`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: params.messages,
+          max_tokens: params.maxTokens,
+          temperature: params.temperature ?? 0.35,
+          ...(params.bookContext?.subjectCode
+            ? { subject_code: params.bookContext.subjectCode, topic_query: params.bookContext.topicQuery }
+            : {}),
+          ...(params.purpose ? { purpose: params.purpose } : {}),
+        }),
+      });
 
-    if (res.status === 401) {
-      const err = new Error('unauthorized') as Error & { status?: number };
-      err.status = 401;
-      throw err;
-    }
-    if (!res.ok || !res.body) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || `HTTP ${res.status}`);
-    }
+      if (res.status === 401) {
+        const err = new Error('unauthorized') as Error & { status?: number };
+        err.status = 401;
+        throw err;
+      }
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => '');
+        const err = new Error(text || `HTTP ${res.status}`) as Error & { status?: number };
+        err.status = res.status;
+        throw err;
+      }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let full = '';
-    let streamError: string | null = null;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let full = '';
+      let streamError: string | null = null;
 
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop() ?? '';
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith('data:')) continue;
-        const raw = line.slice(5).trim();
-        if (!raw) continue;
-        let evt: { delta?: string; done?: boolean; book_references?: MedicalReference[]; error?: string };
-        try {
-          evt = JSON.parse(raw);
-        } catch {
-          continue;
-        }
-        if (evt.error) {
-          streamError = evt.error;
-        } else if (evt.delta) {
-          full += evt.delta;
-          params.onDelta(full);
-        } else if (evt.done) {
-          if (Array.isArray(evt.book_references) && evt.book_references.length) {
-            params.onBookReferences?.(evt.book_references);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        armIdle();
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          const raw = line.slice(5).trim();
+          if (!raw) continue;
+          let evt: { delta?: string; done?: boolean; book_references?: MedicalReference[]; error?: string };
+          try {
+            evt = JSON.parse(raw);
+          } catch {
+            continue;
+          }
+          if (evt.error) {
+            streamError = evt.error;
+          } else if (evt.delta) {
+            full += evt.delta;
+            params.onDelta(full);
+          } else if (evt.done) {
+            if (Array.isArray(evt.book_references) && evt.book_references.length) {
+              params.onBookReferences?.(evt.book_references);
+            }
           }
         }
       }
-    }
 
-    if (streamError) throw new Error(streamError);
-    if (!full.trim()) throw new Error('OpenAI: bo‘sh javob (server proxy, stream)');
-    return full.trim();
+      if (streamError) throw new Error(streamError);
+      if (!full.trim()) throw new Error('OpenAI: bo‘sh javob (server proxy, stream)');
+      return full.trim();
+    } finally {
+      clearTimeout(idleTimer);
+    }
   };
 
-  try {
-    return await doStream(token);
-  } catch (e: unknown) {
-    const status = e && typeof e === 'object' && 'status' in e ? (e as { status: number }).status : 0;
-    if (status !== 401) throw e;
-    const retryToken = await getBackendAccessToken();
-    if (!retryToken || retryToken === token) throw new Error('no-backend-token');
-    return doStream(retryToken);
+  const withAuthRetry = async (): Promise<string> => {
+    try {
+      return await doStream(token);
+    } catch (e: unknown) {
+      if (errorStatus(e) !== 401) throw e;
+      const retryToken = await getBackendAccessToken();
+      if (!retryToken || retryToken === token) throw new Error('no-backend-token');
+      token = retryToken;
+      return doStream(retryToken);
+    }
+  };
+
+  // Oqim o'rtada uzilsa server qayta urina olmaydi (yarim matn yuborilgan) —
+  // butun javob qaytadan so'raladi, ekrandagi chala matn tozalanadi.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await withAuthRetry();
+    } catch (e: unknown) {
+      if (attempt >= STREAM_ATTEMPTS || !isTransientStreamError(e)) throw e;
+      console.warn(`AI oqimi uzildi (${attempt}/${STREAM_ATTEMPTS}), qayta urinilmoqda:`, e);
+      params.onDelta('');
+      await new Promise((r) => setTimeout(r, STREAM_RETRY_DELAY_MS * attempt));
+    }
   }
+}
+
+const STREAM_ATTEMPTS = 3;
+const STREAM_IDLE_MS = 120_000;
+const STREAM_RETRY_DELAY_MS = 2_000;
+
+function errorStatus(e: unknown): number {
+  return e && typeof e === 'object' && 'status' in e ? Number((e as { status: unknown }).status) || 0 : 0;
+}
+
+/** Qayta so'rasa o'tishi mumkin: tarmoq uzilishi, jimlik (abort), 429/5xx,
+ * server "oqim yakunlanmadi". Mablag' tugashi, 4xx, kalit yo'qligi — yo'q. */
+export function isTransientStreamError(e: unknown): boolean {
+  const status = errorStatus(e);
+  if (status === 429 || status >= 500) return true;
+  if (status) return false;
+  const name = e instanceof Error ? e.name : '';
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  if (/mablag'|quota|no-backend-token|OPENAI_API_KEY|incomplete/i.test(msg)) return false;
+  if (name === 'AbortError' || name === 'TypeError') return true;
+  return /stream ended|Please retry|HTTP (429|5\d\d)|timed? ?out|Read timed out|Connection|bo‘sh javob/i.test(msg);
 }
 
 async function chatViaDirectApi(params: {
@@ -291,7 +398,11 @@ async function chatCompletion(params: {
   temperature?: number;
   bookContext?: BookContext;
   responseFormat?: Record<string, unknown>;
+  purpose?: string;
   onBookReferences?: (refs: MedicalReference[]) => void;
+  onBookFragments?: (fragments: BookFragment[]) => void;
+  /** Server proxy so'rovining vaqt chegarasi (standart 290 s). */
+  timeoutMs?: number;
 }): Promise<string> {
   const msgs: ChatMessage[] = [];
   const sys = params.system.trim();
@@ -307,7 +418,10 @@ async function chatCompletion(params: {
       temperature: params.temperature,
       bookContext: params.bookContext,
       responseFormat: params.responseFormat,
+      purpose: params.purpose,
       onBookReferences: params.onBookReferences,
+      onBookFragments: params.onBookFragments,
+      timeoutMs: params.timeoutMs,
     });
   }
   return chatViaDirectApi({
@@ -319,6 +433,10 @@ async function chatCompletion(params: {
   });
 }
 
+/** Brauzer kodi avlodi: server eskisidan test yaratish so'rovini qabul qilmaydi
+ * (2026-10-21 — eski kod savollar bazasisiz, qimmat yo'l bilan yaratardi). */
+export const IMENTOR_CLIENT = '5';
+
 export async function openaiText(opts: {
   model?: string;
   system: string;
@@ -326,6 +444,7 @@ export async function openaiText(opts: {
   maxTokens?: number;
   temperature?: number;
   bookContext?: BookContext;
+  purpose?: string;
 }): Promise<string> {
   return chatCompletion({
     model: opts.model ?? OPENAI_CHAT,
@@ -334,6 +453,7 @@ export async function openaiText(opts: {
     maxTokens: opts.maxTokens ?? 4096,
     temperature: opts.temperature,
     bookContext: opts.bookContext,
+    purpose: opts.purpose,
   });
 }
 
@@ -349,6 +469,7 @@ export async function openaiTextStream(opts: {
   maxTokens?: number;
   temperature?: number;
   bookContext?: BookContext;
+  purpose?: string;
   onDelta: (textSoFar: string) => void;
   onBookReferences?: (refs: MedicalReference[]) => void;
 }): Promise<string> {
@@ -367,6 +488,7 @@ export async function openaiTextStream(opts: {
       bookContext: opts.bookContext,
       onDelta: opts.onDelta,
       onBookReferences: opts.onBookReferences,
+      purpose: opts.purpose,
     });
   }
   const text = await chatViaDirectApi({
@@ -388,7 +510,10 @@ export async function openaiJson<T>(opts: {
   parse: (text: string) => T;
   bookContext?: BookContext;
   responseFormat?: Record<string, unknown>;
+  purpose?: string;
   onBookReferences?: (refs: MedicalReference[]) => void;
+  onBookFragments?: (fragments: BookFragment[]) => void;
+  timeoutMs?: number;
 }): Promise<T> {
   const text = await chatCompletion({
     model: opts.model ?? OPENAI_CHAT,
@@ -398,7 +523,10 @@ export async function openaiJson<T>(opts: {
     temperature: opts.temperature ?? 0.3,
     bookContext: opts.bookContext,
     responseFormat: opts.responseFormat,
+    purpose: opts.purpose,
     onBookReferences: opts.onBookReferences,
+    onBookFragments: opts.onBookFragments,
+    timeoutMs: opts.timeoutMs,
   });
   return opts.parse(text);
 }
@@ -418,6 +546,7 @@ export async function openaiJsonStream<T>(opts: {
   bookContext?: BookContext;
   onProgress?: (rawTextSoFar: string) => void;
   onBookReferences?: (refs: MedicalReference[]) => void;
+  purpose?: string;
 }): Promise<T> {
   const msgs: ChatMessage[] = [{ role: 'system', content: opts.system + JSON_ONLY_SUFFIX }, { role: 'user', content: opts.user }];
   const useProxy = preferBackendProxy() || !localApiKey();
@@ -431,6 +560,7 @@ export async function openaiJsonStream<T>(opts: {
       bookContext: opts.bookContext,
       onDelta: opts.onProgress ?? (() => {}),
       onBookReferences: opts.onBookReferences,
+      purpose: opts.purpose,
     });
   } else {
     text = await chatViaDirectApi({
@@ -454,8 +584,21 @@ export async function openaiWithPdf(opts: {
   let pdfText = '';
   try {
     pdfText = await extractTextFromPdfBase64(opts.pdfBase64);
-  } catch {
+  } catch (err) {
+    console.warn('PDF text extraction failed', err);
     pdfText = '';
+  }
+  if (pdfText.trim().length <= 80) {
+    // PDF matni olinmadi — natija PDF'siz tayyorlanadi; foydalanuvchi bundan
+    // bexabar qolmasin (ilgari faqat modelga yozilardi).
+    const lang = getAppLanguage();
+    pushAppNotification({
+      title: translate(lang, 'common.warningTitle'),
+      body: translate(lang, 'common.pdfTextUnavailable'),
+      titleKey: 'common.warningTitle',
+      bodyKey: 'common.pdfTextUnavailable',
+      level: 'warning',
+    });
   }
   const user =
     pdfText.trim().length > 80

@@ -137,3 +137,28 @@ class TestEnforceWithRedis:
         assert fake.expired == [("k", 60)]
         enforce("k", "10/minute")
         assert len(fake.expired) == 1
+
+
+def test_login_throttle_is_per_account_behind_shared_ip():
+    """Bitta NAT IP ortidagi turli xodimlar bir-birini bloklamaydi."""
+    from unittest import mock
+
+    from fastapi import HTTPException
+
+    from app.core import throttling as th
+
+    req = mock.Mock()
+    req.headers = {"x-forwarded-for": "95.0.0.1"}
+    with mock.patch.object(th, "_redis", side_effect=RuntimeError("no redis")), \
+         mock.patch.object(th, "_memory", th._MemoryCounter()), \
+         mock.patch.object(th, "get_settings", return_value=mock.Mock(django_login_rate="3/minute")):
+        for i in range(10):
+            th.throttle_login_account(req, f"99890000000{i}")
+        for _ in range(3):
+            th.throttle_login_account(req, "998901112233")
+        try:
+            th.throttle_login_account(req, "998901112233")
+        except HTTPException as exc:
+            assert exc.status_code == 429
+        else:
+            raise AssertionError("bitta hisobga cheklov ishlamadi")

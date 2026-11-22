@@ -15,17 +15,8 @@ ALLOWED_ROLES = ("admin", "hodim")
 # lekin klinika_admin/student rollari boshqa oqimlar orqali (clinic-admin,
 # online-test-login) tayinlanadi va shu ro'yxatda bo'lishi kerak.
 ALL_GROUP_ROLES = ("admin", "klinika_admin", "hodim", "student")
-# Legacy guruh — yangi tayinlash yo'q; faqat tozalash / resolve fallback uchun.
-_LEGACY_GROUP_ROLES = ("startuper",)
 
 
-def demo_admin_phone_allowlist() -> frozenset[str]:
-    raw = os.environ.get("DEMO_ADMIN_PHONES", "998901110001")
-    return frozenset(
-        "".join(ch for ch in part if ch.isdigit())
-        for part in raw.split(",")
-        if part.strip()
-    )
 
 
 def resolve_user_role_from_db(db: Session, user: User) -> str | None:
@@ -35,17 +26,85 @@ def resolve_user_role_from_db(db: Session, user: User) -> str | None:
     for role in ALLOWED_ROLES + ("klinika_admin", "student"):
         if role in group_names:
             return role
-    # Eski startuper guruhini hodim deb hisoblaymiz.
-    if "startuper" in group_names:
-        return "hodim"
     return None
+
+
+#: Ham talaba, ham o'qituvchi (2026-10-28): magistrant stajer-o'qituvchi bitta `ot_<Talaba ID>` hisobida
+#: ikki rolda ishlaydi — kirgandan keyin qaysi biri bilan davom etishini tanlaydi. Hisobda ikkala
+#: guruh bo'lsa ham, yoki HEMIS'ga ko'ra u faol talaba VA ishlayotgan xodim bo'lsa ham.
+DUAL_ROLES = ("hodim", "student")
+
+
+def _hemis_dual(db: Session, user: User) -> bool:
+    """`ot_<ID>` hisobi: kontingentda faol talaba va HEMIS xodim profili shu hisobga biriktirilgan."""
+    from app.models.staff_location import StaffProfile
+    from app.models.student_contingent import StudentContingent
+
+    username = str(user.username or "")
+    if not username.startswith("ot_") or len(username) <= 3:
+        return False
+    student = db.execute(
+        select(StudentContingent.id).where(StudentContingent.student_id == username[3:],
+                                           StudentContingent.status == "active").limit(1)
+    ).first()
+    if student is None:
+        return False
+    # Ishdan bo'shagan (`hemis_staff.LEFT`) xodim o'qituvchi bo'lib kira olmaydi.
+    staff = db.execute(
+        select(StaffProfile.id).where(StaffProfile.owner_key == username, StaffProfile.department != "",
+                                      StaffProfile.hemis_status != "", StaffProfile.hemis_status != "Bo‘shagan")
+        .limit(1)
+    ).first()
+    return staff is not None
+
+
+#: 2026-11-19 (foydalanuvchi): "faqat xodim qilib, o'quvchiligi kerak emas, bitta hisobli, konfliktsiz; ikki
+#: rollilarni faqat o'qituvchi qiling". Ikki rol (bitta hisobda talaba + o'qituvchi) O'CHIRILDI: talaba hisobidan
+#: dars o'tilsa bot va hisobot o'qituvchini ko'rmasdi (Sobirova — `ot_` hisobidan 59 jonli test, darslari esa
+#: Xodim ID hisobida). Endi har kimda bitta rol; xodim hisobi talaba yo'li bilan kirsa ham xodim bo'lib qoladi
+#: (`is_staff_account`). Qayta yoqish kerak bo'lsa — `DUAL_ROLE_ENABLED = True`.
+DUAL_ROLE_ENABLED = False
+
+
+def available_roles(db: Session, user: User) -> list[str]:
+    """Foydalanuvchi qaysi rollarda kira oladi; birinchisi — bazadagi asosiy rol emas, tanlov tartibi."""
+    primary = resolve_user_role_from_db(db, user)
+    if not DUAL_ROLE_ENABLED or primary not in DUAL_ROLES:
+        return [primary] if primary else []
+    groups = {g.name.lower() for g in user.groups}
+    if groups.issuperset(DUAL_ROLES) or _hemis_dual(db, user):
+        return list(DUAL_ROLES)
+    return [primary]
+
+
+def is_staff_account(db: Session, user: User | None) -> bool:
+    """Xodim (o'qituvchi) hisobi — talaba kirish yo'llari uni talabaga aylantirmasin (2026-11-19)."""
+    if not user:
+        return False
+    if getattr(user, "is_superuser", False):
+        return True
+    groups = {str(getattr(g, "name", "")).lower() for g in (getattr(user, "groups", None) or [])}
+    return bool(groups & {"hodim", "klinika_admin", "admin"})
+
+
+def session_role(db: Session, user: User, claimed: str | None) -> str | None:
+    """Tokendagi rol — faqat foydalanuvchida haqiqatan bor bo'lsa; aks holda bazadagi rol.
+
+    Rol hamon bazadan tekshiriladi (2026-09-26 qoidasi): token faqat IKKI ROLLI odam
+    qaysi birini tanlaganini aytadi, yangi rol bera olmaydi.
+    """
+    primary = resolve_user_role_from_db(db, user)
+    want = str(claimed or "").strip().lower()
+    if primary and want and want != primary and want in DUAL_ROLES and want in available_roles(db, user):
+        return want
+    return primary
 
 
 def set_user_role_group(db: Session, user: User, role: str) -> None:
     role = (role or "").strip().lower()
     if role not in ALL_GROUP_ROLES:
         return
-    for name in ALL_GROUP_ROLES + _LEGACY_GROUP_ROLES:
+    for name in ALL_GROUP_ROLES:
         group = db.execute(select(Group).where(Group.name == name)).scalar_one_or_none()
         if group is not None and group in user.groups:
             user.groups.remove(group)
@@ -87,11 +146,12 @@ def resolve_login_role(db: Session, user: User, requested_role: str | None) -> s
     """
     if user.is_superuser:
         return "admin"
-    requested = (requested_role or "").strip().lower()
-    if requested == "admin" and user.username in demo_admin_phone_allowlist():
-        ensure_admin_group(db, user)
-        return "admin"
-    return resolve_user_role_from_db(db, user) or "hodim"
+    # 2026-11-17 (audit D3): ilgari `role:"admin"` so'ralsa va telefon `DEMO_ADMIN_PHONES` ro'yxatida
+    # bo'lsa, hisob ADMIN guruhiga qo'shib yuborilardi — so'rov tanasidan admin olish yo'li edi.
+    # Endi rol FAQAT bazadan: adminni faqat superuser (admin panel orqali) tayinlaydi.
+    # Rolsiz hisob endi o'qituvchi bo'lib kirmaydi (2026-09-26) — bo'sh qaytadi,
+    # login yo'li uni rad etadi.
+    return resolve_user_role_from_db(db, user) or ""
 
 
 def get_user_by_username(db: Session, username: str) -> User | None:

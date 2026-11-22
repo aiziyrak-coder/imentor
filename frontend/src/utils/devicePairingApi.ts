@@ -12,6 +12,8 @@ export type DevicePairCreateResponse = {
   desktop_secret: string;
   expires_at: string;
   qr_payload: string;
+  /** Qolgan vaqt, soniya (server hisobi). */
+  expires_in?: number;
 };
 
 export type DevicePairStatusResponse = {

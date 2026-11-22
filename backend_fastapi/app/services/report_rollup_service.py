@@ -78,21 +78,40 @@ def list_hodim_users(db: Session) -> list[User]:
     )
 
 
+from app.services.report_bulk import (
+    EMPTY_CONTENT,
+    EMPTY_LOCATION,
+    active_minutes_bulk,
+    content_counts_bulk,
+    departments_bulk,
+    location_compliance_bulk,
+)
+
+
 def build_teacher_report_rows(db: Session, period: str, anchor: dt.date | None = None) -> list[dict]:
     start_dt, end_dt, start_d, end_d = period_bounds(period, anchor)
     month_start = dt.datetime.now(TASHKENT_TZ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_start_utc = month_start.astimezone(dt.timezone.utc)
     days_30 = now_utc() - dt.timedelta(days=30)
 
+    # Har bir ko'rsatkich BITTA guruhlangan so'rov bilan olinadi. Ilgari
+    # o'qituvchi boshiga sakkizta so'rov ketardi: 646 hodimda ~5000 so'rov
+    # va 8 soniya. Endi so'rovlar soni hodimlar soniga bog'liq emas.
+    minutes_period = active_minutes_bulk(db, start_dt, end_dt)
+    minutes_month = active_minutes_bulk(db, month_start_utc, end_dt)
+    minutes_30d = active_minutes_bulk(db, days_30, end_dt)
+    content_by_owner = content_counts_bulk(db, start_dt, end_dt)
+    location_by_owner = location_compliance_bulk(db, start_d, end_d)
+    department_by_owner = departments_bulk(db)
+
     rows: list[dict] = []
     for user in list_hodim_users(db):
         owner = user.username
-        active_period = active_minutes_between(db, owner, start_dt, end_dt)
-        active_month = active_minutes_between(db, owner, month_start_utc, end_dt)
-        active_30d = active_minutes_between(db, owner, days_30, end_dt)
-        content = teacher_content_counts(db, owner, start_dt, end_dt)
-        loc = teacher_location_compliance(db, owner, start_d, end_d)
-        profile = db.execute(select(StaffProfile).where(StaffProfile.owner_key == owner)).scalar_one_or_none()
+        active_period = minutes_period.get(owner, 0)
+        active_month = minutes_month.get(owner, 0)
+        active_30d = minutes_30d.get(owner, 0)
+        content = content_by_owner.get(owner, EMPTY_CONTENT)
+        loc = location_by_owner.get(owner, EMPTY_LOCATION)
         tier = activity_tier(active_month, active_30d)
         flags = teacher_flags(content)
         if tier == "inactive":
@@ -101,7 +120,7 @@ def build_teacher_report_rows(db: Session, period: str, anchor: dt.date | None =
             {
                 "owner_key": owner,
                 "display_name": " ".join(filter(None, [user.first_name, user.last_name])).strip() or owner,
-                "department": (profile.department if profile else "") or "",
+                "department": department_by_owner.get(owner, ""),
                 "active_minutes_period": active_period,
                 "active_minutes_month": active_month,
                 "active_minutes_30d": active_30d,

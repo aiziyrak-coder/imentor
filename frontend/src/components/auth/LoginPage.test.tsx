@@ -48,13 +48,14 @@ describe('LoginPage', () => {
     syncMock.mockResolvedValue(undefined);
   });
 
-  async function switchToStaffLogin(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByRole('button', { name: 'Xodim' }));
+  // Talaba tabi olib tashlangan — sahifa darhol xodim formasi bilan ochiladi.
+  async function switchToStaffLogin(_user: ReturnType<typeof userEvent.setup>) {
+    expect(screen.queryByRole('button', { name: 'Talaba' })).toBeNull();
   }
 
   it('shows validation error for too short login', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<LoginPage onSwitchToRegister={() => {}} />);
+    renderWithProviders(<LoginPage />);
     await switchToStaffLogin(user);
 
     // 3 belgi — na telefon, na Xodim ID (min 4).
@@ -62,14 +63,14 @@ describe('LoginPage', () => {
     await user.click(screen.getByRole('button', { name: 'Kirish' }));
 
     expect(
-      screen.getByText("Telefon raqamini to'liq kiriting yoki Xodim ID ni yozing."),
+      screen.getByText("JSHSHIR, Xodim ID yoki to'liq telefon raqamini kiriting."),
     ).toBeInTheDocument();
     expect(loginMock).not.toHaveBeenCalled();
   });
 
   it('submits valid credentials and syncs session role', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<LoginPage onSwitchToRegister={() => {}} />);
+    renderWithProviders(<LoginPage />);
     await switchToStaffLogin(user);
 
     await user.type(screen.getByPlaceholderText(/Xodim ID|3442112068/i), '+998 90 111 22 33');
@@ -85,7 +86,7 @@ describe('LoginPage', () => {
 
   it('accepts a staff ID as the login', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<LoginPage onSwitchToRegister={() => {}} />);
+    renderWithProviders(<LoginPage />);
     await switchToStaffLogin(user);
 
     await user.type(screen.getByPlaceholderText(/Xodim ID|3442112068/i), '3442112068');
@@ -100,13 +101,13 @@ describe('LoginPage', () => {
   it('shows wrong-credentials message on auth failure', async () => {
     loginMock.mockRejectedValue(new Error('wrong-password'));
     const user = userEvent.setup();
-    renderWithProviders(<LoginPage onSwitchToRegister={() => {}} />);
+    renderWithProviders(<LoginPage />);
     await switchToStaffLogin(user);
 
     await user.type(screen.getByPlaceholderText(/Xodim ID|3442112068/i), '+998 90 111 22 33');
     await user.type(screen.getByPlaceholderText(/parol/i), 'bad');
     await user.click(screen.getByRole('button', { name: 'Kirish' }));
 
-    expect(await screen.findByText(/Telefon yoki parol noto'g'ri/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Login yoki parol noto'g'ri/i)).toBeInTheDocument();
   });
 });

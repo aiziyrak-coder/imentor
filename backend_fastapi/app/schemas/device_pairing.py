@@ -10,6 +10,8 @@ class DevicePairCreateOut(BaseModel):
     desktop_secret: str
     expires_at: dt.datetime
     qr_payload: str
+    # Qolgan vaqt soniyada — sinf doskasining soati/mintaqasi noto'g'ri bo'lsa ham sanoq to'g'ri (2026-11-16).
+    expires_in: int = 0
 
 
 class DevicePairConfirmRequest(BaseModel):

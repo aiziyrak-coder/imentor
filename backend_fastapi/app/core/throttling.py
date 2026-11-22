@@ -12,6 +12,7 @@ Kalitlar Django scope nomlari bilan mos.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from functools import lru_cache
@@ -63,10 +64,22 @@ def parse_rate(rate: str) -> tuple[int, int]:
     return num, period
 
 
+#: Backend oldidagi ishonchli proksilar: serverdagi umumiy nginx (haqiqiy mijoz IP'sini
+#: qo'shadi) va imentor nginx konteyneri (umumiy nginx IP'sini qo'shadi).
+TRUSTED_PROXY_HOPS = max(0, int(os.environ.get("IMENTOR_TRUSTED_PROXY_HOPS") or 2))
+
+
 def client_ip(request: Request) -> str:
-    forwarded = (request.headers.get("x-forwarded-for") or "").strip()
-    if forwarded:
-        return forwarded.split(",")[0].strip() or "unknown"
+    """Mijozning haqiqiy IP'si.
+
+    X-Forwarded-For ning CHAP qismini mijoz o'zi yozadi — ilgari birinchi qiymat olinardi
+    va har so'rovda boshqa "IP" yozib, parol tanlash va ID terish cheklovlarini chetlab
+    o'tish mumkin edi (2026-10-23 auditi). Ishonchli proksilar ro'yxatning O'NG tomoniga
+    qo'shadi: haqiqiy mijoz — o'ngdan `TRUSTED_PROXY_HOPS`-qiymat.
+    """
+    forwarded = [p.strip() for p in (request.headers.get("x-forwarded-for") or "").split(",") if p.strip()]
+    if forwarded and TRUSTED_PROXY_HOPS:
+        return forwarded[-TRUSTED_PROXY_HOPS] if len(forwarded) >= TRUSTED_PROXY_HOPS else forwarded[0]
     if request.client and request.client.host:
         return request.client.host
     return "unknown"
@@ -129,8 +142,69 @@ def throttle_login(request: Request) -> None:
     enforce(f"throttle:login:{client_ip(request)}", get_settings().django_login_rate)
 
 
+# Institut kompyuterlari bitta tashqi IP (NAT) orqali chiqadi. Faqat IP bo'yicha
+# 20/minut butun binoni bloklardi — guruh bir vaqtda kirganda hamma "Juda ko'p
+# so'rov" olardi. Parol tanlashni hisob+IP cheklaydi; IP uchun keng umumiy chegara.
+LOGIN_IP_WIDE_RATE = "300/minute"
+IMAGE_SAFETY_RATE = "1500/hour"
+
+
+def throttle_login_account(request: Request, account: str) -> None:
+    ip = client_ip(request)
+    enforce(f"throttle:login_ip:{ip}", LOGIN_IP_WIDE_RATE)
+    enforce(f"throttle:login:{ip}:{(account or '').strip().lower()}", get_settings().django_login_rate)
+
+
+# ---- Parolsiz kirish (Xodim ID / Talaba ID / JSHSHIR / pasport), 2026-11-17 auditi (D2).
+# ID'lar ketma-ket va taxmin qilinadi. Ikki qo'shimcha to'siq:
+#   * bitta identifikator bilan soatiga 30 kirish — IP'dan qat'i nazar (begona ID'ni ko'p IP'dan sinash);
+#   * bitta IP'dan 15 daqiqada 40 ta MUVAFFAQIYATSIZ urinish — keyin shu IP 15 daqiqa parolsiz kira olmaydi.
+#     Faqat xatolar sanaladi: institut NAT'i ortidan yuzlab talaba to'g'ri ID bilan kirsa, cheklanmaydi.
+PASSWORDLESS_ID_RATE = "30/hour"
+PASSWORDLESS_FAIL_LIMIT = 40
+PASSWORDLESS_FAIL_WINDOW = 15 * 60
+PASSWORDLESS_BLOCKED = "Noto'g'ri urinishlar juda ko'p. 15 daqiqadan keyin qayta urining."
+
+
+def _peek(key: str) -> int:
+    try:
+        return int(_redis().get(key) or 0)
+    except Exception:
+        started, count = _memory._hits.get(key, (0.0, 0))
+        return count if started > time.monotonic() else 0
+
+
+def passwordless_guard(request: Request, identifier: str) -> None:
+    ip = client_ip(request)
+    if _peek(f"throttle:pwless_fail:{ip}") >= PASSWORDLESS_FAIL_LIMIT:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=PASSWORDLESS_BLOCKED)
+    ident = (identifier or "").strip().lower()
+    if ident:
+        enforce(f"throttle:pwless_id:{ident}", PASSWORDLESS_ID_RATE)
+
+
+def passwordless_failed(request: Request) -> None:
+    key = f"throttle:pwless_fail:{client_ip(request)}"
+    try:
+        r = _redis()
+        if int(r.incr(key)) == 1:
+            r.expire(key, PASSWORDLESS_FAIL_WINDOW)
+    except Exception:
+        _memory.incr(key, PASSWORDLESS_FAIL_WINDOW)
+
+
 def throttle_live_test_anon(request: Request) -> None:
     enforce(f"throttle:live_test_anon:{client_ip(request)}", get_settings().django_live_test_anon_rate)
+
+
+#: Kirgan talaba uchun (qoralama, topshirish, natija): HAR TALABAGA alohida. Ilgari IP bo'yicha
+#: 120/minut edi — kampus Wi-Fi'ida (bitta NAT IP) 30 talaba har javobdan keyin qoralama
+#: saqlaydi va hammasi birdan "Juda ko'p so'rov" olardi (2026-10-23 auditi).
+LIVE_TEST_STUDENT_RATE = "240/minute"
+
+
+def throttle_live_test_student(auth: AuthContext = Depends(get_current_auth)) -> None:
+    enforce(f"throttle:live_test_student:{auth.user.id}", LIVE_TEST_STUDENT_RATE)
 
 
 def throttle_staff_ping(auth: AuthContext = Depends(get_current_auth)) -> None:
@@ -139,3 +213,13 @@ def throttle_staff_ping(auth: AuthContext = Depends(get_current_auth)) -> None:
 
 def throttle_education_ai(auth: AuthContext = Depends(get_current_auth)) -> None:
     enforce(f"throttle:education_ai:{auth.user.id}", get_settings().django_ai_education_rate)
+
+
+def throttle_image_safety(auth: AuthContext = Depends(get_current_auth)) -> None:
+    """Slayd rasmlari tekshiruvi — bitta taqdimot 20–40 rasm, AI limitini yemasin."""
+    enforce(f"throttle:image_safety:{auth.user.id}", IMAGE_SAFETY_RATE)
+
+
+def throttle_translate(auth: AuthContext = Depends(get_current_auth)) -> None:
+    """Material tarjimasi — umumiy AI limitidan alohida (til almashtirish uni yeb qo'ymasin)."""
+    enforce(f"throttle:translate:{auth.user.id}", get_settings().django_ai_translate_rate)

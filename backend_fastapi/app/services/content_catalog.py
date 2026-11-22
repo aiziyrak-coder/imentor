@@ -14,6 +14,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.content import AcademicDepartment, CourseSyllabus
 from app.models.prepared_content import CATALOG_KINDS, KIND_CASE, PreparedContent
+from app.services import case_i18n
+from app.services.syllabus_access import exclude_restricted_prepared, like_prefix
+from app.services.question_quality import ungradable_flaws
 
 PUBLISH_DELAY = timedelta(0)
 _TOPIC_NORM_RE = re.compile(r"^(\d+)::([^:]+)::(.+)$")
@@ -152,6 +155,9 @@ def project_test_payload_language(
 
 def slice_test_payload(payload: dict | None, limit: int | None) -> tuple[dict, int, int]:
     base = dict(payload) if isinstance(payload, dict) else {}
+    # Zaxira savollar (2026-10-22) tashqi tizimga chiqmaydi: ular testga kirmagan,
+    # to'g'ri javoblari bilan va tarjimasiz turadi (2026-10-23).
+    base.pop("spareQuestions", None)
     questions = base.get("questions")
     if not isinstance(questions, list):
         base["questions"] = []
@@ -347,8 +353,16 @@ def collect_unique_questions_from_tests(
             seen.add(key)
 
             correct = q.get("correctOptionIndex")
-            if not isinstance(correct, int):
-                correct = 0
+            options = q.get("options") if isinstance(q.get("options"), list) else []
+            # Kalitsiz savol tashqi tizimga BERILMAYDI: ilgari u jimgina A (0)
+            # deb yuborilardi va to'g'ri javob bergan talaba xato olardi.
+            if isinstance(correct, bool) or not isinstance(correct, int) or not 0 <= correct < len(options):
+                continue
+            # Bir xil / tartibi almashgan / bo'sh variantli savol tashqi
+            # imtihonga BERILMAYDI: talaba to'g'ri javobni bilib ham xato
+            # olishi mumkin (2026-10-19, radiologiya yakuniy testi shikoyati).
+            if ungradable_flaws(options):
+                continue
             refs = q.get("references")
             if not (isinstance(refs, list) and refs):
                 refs = payload_refs
@@ -395,6 +409,23 @@ def parse_case_question_limit(
     if parsed < CASE_QUESTION_LIMIT_MIN or parsed > CASE_QUESTION_LIMIT_MAX:
         return None, f"{param_name} must be between {CASE_QUESTION_LIMIT_MIN} and {CASE_QUESTION_LIMIT_MAX}."
     return parsed, None
+
+
+#: Keys savolining tarjima qilinadigan maydonlari — `languages` obyekti
+#: aynan shulardan yig'iladi. Qolganlari (`correctOptionIndex`,
+#: `references`, `source_case_id`, `topic`) tildan mustaqil.
+CASE_LOCALIZED_FIELDS = ("scenario", "answer", "focus", "options", "explanation")
+
+
+def _case_language_block(q: dict) -> dict:
+    options = q.get("options")
+    return {
+        "scenario": str(q.get("scenario") or q.get("question") or "").strip(),
+        "answer": str(q.get("answer") or "").strip(),
+        "focus": str(q.get("focus") or "").strip(),
+        "options": [str(v) for v in options] if isinstance(options, list) else [],
+        "explanation": str(q.get("explanation") or "").strip(),
+    }
 
 
 def _case_scenario_block(q: dict) -> dict | None:
@@ -455,12 +486,31 @@ def collect_case_scenarios(
         payload_refs = list(payload_refs) if isinstance(payload_refs, list) and payload_refs else []
         source_id = int(item.id or 0)
 
-        for q in questions:
+        # Tarjimalar INDEKS bo'yicha juftlanadi — `case_i18n` tarjima
+        # qilingan ro'yxatni asl bilan bir xil uzunlik va tartibda saqlaydi.
+        primary_lang = case_i18n.primary_language(raw_payload)
+        translated_by_lang: dict[str, list] = {}
+        raw_translations = raw_payload.get("translations")
+        if isinstance(raw_translations, dict):
+            for code, blob in raw_translations.items():
+                rows = (blob or {}).get("questions") if isinstance(blob, dict) else None
+                if isinstance(rows, list) and rows:
+                    translated_by_lang[str(code).strip().lower()] = rows
+        item_languages = case_i18n.available_languages(raw_payload)
+
+        for q_index, q in enumerate(questions):
             if not isinstance(q, dict):
                 continue
             block = _case_scenario_block(q)
             if block is None:
                 continue
+            languages = {primary_lang: _case_language_block(q)}
+            for code, rows in translated_by_lang.items():
+                if q_index < len(rows) and isinstance(rows[q_index], dict):
+                    languages[code] = _case_language_block(rows[q_index])
+            block["languages"] = languages
+            block["available_languages"] = [c for c in item_languages if c in languages]
+            block["primary_language"] = primary_lang
             key = normalize_question_text_key(block["scenario"])
             if not key or key in seen:
                 continue
@@ -503,10 +553,17 @@ def effective_subject_name(item: PreparedContent) -> str:
 
 
 def published_catalog_stmt() -> Select:
+    """Umumiy (staff va login'siz ochiq) katalog. Cheklangan/shaxsiy fanlar
+    kontenti bu yerga tushmaydi — u faqat egasining o'z sahifasida."""
     cutoff = _now() - PUBLISH_DELAY
-    return select(PreparedContent).where(
-        PreparedContent.kind.in_(CATALOG_KINDS),
-        PreparedContent.created_at <= cutoff,
+    return exclude_restricted_prepared(
+        select(PreparedContent).where(
+            PreparedContent.kind.in_(CATALOG_KINDS),
+            PreparedContent.created_at <= cutoff,
+            # Eskirgan material boshqa o'qituvchiga tavsiya qilinmaydi.
+            PreparedContent.retired_reason == "",
+        ),
+        PreparedContent,
     )
 
 
@@ -619,7 +676,7 @@ def filter_catalog_stmt(stmt: Select, params: dict) -> Select:
                 ),
                 PreparedContent.subject_code == department_code,
                 PreparedContent.syllabus.has(
-                    CourseSyllabus.subject_code.like(f"{department_code}__%")
+                    CourseSyllabus.subject_code.like(f"{like_prefix(department_code)}\\_\\_%", escape="\\")
                 ),
             )
         )
@@ -684,6 +741,7 @@ def catalog_subjects_summary(db: Session) -> list[dict]:
             PreparedContent.kind.in_(CATALOG_KINDS),
             PreparedContent.created_at <= cutoff,
             PreparedContent.subject_name != "",
+            PreparedContent.id.in_(published_catalog_stmt().with_only_columns(PreparedContent.id)),
         )
         .group_by(PreparedContent.subject_code, PreparedContent.subject_name)
         .order_by(PreparedContent.subject_name)
@@ -700,18 +758,84 @@ def catalog_subjects_summary(db: Session) -> list[dict]:
     ]
 
 
+def _clean_i18n(raw: object, source: str) -> dict[str, str]:
+    """`{"ru": "...", "en": "..."}` — bo'sh va asl bilan bir xil qiymatlarsiz.
+
+    Asl matnning o'zi tarjima sifatida qaytarilsa, mijoz uni "ruscha bor"
+    deb qabul qilib, ruscha saytda o'zbekcha matnni ko'rsatib qo'yardi.
+    Shuning uchun bunday yozuvlar tashlab yuboriladi.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for code in SUPPORTED_TEST_LANGUAGES:
+        value = str(raw.get(code) or "").strip()
+        if value and value != (source or "").strip():
+            out[code] = value
+    return out
+
+
 def _syllabus_department_lookup(db: Session) -> dict[str, dict]:
     rows = db.execute(
         select(CourseSyllabus).where(CourseSyllabus.is_active.is_(True))
     ).scalars().all()
     lookup: dict[str, dict] = {}
     for obj in rows:
+        dept = obj.department
         lookup[obj.subject_code] = {
             "subject_name": obj.subject_name,
-            "department_name": obj.department.name if obj.department else "",
-            "department_code": obj.department.code if obj.department else "",
+            "subject_name_i18n": _clean_i18n(obj.name_i18n, obj.subject_name),
+            "department_name": dept.name if dept else "",
+            "department_name_i18n": (
+                _clean_i18n(getattr(dept, "name_i18n", None), dept.name) if dept else {}
+            ),
+            "department_code": dept.code if dept else "",
         }
     return lookup
+
+
+#: Ochiq katalogdan (loginsiz) chiqmaydigan maydonlar: to'g'ri javob va uning izohi.
+#: 2026-10-23 auditi: jonli test saqlangan testdan tuzilsa, talaba javoblarni shu yerdan
+#: o'qib olishi mumkin edi.
+_ANSWER_FIELDS = ("correctOptionIndex", "correctAnswer", "answer", "explanation", "optionExplanations",
+                  "analysis", "rubric", "keyPoints")
+
+
+def _strip_answers(block):
+    if isinstance(block, dict):
+        out = {k: v for k, v in block.items() if k not in ("spareQuestions",)}
+        if isinstance(out.get("questions"), list):
+            out["questions"] = [
+                {k: v for k, v in q.items() if k not in _ANSWER_FIELDS} if isinstance(q, dict) else q
+                for q in out["questions"]
+            ]
+        if isinstance(out.get("translations"), dict):
+            out["translations"] = {lang: _strip_answers(tr) for lang, tr in out["translations"].items()}
+        return out
+    return block
+
+
+def public_payload(payload: dict | None) -> dict:
+    """Katalog elementi loginsiz ko'rinishda: savollar va variantlar bor, javoblar yo'q."""
+    return _strip_answers(payload) if isinstance(payload, dict) else {}
+
+
+#: Ochiq statistika (bosh sahifa) — har so'rovda barcha test va keyslar to'liq yuklanardi:
+#: o'rtacha 11.5 soniya (2026-10-23). 10 daqiqa saqlanadi.
+PUBLIC_STATS_SECONDS = 600
+_public_stats: dict[str, tuple[float, dict]] = {}
+
+
+def public_catalog_stats_cached(db: Session, kind: str | None = None) -> dict:
+    import time
+
+    key = kind or ""
+    hit = _public_stats.get(key)
+    if hit and time.monotonic() - hit[0] < PUBLIC_STATS_SECONDS:
+        return hit[1]
+    out = build_catalog_stats(db, published_only=True, kind=kind)
+    _public_stats[key] = (time.monotonic(), out)
+    return out
 
 
 def build_catalog_stats(db: Session, *, published_only: bool = False, kind: str | None = None) -> dict:
@@ -726,7 +850,10 @@ def build_catalog_stats(db: Session, *, published_only: bool = False, kind: str 
     else:
         stmt = stmt.where(PreparedContent.kind.in_(CATALOG_KINDS))
     if published_only:
-        stmt = stmt.where(PreparedContent.created_at <= cutoff)
+        stmt = exclude_restricted_prepared(
+            stmt.where(PreparedContent.created_at <= cutoff, PreparedContent.retired_reason == ""),
+            PreparedContent,
+        )
 
     items = list(db.execute(stmt.order_by(PreparedContent.created_at.desc())).scalars().all())
     questions_total = sum(question_count(i) for i in items)
@@ -835,6 +962,18 @@ def build_catalog_stats(db: Session, *, published_only: bool = False, kind: str 
         row["department_code"] = meta.get("department_code", "")
         if meta.get("subject_name") and not row.get("subject_name"):
             row["subject_name"] = meta["subject_name"]
+        # Tarjimalar — mavjud bo'lganicha. Yo'q tilni to'ldirib qo'ymaymiz:
+        # mijoz `available_languages` ga qarab o'zi asl tilga qaytadi.
+        subject_i18n = meta.get("subject_name_i18n") or {}
+        department_i18n = meta.get("department_name_i18n") or {}
+        row["subject_name_i18n"] = subject_i18n
+        row["department_name_i18n"] = department_i18n
+        row["available_languages"] = sorted(
+            {"uz", *subject_i18n.keys()},
+            key=lambda c: SUPPORTED_TEST_LANGUAGES.index(c)
+            if c in SUPPORTED_TEST_LANGUAGES
+            else 99,
+        )
         return row
 
     def _finalize_subject(row: dict) -> dict:

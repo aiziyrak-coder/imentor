@@ -12,7 +12,8 @@ export interface MedicalReference {
   note?: string;
   citeIndex?: number;
   /** Ko'rinish: kitob vs jurnal gipersilkasi. */
-  kind?: 'book' | 'pubmed' | 'scholar' | 'wikipedia' | 'journal';
+  /** `protocol` — kafedra kutubxonasidagi me'yoriy hujjat (protokol, SanPin, standart): jurnal emas. */
+  kind?: 'book' | 'protocol' | 'pubmed' | 'scholar' | 'wikipedia' | 'journal';
 }
 
 const TRUSTED_HOSTS = [

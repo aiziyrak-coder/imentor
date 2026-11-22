@@ -16,7 +16,9 @@ from app.core.db import get_db
 from app.models.topic_content import TopicHandout, TopicPresentation, TopicVideo
 from app.schemas.topic_content import TopicHandoutOut, TopicPresentationOut, TopicVideoCreateRequest, TopicVideoOut
 from app.services import file_storage as storage
+from app.services import syllabus_access as access
 from app.services import topic_norm as tn
+from app.services import video_source
 from app.services.pagination import paginate
 
 router = APIRouter()
@@ -85,10 +87,54 @@ def _clean_topic_code(topic_code: str) -> str:
     return (m.group(1) if m else s)
 
 
+def _only_own(stmt, column, auth: AuthContext):
+    """O'qituvchi FAQAT o'zi yuklagan materialni ko'radi (2026-09-24 talabi).
+
+    Ilgari bir mavzudagi tarqatma, taqdimot va videoni shu fanni o'tadigan hamma
+    o'qituvchi ko'rardi. Admin hammasini ko'rishda davom etadi (nazorat va
+    tozalash uchun), fan egasi esa o'z faniga yuklanganlarni ko'radi.
+    """
+    if auth.role == "admin":
+        return stmt
+    return stmt.where(column == auth.user.username)
+
+
 def _can_delete(owner_key: str, auth: AuthContext) -> bool:
-    if owner_key == auth.user.username:
-        return True
-    return auth.role == "admin"
+    """Faqat yuklagan o'qituvchi yoki admin.
+
+    2026-10-07: fan egasi (fanni Excel'dan yuklagan o'qituvchi) endi boshqalarning
+    materialini o'chira olmaydi — bitta fanni o'zbek va rus guruhlarida o'tadigan
+    o'qituvchilar bir-birining tarqatma/taqdimot/videosini o'chirib yuborardi.
+    """
+    return owner_key == auth.user.username or auth.role == "admin"
+
+
+def _check_topic(db: Session, topic_norms, auth: AuthContext) -> None:
+    """Yopiq (shaxsiy) fanga tegishli kalit — begona uchun 404."""
+    access.require_topic_access(db, topic_norms, auth.user.username, auth.role)
+
+
+def _check_viewer(db: Session, obj, auth: AuthContext) -> None:
+    """Faylni faqat yuklagan o'qituvchi, fan egasi yoki admin oladi (2026-10-23 auditi).
+
+    Ro'yxatlar 2026-09-24 dan "faqat o'ziniki", lekin fayl va preview yo'llari faqat yopiq
+    fanni tekshirardi: istalgan xodim id'larni terib hamkasblarining fayllarini yuklab olardi.
+    Rad etilganda — 404 (fayl borligi oshkor qilinmaydi).
+    """
+    if auth.role == "admin" or obj.owner_key == auth.user.username:
+        return
+    sid = access.syllabus_id_from_norm(obj.topic_norm)
+    if access.is_subject_owner(db, sid, auth.user.username):
+        return
+    raise HTTPException(status_code=404, detail="Topilmadi.")
+
+
+def _check_delete(owner_key: str, auth: AuthContext) -> None:
+    if not _can_delete(owner_key, auth):
+        raise HTTPException(
+            status_code=403,
+            detail="Faqat yuklagan o'qituvchi yoki admin o'chira oladi.",
+        )
 
 
 def _handout_out(h: TopicHandout, auth: AuthContext) -> TopicHandoutOut:
@@ -114,13 +160,27 @@ def _presentation_out(p: TopicPresentation, auth: AuthContext) -> TopicPresentat
     )
 
 
-def _video_out(v: TopicVideo) -> TopicVideoOut:
+def _video_out(v: TopicVideo, auth: AuthContext) -> TopicVideoOut:
+    src = video_source.describe(v.youtube_id, v.youtube_url)
     return TopicVideoOut(
         id=v.id, topic=v.topic, topic_norm=v.topic_norm, title=v.title,
         youtube_id=v.youtube_id, youtube_url=v.youtube_url,
-        embed_url=f"https://www.youtube.com/embed/{v.youtube_id}",
+        embed_url=src["embed"],
         author_name=v.author_name, created_at=v.created_at,
+        can_delete=_can_delete(v.owner_key, auth),
+        provider=src["provider"], kind=src["kind"],
     )
+
+
+def _video_id(url: str) -> str:
+    """YouTube — 11 belgili ID; boshqa sayt (2026-11-19) — `ext:<sayt>`. Yaroqsiz havola — 400."""
+    youtube_id = extract_youtube_id(url)
+    if youtube_id:
+        return youtube_id
+    src = video_source.parse(url)
+    if src is None:
+        raise HTTPException(status_code=400, detail="Video havolasini kiriting (https://... bilan boshlansin).")
+    return f"{video_source.EXT_PREFIX}{src['provider']}"[:32]
 
 
 def _resolve_norms(request: Request, topic_norm_list: list[str]) -> list[str]:
@@ -158,10 +218,11 @@ def list_handouts(
     norms = _resolve_norms(request, topic_norm)
     if not norms:
         raise HTTPException(status_code=400, detail="topic_norm parametri kerak.")
+    _check_topic(db, norms, auth)
     cond = tn.topic_norm_query(TopicHandout.topic_norm, norms)
     if cond is None:
         return []
-    stmt = select(TopicHandout).where(cond)
+    stmt = _only_own(select(TopicHandout).where(cond), TopicHandout.owner_key, auth)
     if language.strip():
         stmt = stmt.where(TopicHandout.language == _handout_lang(language))
     rows = db.execute(stmt.distinct()).scalars().all()
@@ -186,13 +247,11 @@ async def upload_handout(
     topic_norm = _resolve_handout_topic_norm(topic, topic_norm, syllabus_id, variant_label, topic_code)
     if not topic_norm:
         raise HTTPException(status_code=400, detail="Mavzu normallashtirilmadi.")
-    try:
-        content = await file.read()
-    except Exception as exc:
-        logger.exception("Tarqatma fayl o'qilmadi: %s", exc)
-        raise HTTPException(status_code=400, detail="Fayl o'qilmadi. Qayta tanlab saqlang.") from exc
-    if len(content) > HANDOUT_MAX_BYTES:
-        raise HTTPException(status_code=400, detail="Fayl hajmi juda katta.")
+    _check_topic(db, topic_norm, auth)
+    # Chegaragacha bo'laklab o'qiladi — katta fayl xotirani to'ldirmaydi, 413 qaytadi (G10).
+    content = await storage.read_upload_limited(
+        file, HANDOUT_MAX_BYTES, too_large_detail="Fayl hajmi juda katta. Chegara 20 MB."
+    )
     if not content:
         raise HTTPException(status_code=400, detail="Fayl bo'sh.")
     ctype = file.content_type or ""
@@ -200,6 +259,8 @@ async def upload_handout(
     if not storage.validate_extension(raw_name, content=content, content_type=ctype):
         raise HTTPException(status_code=400, detail="Fayl turi qo'llab-quvvatlanmaydi. JPG, PNG yoki PDF yuklang.")
     ext = storage.detect_extension(raw_name, content, ctype) or ".jpg"
+    # Nomdagi kengaytmaga ishonilmaydi: `.pdf` nomli fayl ichi ham PDF bo'lishi shart.
+    storage.ensure_content_matches(ext, content)
     if not raw_name.lower().endswith(ext):
         raw_name = f"{raw_name}{ext}"
 
@@ -263,6 +324,8 @@ def download_handout(
     obj = db.get(TopicHandout, pk)
     if obj is None:
         raise HTTPException(status_code=404, detail="Topilmadi.")
+    _check_topic(db, obj.topic_norm, auth)
+    _check_viewer(db, obj, auth)
     path = storage.absolute_path(obj.file)
     return FileResponse(path, filename=obj.file_name)
 
@@ -276,8 +339,8 @@ def delete_handout(
     obj = db.get(TopicHandout, pk)
     if obj is None:
         raise HTTPException(status_code=404, detail="Topilmadi.")
-    if obj.owner_key != auth.user.username and auth.role != "admin":
-        raise HTTPException(status_code=403, detail="Faqat yuklagan o'qituvchi yoki admin o'chira oladi.")
+    _check_topic(db, obj.topic_norm, auth)
+    _check_delete(obj.owner_key, auth)
     storage.delete_file(obj.file)
     db.delete(obj)
     db.commit()
@@ -348,20 +411,20 @@ def list_presentations(
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
 ) -> list[TopicPresentationOut]:
-    """Mavzu bo'yicha taqdimotlar.
+    """Mavzu bo'yicha taqdimotlar — faqat joriy o'qituvchi yuklaganlari.
 
-    Standart — shu fan/mavzudagi BARCHA yuklangan fayllar (o'qituvchi
-    sahifasida ham). `mine=1` — faqat joriy foydalanuvchiniki.
+    `mine` parametri eski mijozlar uchun qoldirilgan: ro'yxat baribir egasiniki.
+    Admin hammasini ko'radi.
     """
     norms = _resolve_norms(request, topic_norm)
     if not norms:
         raise HTTPException(status_code=400, detail="topic_norm parametri kerak.")
+    _check_topic(db, norms, auth)
     cond = tn.topic_norm_query(TopicPresentation.topic_norm, norms)
     if cond is None:
         return []
-    stmt = select(TopicPresentation).where(cond)
-    if mine:
-        stmt = stmt.where(TopicPresentation.owner_key == auth.user.username)
+    stmt = _only_own(select(TopicPresentation).where(cond), TopicPresentation.owner_key, auth)
+    _ = mine
     rows = db.execute(
         stmt.order_by(TopicPresentation.created_at.desc())
     ).scalars().all()
@@ -386,11 +449,16 @@ async def upload_presentation(
     topic_norm = _resolve_handout_topic_norm(topic, topic_norm, syllabus_id, variant_label, topic_code)
     if not topic_norm:
         raise HTTPException(status_code=400, detail="Mavzu normallashtirilmadi.")
+    _check_topic(db, topic_norm, auth)
     if not storage.validate_extension(file.filename or "", presentation=True):
         raise HTTPException(status_code=400, detail="Fayl turi qo'llab-quvvatlanmaydi.")
-    content = await file.read()
-    if len(content) > PRESENTATION_MAX_BYTES:
-        raise HTTPException(status_code=400, detail="Fayl hajmi juda katta.")
+    content = await storage.read_upload_limited(
+        file, PRESENTATION_MAX_BYTES, too_large_detail="Fayl hajmi juda katta. Chegara 50 MB."
+    )
+    if not content:
+        raise HTTPException(status_code=400, detail="Fayl bo'sh.")
+    # PDF — `%PDF`, PPTX — zip, PPT — OLE: mazmun kengaytmaga mos kelishi shart (G10).
+    storage.ensure_content_matches(storage.file_extension(file.filename or ""), content)
 
     rel_path = storage.presentation_relative_path(topic_norm, auth.user.username, file.filename or "file")
     storage.save_upload(rel_path, content)
@@ -433,6 +501,8 @@ def download_presentation(
     obj = db.get(TopicPresentation, pk)
     if obj is None:
         raise HTTPException(status_code=404, detail="Topilmadi.")
+    _check_topic(db, obj.topic_norm, auth)
+    _check_viewer(db, obj, auth)
     path = storage.absolute_path(obj.file)
     return FileResponse(path, filename=obj.file_name)
 
@@ -449,6 +519,8 @@ def preview_presentation(
     obj = db.get(TopicPresentation, pk)
     if obj is None:
         raise HTTPException(status_code=404, detail="Topilmadi.")
+    _check_topic(db, obj.topic_norm, auth)
+    _check_viewer(db, obj, auth)
     path = storage.absolute_path(obj.file)
     try:
         pdf_path = ensure_presentation_preview_pdf(path)
@@ -482,8 +554,8 @@ def delete_presentation(
     obj = db.get(TopicPresentation, pk)
     if obj is None:
         raise HTTPException(status_code=404, detail="Topilmadi.")
-    if obj.owner_key != auth.user.username and auth.role != "admin":
-        raise HTTPException(status_code=403, detail="Faqat yuklagan o'qituvchi yoki admin o'chira oladi.")
+    _check_topic(db, obj.topic_norm, auth)
+    _check_delete(obj.owner_key, auth)
     storage.delete_file(obj.file)
     db.delete(obj)
     db.commit()
@@ -502,35 +574,21 @@ def list_topic_videos(
     norms = _resolve_norms(request, topic_norm)
     if not norms:
         raise HTTPException(status_code=400, detail="topic_norm parametri kerak.")
+    _check_topic(db, norms, auth)
     cond = tn.topic_norm_query(TopicVideo.topic_norm, norms)
     if cond is None:
         return []
-    rows = db.execute(select(TopicVideo).where(cond).distinct()).scalars().all()
-    return [_video_out(v) for v in rows]
+    rows = db.execute(
+        _only_own(select(TopicVideo).where(cond), TopicVideo.owner_key, auth).distinct()
+    ).scalars().all()
+    return [_video_out(v, auth) for v in rows]
 
 
-@router.get("/admin/topic-videos/")
-def admin_list_topic_videos(
-    request: Request,
-    topic_norm: list[str] = Query(default=[]),
-    db: Session = Depends(get_db),
-    auth: AuthContext = Depends(require_roles("admin")),
-) -> dict:
-    stmt = select(TopicVideo).order_by(TopicVideo.created_at.desc())
-    norms = _resolve_norms(request, topic_norm)
-    if norms:
-        cond = tn.topic_norm_query(TopicVideo.topic_norm, norms)
-        stmt = stmt.where(cond) if cond is not None else stmt.where(False)
-    rows = db.execute(stmt).scalars().all()
-    out = [_video_out(v).model_dump() for v in rows]
-    return paginate(out, request, default_page_size=100, max_page_size=500)
-
-
-@router.post("/admin/topic-videos/", response_model=TopicVideoOut, status_code=201)
-def admin_create_topic_video(
+@router.post("/topic-videos/", response_model=TopicVideoOut, status_code=201)
+def create_topic_video(
     payload: TopicVideoCreateRequest,
     db: Session = Depends(get_db),
-    auth: AuthContext = Depends(require_roles("admin")),
+    auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
 ) -> TopicVideoOut:
     topic = _clip_topic_text(payload.topic)
     topic_norm = tn.build_topic_norm(
@@ -540,10 +598,9 @@ def admin_create_topic_video(
         topic_norm = tn.canonical_topic_norm("", topic)
     if not topic_norm:
         raise HTTPException(status_code=400, detail="Mavzu normallashtirilmadi.")
+    _check_topic(db, topic_norm, auth)
 
-    youtube_id = extract_youtube_id(payload.youtube_url)
-    if not youtube_id:
-        raise HTTPException(status_code=400, detail="Yaroqli YouTube havolasi kiriting.")
+    youtube_id = _video_id(payload.youtube_url)
 
     display = f"{auth.user.first_name} {auth.user.last_name}".strip() or auth.user.username
     max_order = db.execute(
@@ -564,7 +621,79 @@ def admin_create_topic_video(
     db.add(obj)
     db.commit()
     db.refresh(obj)
-    return _video_out(obj)
+    return _video_out(obj, auth)
+
+
+@router.delete("/topic-videos/{pk}/", status_code=204, response_model=None)
+def delete_topic_video(
+    pk: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+) -> None:
+    obj = db.get(TopicVideo, pk)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Topilmadi.")
+    _check_topic(db, obj.topic_norm, auth)
+    _check_delete(obj.owner_key, auth)
+    db.delete(obj)
+    db.commit()
+
+
+@router.get("/admin/topic-videos/")
+def admin_list_topic_videos(
+    request: Request,
+    topic_norm: list[str] = Query(default=[]),
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles("admin")),
+) -> dict:
+    stmt = select(TopicVideo).order_by(TopicVideo.created_at.desc())
+    norms = _resolve_norms(request, topic_norm)
+    if norms:
+        cond = tn.topic_norm_query(TopicVideo.topic_norm, norms)
+        stmt = stmt.where(cond) if cond is not None else stmt.where(False)
+    rows = db.execute(stmt).scalars().all()
+    out = [_video_out(v, auth).model_dump() for v in rows]
+    return paginate(out, request, default_page_size=100, max_page_size=500)
+
+
+@router.post("/admin/topic-videos/", response_model=TopicVideoOut, status_code=201)
+def admin_create_topic_video(
+    payload: TopicVideoCreateRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles("admin")),
+) -> TopicVideoOut:
+    topic = _clip_topic_text(payload.topic)
+    topic_norm = tn.build_topic_norm(
+        payload.syllabus_id, payload.variant_label, _clean_topic_code(payload.topic_code),
+    )
+    if not topic_norm:
+        topic_norm = tn.canonical_topic_norm("", topic)
+    if not topic_norm:
+        raise HTTPException(status_code=400, detail="Mavzu normallashtirilmadi.")
+    _check_topic(db, topic_norm, auth)
+
+    youtube_id = _video_id(payload.youtube_url)
+
+    display = f"{auth.user.first_name} {auth.user.last_name}".strip() or auth.user.username
+    max_order = db.execute(
+        select(func.max(TopicVideo.sort_order)).where(TopicVideo.topic_norm == topic_norm)
+    ).scalar_one() or 0
+
+    obj = TopicVideo(
+        owner_key=auth.user.username,
+        author_name=display[:255],
+        topic=topic,
+        topic_norm=topic_norm,
+        title=_clip_topic_text(payload.title or ""),
+        youtube_url=payload.youtube_url.strip()[:512],
+        youtube_id=youtube_id,
+        sort_order=int(max_order) + 1,
+        created_at=dt.datetime.now(dt.timezone.utc),
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return _video_out(obj, auth)
 
 
 @router.delete("/admin/topic-videos/{pk}/", status_code=204, response_model=None)

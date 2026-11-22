@@ -37,6 +37,19 @@ router = APIRouter()
 VALID_PERIODS = {PERIOD_DAY, PERIOD_WEEK, PERIOD_MONTH, PERIOD_QUARTER, PERIOD_YEAR}
 
 
+def _release_db(db: Session) -> None:
+    """DB ulanishini pool'ga qaytaradi (uzoq AI so'rovidan oldin).
+
+    `education_ai.py` dagi bir xil nomli yordamchining nusxasi — ikkalasi
+    ham bitta muammoni hal qiladi: ochiq tranzaksiya "idle in transaction"
+    bo'lib ulanishni daqiqalab band qiladi.
+    """
+    try:
+        db.close()
+    except Exception:  # noqa: BLE001 — bo'shatish hech qachon so'rovni yiqitmasin
+        pass
+
+
 def _parse_anchor(raw: str | None) -> dt.date | None:
     if not raw:
         return None
@@ -185,6 +198,9 @@ def export_teacher_report_csv(
 def admin_student_test_archive(
     student_id: str = Query(""),
     academic_year: str | None = Query(None),
+    from_date: dt.date | None = Query(None, alias="from"),
+    to_date: dt.date | None = Query(None, alias="to"),
+    subject_code: str | None = Query(None),
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles("admin")),
 ) -> dict:
@@ -195,9 +211,20 @@ def admin_student_test_archive(
     stmt = select(StudentTestAttempt).where(StudentTestAttempt.student_id == sid)
     if academic_year:
         stmt = stmt.where(StudentTestAttempt.academic_year == academic_year.strip())
+    if from_date:
+        stmt = stmt.where(StudentTestAttempt.submitted_date >= from_date)
+    if to_date:
+        stmt = stmt.where(StudentTestAttempt.submitted_date <= to_date)
+    subject = (subject_code or "").strip()
+    if subject:
+        stmt = stmt.where(StudentTestAttempt.subject_code == subject)
     attempts = db.execute(stmt.order_by(StudentTestAttempt.submitted_at.desc())).scalars().all()
     if not attempts:
         return {"found": False, "student_id": sid, "attempts": []}
+
+    subject_names = live_test_svc.subject_names_for_codes(
+        db, {a.subject_code for a in attempts if a.subject_code}
+    )
 
     out_attempts = []
     for a in attempts:
@@ -230,6 +257,7 @@ def admin_student_test_archive(
                 "id": a.id,
                 "session_id": a.session_id,
                 "subject_code": a.subject_code,
+                "subject_name": subject_names.get(a.subject_code, a.subject_code),
                 "topic": a.topic,
                 "topic_code": a.topic_code,
                 "variant_label": a.variant_label,
@@ -266,6 +294,9 @@ def admin_student_test_archive(
 def search_student_test_archive(
     q: str = Query(""),
     academic_year: str | None = Query(None),
+    from_date: dt.date | None = Query(None, alias="from"),
+    to_date: dt.date | None = Query(None, alias="to"),
+    subject_code: str | None = Query(None),
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles("admin")),
@@ -283,7 +314,17 @@ def search_student_test_archive(
     )
     if academic_year:
         stmt = stmt.where(StudentTestAttempt.academic_year == academic_year.strip())
+    if from_date:
+        stmt = stmt.where(StudentTestAttempt.submitted_date >= from_date)
+    if to_date:
+        stmt = stmt.where(StudentTestAttempt.submitted_date <= to_date)
+    subject = (subject_code or "").strip()
+    if subject:
+        stmt = stmt.where(StudentTestAttempt.subject_code == subject)
     attempts = db.execute(stmt.order_by(StudentTestAttempt.submitted_at.desc()).limit(500)).scalars().all()
+    subject_names = live_test_svc.subject_names_for_codes(
+        db, {a.subject_code for a in attempts if a.subject_code}
+    )
 
     seen: set[str] = set()
     results: list[dict] = []
@@ -300,6 +341,13 @@ def search_student_test_archive(
                 "last_name": a.last_name or "",
                 "attempts_count": count,
                 "last_submitted_at": a.submitted_at.isoformat(),
+                "subjects": sorted(
+                    {
+                        subject_names.get(x.subject_code, x.subject_code)
+                        for x in attempts
+                        if (x.student_id or "").strip() == sid and x.subject_code
+                    }
+                ),
             }
         )
         if len(results) >= limit:
@@ -322,6 +370,11 @@ def admin_ai_narrative(
     anchor = _parse_anchor(payload.anchor_date)
     summary = build_summary(db, period, anchor)
     teachers = build_teacher_report_rows(db, period, anchor)[:40]
+
+    # Ma'lumot yig'ib bo'lindi — OpenAI javobini kutish 1-2 daqiqa davom
+    # etadi va shu vaqt davomida ulanish band turishi kerak emas. Bir necha
+    # admin bir vaqtda hisobot so'rasa, pool tugab butun API yiqilardi.
+    _release_db(db)
 
     lang = (payload.language or "uz").strip().lower()
     lang_hint = "O'zbek tilida" if lang == "uz" else ("Rus tilida" if lang == "ru" else "Ingliz tilida")

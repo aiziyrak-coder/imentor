@@ -31,9 +31,16 @@ class Settings(BaseSettings):
     django_jwt_refresh_days: int = 14
 
     openai_api_key: str = ""
-    openai_chat_model: str = "gpt-4o"
-    openai_fast_model: str = "gpt-4o-mini"
-    openai_reasoner_model: str = "gpt-4o"
+    # Arzon model sukut bo'yicha: kimdir `_economy_model_name` tejash qoidasini
+    # olib tashlasa ham sarf gpt-4o narxiga (oyiga ~$270) qaytib ketmasin.
+    # 2026-10-26: gpt-4.1-nano OpenAI'da o'chirilgan — arzon model `openai_client.economy_model()`.
+    openai_chat_model: str = "gpt-5.4-nano"
+    openai_fast_model: str = "gpt-5.4-nano"
+    openai_reasoner_model: str = "gpt-5.4-nano"
+
+    # HEMIS (institut axborot tizimi) — dars jadvalining haqiqiy manbasi, FAQAT o'qiladi.
+    hemis_api_url: str = ""
+    hemis_api_token: str = ""
 
     online_test_api_base_url: str = ""
     online_test_api_fallback_url: str = "https://online-imtixon.uz"
@@ -54,11 +61,38 @@ class Settings(BaseSettings):
     django_allow_open_registration: bool = False
     django_allow_legacy_prepared_content_api: bool = False
 
-    django_ai_education_rate: str = "60/hour"
-    django_ai_startup_rate: str = "40/hour"
+    # Bitta "10 ta test yarat" bosilishi bir nechta so'rov sarflaydi: asosiy
+    # generatsiya, kitob manbalari, keys konteksti, sifat va til bo'yicha
+    # qayta urinishlar. 60/soat bilan o'qituvchi besh-olti marta bosganda
+    # "juda ko'p so'rov" (429) olardi — 2026-10-15 da shunday 118 marta
+    # bo'ldi. Xarajatni bu emas, OpenAI hisobidagi limit tiyadi; bu chegara
+    # suiiste'molga qarshi.
+    django_ai_education_rate: str = "300/hour"
+    # Tarjima: til almashganda bir necha material birdan so'raladi; tayyor tarjima AI'siz qaytadi.
+    django_ai_translate_rate: str = "300/hour"
     django_login_rate: str = "20/minute"
     django_live_test_anon_rate: str = "120/minute"
-    django_staff_ping_rate: str = "2/minute"
+    # Telefon har 30 soniyada + tugma bilan bir martalik ping (2026-10-23: 2/minute da 548 ta 429).
+    django_staff_ping_rate: str = "4/minute"
+
+    # Rektor hisoboti sahifasining paroli (env: RECTOR_REPORT_PASSWORD).
+    # Bo'sh bo'lsa sahifa umuman ochilmaydi — tasodifan himoyasiz
+    # qolgan hisobot bo'lmasin.
+    rector_report_password: str = ""
+
+    # Yuz orqali kirish xizmati (docker-compose `face_api`, faqat ichki tarmoq).
+    face_api_url: str = "http://face_api:8200"
+
+    # cam.fermi.uz: JSHSHIR bilan kirishni tasdiqlash (docs/cam-fermi-verify-staff.md).
+    # Ikkalasi bo'lmasa bu kirish yo'li o'chiq (503), boshqa yo'llar o'zgarmaydi.
+    cam_verify_url: str = ""
+    cam_verify_api_key: str = ""
+    cam_verify_timeout: float = 10.0
+    # cam.fermi.uz iMentor integratsiyasi (talabalar): https://camapi.fermi.uz/api/v1/integration
+    # Talaba JSHSHIR bilan kirganda iMentor'dagi nusxada topilmasa, jonli so'raladi.
+    cam_student_api_url: str = ""
+    cam_student_api_key: str = ""
+    cam_student_timeout: float = 8.0
 
     @property
     def database_url(self) -> str:

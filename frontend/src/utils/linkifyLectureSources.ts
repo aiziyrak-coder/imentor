@@ -1,6 +1,8 @@
 /** Ma'ruza matnidagi `(Manba: kitob, sahifa)` iqtiboslarini giperhavolaga aylantiradi. */
 
-const CITE_RE = /\((?:Manba|Источник|Source)\s*:\s*([^)]+)\)/gi;
+// Kitob nomi ichida bitta qavs darajasi bo'lishi mumkin: "O‘zMSt 134-2024 (2)". Ilgari
+// birinchi ")" da to'xtardi — havola yarmida uzilib, ekranda ochiq qavs qolardi.
+const CITE_RE = /\((?:Manba|Источник|Source)\s*:\s*((?:[^()]|\([^()]*\))+)\)/gi;
 
 const PLACEHOLDER_RE =
   /^(?:kitob\s*nomi|название\s*книги|book\s*name|\{[^}]*\}|sahifa-bet)/i;
@@ -22,7 +24,10 @@ export function citationSearchHref(inner: string): string | null {
     return href;
   }
   const first = raw.split(',')[0] || raw;
-  const title = first.replace(/^[\s"«»„“”']+|[\s"«»„“”']+$/g, '').trim();
+  const title = first
+    .replace(/\s*\(\d{1,2}\)\s*$/, '') // fayl nusxasi belgisi "(2)"
+    .replace(/^[\s"«»„“”']+|[\s"«»„“”']+$/g, '')
+    .trim();
   if (title.length < 3) return null;
   const page = raw.match(
     /(?:sahifa|стр\.?|p(?:ages?)?\.?|bet)\s*[:.]?\s*(\d+(?:\s*[-–—]\s*\d+)?)/i,
@@ -31,12 +36,19 @@ export function citationSearchHref(inner: string): string | null {
   return `https://www.google.com/search?tbm=bks&q=${encodeURIComponent(q)}`;
 }
 
+/**
+ * Kitob iqtibosining ichki belgisi (2026-10-21). Rektor talabi: kitob manbasi
+ * HAVOLA EMAS — qizil matn, aniq kitob va sahifa; jurnal manbasi (URL bilan) —
+ * ko'k giperhavola. Ilgari kitob ham Google Books qidiruviga havola bo'lardi.
+ */
+export const BOOK_CITE_HREF = '#manba-kitob';
+
 function linkifyPlain(text: string): string {
   return text.replace(CITE_RE, (full, inner: string) => {
-    const href = citationSearchHref(inner);
-    if (!href) return full;
+    if (!inner.trim() || isPlaceholder(inner)) return full;
     const label = full.replace(/[[\]]/g, '');
-    return `[${label}](${href})`;
+    const url = inner.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0].replace(/[.,;:]+$/, '');
+    return `[${label}](${url || BOOK_CITE_HREF})`;
   });
 }
 

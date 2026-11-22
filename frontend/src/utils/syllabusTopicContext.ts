@@ -192,7 +192,14 @@ export function loadPersistedSelectedTopic(): SyllabusTopicContext | null {
     if (!parsed?.id || !parsed?.title || parsed.syllabusId == null) return null;
     if (!parsed.variantLabel) parsed.variantLabel = '';
     if (!parsed.instructionLanguage) {
-      parsed.instructionLanguage = 'uz';
+      const title = parsed.title || '';
+      parsed.instructionLanguage = /[\u0400-\u04FF]/.test(title)
+        ? /[ўқғҳ]/i.test(title)
+          ? 'uz'
+          : 'ru'
+        : /\b(the|of|and|in|to|for|with)\b/i.test(title)
+          ? 'en'
+          : 'uz';
     }
     if (!parsed.subjectCode) {
       parsed.subjectCode = '';

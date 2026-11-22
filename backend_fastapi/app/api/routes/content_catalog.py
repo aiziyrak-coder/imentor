@@ -9,6 +9,7 @@ from app.core.db import get_db
 from app.models import content as _content  # noqa: F401  (registers CourseSyllabus mapper)
 from app.models.prepared_content import CATALOG_KINDS, PreparedContent
 from app.services import content_catalog as svc
+from app.services.case_i18n import without_stale_translations
 from app.services.pagination import paginate
 
 router = APIRouter()
@@ -33,11 +34,24 @@ def public_catalog_subjects(db: Session = Depends(get_db)) -> list[dict]:
     return svc.catalog_subjects_summary(db)
 
 
+#: Ochiq (tokensiz) statistikadan olib tashlanadigan shaxsiy maydonlar (2026-11-17 audit): `owner_key` — o'qituvchi
+#: logini (Xodim ID yoki telefon), u bilan parolsiz kirish mumkin. Bosh sahifa faqat umumiy sonlarni ishlatadi.
+_PERSONAL_KEYS = frozenset({"owner_key", "author_display_name", "author_name", "by_author"})
+
+
+def _without_people(value):
+    if isinstance(value, dict):
+        return {k: _without_people(v) for k, v in value.items() if k not in _PERSONAL_KEYS}
+    if isinstance(value, list):
+        return [_without_people(v) for v in value]
+    return value
+
+
 @router.get("/public/content-catalog/stats/")
 def public_catalog_stats(kind: str = "", db: Session = Depends(get_db)) -> dict:
     if kind and kind not in CATALOG_KINDS:
         raise HTTPException(status_code=400, detail="kind must be case or test.")
-    return svc.build_catalog_stats(db, published_only=True, kind=kind or None)
+    return _without_people(svc.public_catalog_stats_cached(db, kind=kind or None))
 
 
 @router.get("/admin/content-catalog/stats/")
@@ -95,7 +109,7 @@ def get_catalog_item(
     if item is None:
         raise HTTPException(status_code=404, detail="Not found.")
     data = svc.catalog_item_summary(item)
-    data["payload"] = item.payload if isinstance(item.payload, dict) else {}
+    data["payload"] = without_stale_translations(item.payload) if isinstance(item.payload, dict) else {}
     return data
 
 
@@ -105,7 +119,7 @@ def public_get_catalog_item(pk: int, db: Session = Depends(get_db)) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="Not found.")
     data = svc.catalog_item_summary(item, include_verification=True)
-    data["payload"] = item.payload if isinstance(item.payload, dict) else {}
+    data["payload"] = svc.public_payload(without_stale_translations(item.payload)) if isinstance(item.payload, dict) else {}
     data["view_only"] = True
     return data
 
@@ -122,7 +136,7 @@ def admin_get_catalog_item(
     if item is None:
         raise HTTPException(status_code=404, detail="Not found.")
     data = svc.catalog_item_summary(item)
-    data["payload"] = item.payload if isinstance(item.payload, dict) else {}
+    data["payload"] = without_stale_translations(item.payload) if isinstance(item.payload, dict) else {}
     return data
 
 

@@ -43,6 +43,23 @@ export function totalTopicCount(variants: SyllabusVariant[]): number {
   return variants.reduce((n, v) => n + (v.topics?.length ?? 0), 0);
 }
 
+/**
+ * Fanning mavzular soni.
+ *
+ * Katalog `slim` rejimida mavzular ro'yxati bo'sh keladi (4.4 MB javobni
+ * 0.4 MB ga tushirish uchun) va son `topic_count` da bo'ladi. To'liq
+ * javobda esa `topic_count` bo'lmaydi — o'shanda mavzular sanaladi.
+ */
+export function syllabusTopicCount(row: {
+  topic_count?: number;
+  variants?: SyllabusVariant[];
+  topics?: SyllabusTopic[];
+  file_name?: string;
+}): number {
+  if (typeof row.topic_count === 'number') return row.topic_count;
+  return totalTopicCount(resolveSyllabusVariants(row));
+}
+
 export function countTopicsByType(topics: SyllabusTopic[]): {
   lectures: number;
   practicals: number;
@@ -57,4 +74,20 @@ export function countTopicsByType(topics: SyllabusTopic[]): {
     independents: topics.filter((t) => t.type === 'independent').length,
     labs: topics.filter((t) => t.type === 'lab').length,
   };
+}
+
+/**
+ * O'qituvchiga ko'rinadigan mavzular (2026-11-19, foydalanuvchi qarori): FAQAT amaliy mashg'ulotlar.
+ * Ma'ruza, laboratoriya, klinik mashg'ulot va mustaqil ta'lim ko'rsatilmaydi — sillabusga nima yuklangan
+ * bo'lsa ham. Istisno: fanda bitta ham amaliy mavzu bo'lmasa (masalan hammasi "klinik mashg'ulot" deb
+ * belgilangan), o'qituvchi umuman ishlay olmay qolmasligi uchun klinik mashg'ulotlar ko'rsatiladi.
+ */
+export function teacherVisibleTopics(topics: SyllabusTopic[] | null | undefined): SyllabusTopic[] {
+  const list = topics ?? [];
+  const practical = list.filter((t) => t.type === 'practical');
+  if (practical.length) return practical;
+  const clinical = list.filter((t) => t.type === 'clinical');
+  // 2026-11-20: sillabusda mavzular turi noto'g'ri belgilangan (hammasi "ma'ruza") — o'qituvchi bo'sh sahifada
+  // qolmasin: amaliy ham, klinik ham bo'lmasa, mustaqil ta'limdan boshqa hamma mavzu ko'rsatiladi.
+  return clinical.length ? clinical : list.filter((t) => t.type !== 'independent');
 }

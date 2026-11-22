@@ -6,10 +6,12 @@ import {
   type ContentSlide,
   type PresentationContent,
   coercePresentationContent,
+  isRealStat,
   slidePreviewBullets,
 } from './presentationContentSchema';
 import { autofitFontSize } from './presentationQa';
-import { fetchImageAsDataUrl } from './presentationImages';
+import { ensureSafeSlideImages } from './presentationImages';
+import { addSlideAnimations } from './pptxAnimations';
 import { THEME, buildLabels, type PresentationBuildMeta } from './presentationTheme';
 
 export type { PresentationContent, ContentSlide };
@@ -22,15 +24,35 @@ const C = THEME.colors;
 const F = THEME.fonts;
 const M = THEME.spacing.margin;
 
-function badgeLabel(meta: PresentationBuildMeta): string {
+/** Fan nomini so'z chegarasida qisqartiradi ("3-semes" kabi bo'lak qolmasin). */
+function shortSubject(name: string, max = 56): string {
+  const clean = name.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.5 ? cut.slice(0, space) : cut).replace(/[\s,.;:(-]+$/, '')}…`;
+}
+
+/** Mavzu kodi ("L1", "A3") — talabaga tushunarli yozuv ("Ma'ruza 1", "Amaliy 3"). */
+function topicLabel(topicId: string, language: 'uz' | 'ru' | 'en'): string {
+  const id = topicId.trim();
+  const m = id.match(/^([LA])\s*-?\s*(\d+)$/i);
+  if (!m) return id.slice(0, 12);
+  const lecture = m[1].toUpperCase() === 'L';
+  const word =
+    language === 'ru' ? (lecture ? 'Лекция' : 'Практика') : language === 'en' ? (lecture ? 'Lecture' : 'Practical') : lecture ? "Ma'ruza" : 'Amaliy';
+  return `${word} ${m[2]}`;
+}
+
+export function badgeLabel(meta: PresentationBuildMeta): string {
+  const subj = shortSubject(meta.subjectName);
+  const code = topicLabel(meta.topicId, meta.language || 'uz');
+  // Standart "asosiy" variant tushunarsiz yozuv: faqat haqiqiy yo'nalish ko'rsatiladi. Fan nomida
+  // yo'nalish allaqachon bo'lsa ("Dermatovenerologiya(Stom)") ikkinchi marta qo'shilmaydi.
   const variant = meta.variantLabel?.trim();
-  const subj = meta.subjectName.trim().slice(0, 40);
-  const code = meta.topicId.trim().slice(0, 12);
-  // Fan nomida yo'nalish allaqachon bo'lishi mumkin ("Dermatovenerologiya(Stom)") —
-  // ikkinchi marta qo'shsak "Dermatovenerologiya(Stom)(Stom)" chiqib qolardi.
-  const hasVariant =
-    Boolean(variant) && subj.toLowerCase().includes(variant!.toLowerCase());
-  const head = variant && !hasVariant ? `${subj} (${variant})` : subj;
+  const showVariant =
+    Boolean(variant) && !/^(?:asosiy|основн\w*|main|default)$/i.test(variant!) && !subj.toLowerCase().includes(variant!.toLowerCase());
+  const head = showVariant ? `${subj} (${variant})` : subj;
   return code ? `${head} · ${code}` : head;
 }
 
@@ -295,6 +317,117 @@ function addNumberedBullets(
   });
 }
 
+/** Kartochkaga sig'adigan band uzunligi (belgilar). */
+const CARD_MAX_CHARS = 190;
+const KEY_FIGURE =
+  /(?:≥|≤|>|<)?\s?\d+(?:[.,]\d+)?(?:\s?[-–/]\s?\d+(?:[.,]\d+)?)?\s?(?:%|mm\s?Hg|mmHg|mg\/kg|mg|ml|mmol\/l|g\/l|°C|kun|soat|hafta|yil|дней|час|лет|days?|hours?|years?)/i;
+
+/**
+ * Bandni kartochkaga bo'lish (2026-10-21, "infografika yo'q"): "Atama: izoh"
+ * bo'lsa atama sarlavha bo'ladi; aks holda banddagi asosiy raqam (birligi
+ * bilan) katta yoziladi; ikkalasi ham bo'lmasa — sarlavhasiz, faqat tartib raqami.
+ */
+export function bulletCardParts(text: string): { head: string; body: string; figure: boolean } {
+  const t = text.replace(/\s+/g, ' ').trim();
+  const term = t.match(/^([^:—–]{3,48}?)\s?[:—–]\s+(.{12,})$/);
+  if (term && !/\d{2,}/.test(term[1])) return { head: term[1].trim(), body: term[2].trim(), figure: false };
+  const fig = t.match(KEY_FIGURE);
+  if (fig && fig[0].trim().length <= 14) return { head: fig[0].trim(), body: t, figure: true };
+  return { head: '', body: t, figure: false };
+}
+
+export type BulletLayout = 'cards' | 'panel' | 'list';
+
+/**
+ * Rasmsiz matnli slayd ko'rinishi (2026-10-21, "taqdimot oddiy, infografika
+ * yo'q": 8 ta ketma-ket slayd bir xil 5 bandli ro'yxat edi). Qo'shni slaydlar
+ * bir-biridan farq qilsin: har uchinchisi "asosiy fikr" paneli, qolgani
+ * kartochkalar. Oddiy ro'yxat — rasm yonida yoki bandlar uzun bo'lsa.
+ */
+export function bulletLayoutFor(bullets: string[], hasImage: boolean, page: number): BulletLayout {
+  const items = bullets.map((b) => String(b || '').trim()).filter(Boolean);
+  if (hasImage || items.length < 3 || items.length > 6) return 'list';
+  if (page % 3 === 1 && items.length >= 4 && items[0].length <= 160) return 'panel';
+  return items.every((b) => b.length <= CARD_MAX_CHARS) ? 'cards' : 'list';
+}
+
+/**
+ * Kartochkalar: 3 — uch ustun, 4 — 2×2, 5 — 3+2 (markazda), 6 — 3×2. Har
+ * kartochkada rangli yuqori chiziq va tartib raqami; sarlavha (atama yoki
+ * asosiy raqam) qalin.
+ */
+function addBulletCards(
+  s: PptxSlide,
+  bullets: string[],
+  box: { x: number; y: number; w: number; h: number },
+): void {
+  const items = bullets.map((b) => String(b || '').trim()).filter(Boolean).slice(0, 6);
+  const cols = items.length === 4 ? 2 : Math.min(3, items.length);
+  const rows = Math.ceil(items.length / cols);
+  const gap = THEME.spacing.gutter;
+  const cardW = (box.w - gap * (cols - 1)) / cols;
+  const cardH = Math.min(3.6, (box.h - gap * (rows - 1)) / rows);
+  const bands = [C.primary, C.secondary, C.accent];
+  const parts = items.map(bulletCardParts);
+  // Matn qutisi: sarlavhali kartochkada — sarlavha ostida, sarlavhasizda — raqam yonida.
+  const textBox = (p: { head: string }) =>
+    p.head ? { dx: 0.35, dy: 0.95, w: cardW - 0.7, h: cardH - 1.1 } : { dx: 0.95, dy: 0.26, w: cardW - 1.25, h: cardH - 0.4 };
+  const baseFs = rows === 1 ? 18 : 17;
+  const bodyFs = parts.reduce((fs, p) => {
+    const b = textBox(p);
+    return Math.min(fs, fitTextSize(p.body, b.w, b.h, baseFs, 12));
+  }, baseFs);
+  parts.forEach((p, i) => {
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, items.length - row * cols);
+    // Oxirgi qator to'lmasa — markazga suriladi (5 band: 3 + 2).
+    const shift = ((cols - inRow) * (cardW + gap)) / 2;
+    const x = box.x + shift + (i % cols) * (cardW + gap);
+    const y = box.y + row * (cardH + gap);
+    const band = bands[i % bands.length];
+    s.addShape('rect', { x, y, w: cardW, h: cardH, fill: { color: C.card }, line: { color: C.soft, width: 1 } });
+    s.addShape('rect', { x, y, w: cardW, h: 0.09, fill: { color: band }, line: { type: 'none' } });
+    s.addShape('ellipse', { x: x + 0.3, y: y + 0.28, w: 0.5, h: 0.5, fill: { color: band }, line: { type: 'none' } });
+    s.addText(String(i + 1).padStart(2, '0'), {
+      x: x + 0.3, y: y + 0.28, w: 0.5, h: 0.5,
+      fontSize: 13, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle', fontFace: F.body,
+    });
+    if (p.head) {
+      s.addText(p.head, {
+        x: x + 0.95, y: y + 0.22, w: cardW - 1.2, h: 0.62,
+        fontSize: p.figure
+          ? autofitFontSize(p.head, { base: 24, min: 16, softMaxChars: 10 })
+          : autofitFontSize(p.head, { base: 17, min: 13, softMaxChars: Math.round(cardW * 6) }),
+        bold: true, color: p.figure ? band : C.primary, fontFace: F.heading, valign: 'middle', fit: 'shrink',
+      });
+    }
+    const b = textBox(p);
+    s.addText(p.body, {
+      x: x + b.dx, y: y + b.dy, w: b.w, h: b.h,
+      fontSize: bodyFs, color: C.textDark, fontFace: F.body, lineSpacingMultiple: 1.06, valign: 'top', fit: 'shrink',
+    });
+  });
+}
+
+/** "Asosiy fikr" paneli: birinchi band chapda katta, qolganlari o'ngda ro'yxat. */
+function addKeyPointPanel(
+  s: PptxSlide,
+  bullets: string[],
+  box: { x: number; y: number; w: number; h: number },
+): void {
+  const items = bullets.map((b) => String(b || '').trim()).filter(Boolean);
+  const [lead, ...rest] = items;
+  const panelW = 4.3;
+  s.addShape('rect', { x: box.x, y: box.y, w: panelW, h: box.h, fill: { color: C.primary }, line: { type: 'none' } });
+  s.addShape('rect', { x: box.x + 0.4, y: box.y + 0.45, w: 0.7, h: 0.07, fill: { color: C.accent }, line: { type: 'none' } });
+  s.addText(lead, {
+    x: box.x + 0.4, y: box.y + 0.7, w: panelW - 0.8, h: box.h - 1.1,
+    fontSize: fitTextSize(lead, panelW - 0.8, box.h - 1.1, 22, 15),
+    color: 'FFFFFF', fontFace: F.heading, bold: true, lineSpacingMultiple: 1.12, valign: 'top', fit: 'shrink',
+  });
+  addNumberedBullets(s, rest, { x: box.x + panelW + 0.45, y: box.y + 0.05, w: box.w - panelW - 0.45, h: box.h - 0.05 });
+}
+
 /** Sarlavha + ostidagi qisqa mis chiziq — slaydga aniq boshlanish beradi. */
 function addSlideTitle(
   s: PptxSlide,
@@ -514,12 +647,12 @@ function layoutContentBullets(
   addHeaderBadge(s, meta);
   const colW = hasImage ? 7.3 : 12.2;
   const bodyTop = addSlideTitle(s, slide.title, slide.subtitle, colW);
-  addNumberedBullets(s, slide.body.bullets || slidePreviewBullets(slide), {
-    x: M,
-    y: bodyTop,
-    w: colW,
-    h: 6.65 - bodyTop,
-  });
+  const bullets = slide.body.bullets || slidePreviewBullets(slide);
+  const box = { x: M, y: bodyTop, w: colW, h: 6.65 - bodyTop };
+  const layout = bulletLayoutFor(bullets, hasImage, page);
+  if (layout === 'cards') addBulletCards(s, bullets, box);
+  else if (layout === 'panel') addKeyPointPanel(s, bullets, box);
+  else addNumberedBullets(s, bullets, box);
   addFooter(s, deckTitle, page, total);
 }
 
@@ -641,15 +774,21 @@ function layoutStatistics(
   page: number,
   total: number,
 ): void {
+  const realStats = (slide.body.stats || []).filter((x) => isRealStat(x));
+  const keyStat = isRealStat(slide.body.key_stat) ? slide.body.key_stat : null;
+  const bullets = (slide.body.bullets || []).filter((b) => String(b || '').trim());
+  // Kartochkaga arziydigan raqam yo'q bo'lsa — matnli slayd sifatida chiziladi.
+  // Ilgari bo'sh "0" kartochkasi chizilib, bullets yo'qolardi (2026-09-24).
+  if (realStats.length < 2 && bullets.length) {
+    const lead = realStats[0] || keyStat;
+    const withStat = lead ? [`${lead.number} — ${lead.label}`, ...bullets] : bullets;
+    layoutContentBullets(s, { ...slide, body: { ...slide.body, bullets: withStat } }, meta, deckTitle, page, total);
+    return;
+  }
   s.background = { color: C.bgLight };
   addHeaderBadge(s, meta);
   addSlideTitle(s, slide.title, slide.subtitle, 12.2);
-  const stats =
-    slide.body.stats?.length
-      ? slide.body.stats.slice(0, 4)
-      : slide.body.key_stat
-        ? [slide.body.key_stat]
-        : (slide.body.bullets || []).slice(0, 3).map((b) => ({ number: '—', label: b }));
+  const stats = realStats.length ? realStats.slice(0, 4) : keyStat ? [keyStat] : [];
   const n = Math.max(stats.length, 1);
   const gap = THEME.spacing.gutter;
   const cardW = (12.2 - gap * (n - 1)) / n;
@@ -1118,7 +1257,9 @@ function layoutReferences(
 ): void {
   s.background = { color: C.bgLight };
   addHeaderBadge(s, meta);
-  s.addText(slide.title || 'Foydalanilgan manbalar', {
+  const fallbackTitle =
+    meta.language === 'ru' ? 'Использованные источники' : meta.language === 'en' ? 'References' : 'Foydalanilgan manbalar';
+  s.addText(slide.title || fallbackTitle, {
     x: M,
     y: 0.7,
     w: 12.2,
@@ -1220,7 +1361,7 @@ export async function buildPresentationPptxFile(
   deck: PresentationContent | { title?: string; slides?: unknown[] },
   options?: BuildPresentationOptions,
 ): Promise<File> {
-  const content =
+  const parsed =
     deck && typeof deck === 'object' && 'presentation_title' in deck
       ? (deck as PresentationContent)
       : coercePresentationContent(deck, {
@@ -1229,27 +1370,26 @@ export async function buildPresentationPptxFile(
         });
 
   const meta: PresentationBuildMeta = options?.meta || {
-    subjectName: content.subject_area || 'Fan',
+    subjectName: parsed.subject_area || 'Fan',
     topicId: 'T',
   };
 
-  // Saqlangan taqdimotda data:URL rasm bo\'lmaydi (bazani shishirmaslik uchun
-  // olib tashlanadi), faqat asl havola qoladi. Yuklab olishdan oldin
-  // rasmlarni o\'sha havoladan qayta tortamiz — aks holda deck rasmsiz chiqadi.
-  const needImages = content.slides.filter(
-    (sl) => !sl.imageUrl?.startsWith('data:') && sl.imageSourceUrl,
-  );
-  if (needImages.length > 0) {
-    const fetched = await Promise.all(
-      needImages.map((sl) => fetchImageAsDataUrl(sl.imageSourceUrl as string).catch(() => null)),
-    );
-    needImages.forEach((sl, i) => {
-      const data = fetched[i];
-      if (data) sl.imageUrl = data;
+  // Saqlangan taqdimotda data:URL rasm bo'lmaydi (bazani shishirmaslik uchun
+  // olib tashlanadi), faqat asl havola qoladi — rasm o'sha havoladan qayta
+  // tortiladi. 2026-10-20 dan HAR rasm (eski saqlanganlari ham) odob bo'yicha
+  // tekshiriladi; o'tmagani slayddan olib tashlanadi.
+  const content = await ensureSafeSlideImages(parsed);
+
+  // Modul alohida faylda yuklanadi. Sayt yangilangandan keyin eski sahifa uni topa olmasa (2026-11-16:
+  // "taqdimot yaratmayapti, 3 marta qayta bosdim") — umumiy xato emas, nima qilish aniq aytiladi.
+  let PptxGenJS: typeof import('pptxgenjs').default;
+  try {
+    PptxGenJS = (await import('pptxgenjs')).default;
+  } catch {
+    PptxGenJS = await import('pptxgenjs').then((m) => m.default).catch(() => {
+      throw new Error('Sayt yangilangan — sahifani yangilang (F5) va qayta bosing. Yaratilgan taqdimot saqlangan, qayta yaratish shart emas.');
     });
   }
-
-  const PptxGenJS = (await import('pptxgenjs')).default;
   const pptx = new PptxGenJS();
   pptx.author = content.author || 'iMentor';
   pptx.title = content.presentation_title.slice(0, 120);
@@ -1264,7 +1404,13 @@ export async function buildPresentationPptxFile(
     }
   });
 
-  const blob = (await pptx.write({ outputType: 'blob' })) as Blob;
+  const plain = (await pptx.write({ outputType: 'blob' })) as Blob;
+  // O'tishlar va bosilganda paydo bo'ladigan kontent (2026-10-21) — pptxgenjs buni
+  // qo'llamaydi. Xato bo'lsa animatsiyasiz fayl qaytadi, taqdimot yo'qolmaydi.
+  const blob = await addSlideAnimations(plain).catch((err) => {
+    console.warn('Taqdimotga animatsiya qo\'shib bo\'lmadi:', err);
+    return plain;
+  });
   const safeName =
     content.presentation_title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').trim().slice(0, 48) ||
     'taqdimot';

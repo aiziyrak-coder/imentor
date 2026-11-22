@@ -1,5 +1,5 @@
 import { DEFAULT_TEST_DIFFICULTY, type TestDifficulty } from './testDifficulty';
-import type { SubjectDomain } from './subjectDomain';
+import { isPatientFree, type SubjectDomain } from './subjectDomain';
 
 type CaseLike = { questions: Array<{ scenario?: string }> };
 type TestLike = { questions: Array<{ question?: string }> };
@@ -35,18 +35,34 @@ export function buildCaseStructurePrompt(topic: string, domain: SubjectDomain = 
       ? `MAVZU BO'LIMLARI: ${themes.map((s, i) => `${i + 1}) ${s}`).join('; ')}. ` +
         'Har keys shu bo\'limlardan BIRIGA chuqur bog\'lansin, mavzudan tashqariga CHIQMASIN.'
       : '';
-  if (domain === 'academic') {
+  // 2026-10-20: bemorsiz fanlarda fokus — topshiriq turi. Ilgari "profilaktika"
+  // har fanda "xavfsizlik va standartlarga rioya" degan bo'sh matnga aylanardi.
+  if (domain === 'biomedical') {
     return [
       `Variatsiya ID: ${generationNonce()}.`,
       `Mavzu: "${topic}".`,
       themeBlock,
-      'Aniq 3 ta AMALIY VAZIYATLI MASALA — fan/mavzu bo\'yicha, KLINIK BEMOR KARTASI EMAS:',
-      '1-keys focus="profilaktika": xatolik, xavfsizlik yoki standartni buzmaslik qarori.',
-      '2-keys focus="davolash": aniq yechim/usul tanlash (ikki yaqin variant, biri mos emas).',
-      '3-keys focus="tashxis": ildiz sabab / to\'g\'ri model / qaysi tushuncha mos keladi.',
-      'Qaror AYNAN shu fan va mavzuga tegishli. Kasallik, dori, lab, vital belgi YO\'Q (fan klinik bo\'lmasa).',
-      'TAQIQLANGAN NAMUNA: 55 yoshli ayol, diabet, HbA1c 9.5%, metformin, elektron pochta xizmati qaysi xavfsiz emas. ' +
-        'Bu informatika/elektronika mavzusini sun\'iy ravishda klinik qiladi — YARATILMASIN.',
+      'Aniq 3 ta VAZIYATLI MASALA — preparat, tajriba, namuna yoki tuzilma tahlili, BEMOR KARTASI EMAS:',
+      '1-keys focus="tashxis": talqin — kuzatuv/o\'lchovdan jarayon yoki tuzilmani aniqlash.',
+      '2-keys focus="davolash": bashorat — bitta omil o\'zgarsa natija qanday o\'zgaradi va nega.',
+      '3-keys focus="profilaktika": xatoni topish — usul, texnika yoki hisobdagi xato va to\'g\'ri bajarish.',
+      'Har keys aniq "task" savollari bilan tugaydi; uchala keys boshqa obyekt va ma\'lumot bilan.',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  if (isPatientFree(domain)) {
+    return [
+      `Variatsiya ID: ${generationNonce()}.`,
+      `Mavzu: "${topic}".`,
+      themeBlock,
+      'Aniq 3 ta AMALIY MASALA — shu fanning o\'z materiali bilan, KLINIK KEYS EMAS:',
+      '1-keys focus="tashxis": tahlil — berilgan materialdan xulosa yoki qonuniyat.',
+      '2-keys focus="davolash": qo\'llash — qoida/formula/usulni materialga qo\'llab masalani yechish.',
+      '3-keys focus="profilaktika": xatoni topish — berilgan ishdagi aniq xato va to\'g\'ri variant.',
+      'Har keys aniq "task" savollari bilan tugaydi. Individual bemor, kasallik va dori YO\'Q.',
+      'TAQIQLANGAN NAMUNA: "68 yoshli erkak, 3 kun qorin og\'rig\'i..." yoki "mutaxassis standartlarga rioya qilmadi" ' +
+        'degan bo\'sh hikoya — mavzuni tekshirmaydi, YARATILMASIN.',
     ]
       .filter(Boolean)
       .join(' ');
@@ -73,18 +89,57 @@ export function buildCaseStructurePrompt(topic: string, domain: SubjectDomain = 
  * Keys sifati: zich klinik karta, qiyin vaziyatli masala.
  * Mutaxassis: kam ma'lumot, oson tashxis, yuzaki yechim — shuni tuzatadi.
  */
+/**
+ * Klinik fikrlashni O'RGATADIGAN keys uchun shartnoma (rektor, 2026-10-13).
+ *
+ * Nega kerak edi: jonli keyslar tekshirilganda yechim "yuqori ESR va qon
+ * bosimi gipertenziv ensefalopatiyani ko'rsatadi" kabi raqamsiz, aylanma
+ * mantiq bilan yozilgan edi; differensial esa "Birinchi farq qilish uchun…
+ * Ikkinchi… Uchinchi…" deb bir xil gapni uch marta takrorlardi. Bunday matn
+ * talabaga fikrlashni o'rgatmaydi.
+ *
+ * Shuning uchun qoidalar TEKSHIRILADIGAN shaklda beriladi: fikr yo'li bitta
+ * qatorda, differensial esa "QO'LLAB/RAD" yorliqlari bilan. Yorliq modelni
+ * aniq topilma yozishga majbur qiladi va bo'sh gapni ko'rinadigan qiladi.
+ */
+export const CASE_REASONING_CONTRACT = [
+  'KLINIK FIKRLASH SHARTNOMASI (majburiy, buzilsa keys yaroqsiz):',
+  // 1. Fikr yo'li — eng muhimi. Talaba aynan shu qatordan "qanday o'ylash"ni oladi.
+  '1) "diagnosis" maydoni AYNAN shu qator bilan boshlansin:',
+  '   "FIKR YO\'LI: <topilma 1> + <topilma 2> + <muhim YO\'Q belgi> -> <aniq nozologiya>."',
+  '   Topilmalar raqam va birligi bilan yozilsin; "yuqori", "past", "ko\'tarilgan" kabi',
+  '   faqat sifatli ta\'rif TAQIQLANADI — qiymat va me\'yor oralig\'i birga ko\'rsatilsin',
+  '   (masalan "EChT 68 mm/soat (me\'yor <20)").',
+  '2) HAL QILUVCHI TOPILMA: keysda bitta topilma bo\'lsin, u olib tashlansa tashxis',
+  '   O\'ZGARADI. "diagnosis" da shu topilma nomi bilan aytilsin.',
+  '3) CHALG\'ITUVCHI: aynan bitta ishonarli chalg\'ituvchi topilma bo\'lsin va yechimda',
+  '   "CHALG\'ITUVCHI: <topilma> — nega jalb qiladi, nega qarorni o\'zgartirmaydi" deb izohlansin.',
+  '4) "differential" da 3 ta nozologiya, HAR BIRI aynan shu shaklda:',
+  '   "<Nozologiya> — QO\'LLAB: <aniq topilma+raqam>; RAD: <aniq topilma+raqam yoki yo\'q belgi>."',
+  '   "Birinchi farq qilish uchun", "Ikkinchi farq qilish uchun" kabi qolip iboralar TAQIQLANADI.',
+  '   Oson rad etiladigan nozologiya emas: har biri yarim bilgan talabani chalg\'itadigan darajada yaqin.',
+  '5) VAQT: shikoyatda boshlanish va kuchayish vaqti (soat/kun) aniq bo\'lsin — fikrlash',
+  '   ko\'pincha aynan vaqt chizig\'iga tayanadi.',
+  '6) MUHIM YO\'Q (pertinent negatives): kamida 2 ta — nimani RAD ETGANI bilan birga.',
+  '7) "investigations" da har tekshiruv uchun: nima kutilyapti va natija QANDAY bo\'lsa',
+  '   qaror o\'zgaradi ("agar <natija> bo\'lsa, taktika <...> ga o\'zgaradi").',
+  '8) Yechim bemor ma\'lumotiga tayansin: "tavsiya etiladi", "o\'rganiladi" kabi egasiz',
+  '   umumiy gaplar TAQIQLANADI. Har da\'vo ortida keysdagi aniq fakt tursin.',
+].join('\n');
+
 export function buildCaseClinicalRules(domain: SubjectDomain = 'clinical'): string {
-  if (domain === 'academic') {
+  if (isPatientFree(domain)) {
+    // "FIKR YO'LI / QO'LLAB / RAD" — klinik fikrlash shakli; bemorsiz fanda u
+    // lotin tili va tarix keyslariga "differensial" tiqardi (2026-10-20).
     return [
-      'QATTIQ QOIDALAR — oliy ta\'lim AMALIY vaziyat, klinik keys EMAS:',
-      'MAVZUGA BOG\'LIQLIK: muammo, ma\'lumotlar va yechim AYNAN fan va mavzu (va ma\'ruza, bo\'lsa) doirasida.',
-      // Klinik nozologiyani nomma-nom sanash modelni aynan o\'sha tomonga
-      // yetaklaydi. Umumiy belgilar yetarli - kasallik nomi berilmaydi.
-      'BEMOR YO\'Q: yosh+jins+kasallik+dori vignette TAQIQLANADI. HbA1c, qon bosimi, puls, qorin og\'rig\'i YO\'Q.',
-      'Ishtirokchi: talaba, muhandis, o\'qituvchi, tizim administratori — kasalliksiz.',
-      'QIYINLIK: bitta ta\'rif = javob EMAS. Kamida ikkita chalg\'ituvchi, lekin mantiqiy cheklov (standart, formula, protokol).',
-      'Yechimda aniq qadam, formula, sozlama yoki qoida; nima uchun muqobil noto\'g\'ri.',
-      'HAJM: vaziyat 520–720 so\'z, yechim 700–920 so\'z. Har maydon 4–8 dens gap.',
+      'QATTIQ QOIDALAR — oliy ta\'lim AMALIY masala, klinik keys EMAS:',
+      'MAVZUGA BOG\'LIQLIK: material, ma\'lumot va savollar AYNAN fan va mavzu (va ma\'ruza, bo\'lsa) doirasida.',
+      domain === 'academic'
+        ? 'BEMOR VA TIBBIYOT YO\'Q: kasallik, dori, lab, vital belgi TAQIQLANADI.'
+        : 'BEMOR YO\'Q: yosh+jins+shikoyat+tashxis+dori vignette va davolash rejasi TAQIQLANADI.',
+      'YECHILADIGAN MASALA: vaziyatda javob uchun kerakli HAMMA ma\'lumot bor; javob vaziyatda aytilmaydi.',
+      'QIYINLIK: bitta ta\'rifni eslash = javob EMAS — kamida ikki bosqich (ma\'lumotni izohlash, so\'ng xulosa).',
+      'ANIQLIK: atama, qoida, me\'yor va raqam darslikdagidek; ishonchingiz komil bo\'lmaganini yozmang.',
     ].join(' ');
   }
   return [
@@ -101,6 +156,9 @@ export function buildCaseClinicalRules(domain: SubjectDomain = 'clinical'): stri
     'HAJM (zich klinik karta, suv emas):',
     'Vaziyat jami 520–720 so\'z. Yechim jami 700–920 so\'z.',
     'Har maydon 4–8 dens klinik gap: raqam+birlik, vaqt (soat/kun), dori+doza.',
+    // Fikrlash shartnomasi oxirida turadi: modeldan AYNAN shu shakl talab
+    // qilinadi, shuning uchun u oxirgi va eng aniq ko'rsatma bo'lsin.
+    CASE_REASONING_CONTRACT,
   ].join(' ');
 }
 
@@ -165,7 +223,7 @@ export function buildTestVarietyPrompt(
   domain: SubjectDomain = 'clinical',
 ): string {
   const anglePool =
-    domain === 'academic'
+    isPatientFree(domain)
       ? difficulty === 'easy'
         ? TEST_ACADEMIC_EASY
         : TEST_ACADEMIC_ANGLES
@@ -187,15 +245,15 @@ export function buildTestVarietyPrompt(
       ? `MAVZU BO'LIMLARI: ${themes.map((s, i) => `${i + 1}) ${s}`).join('; ')}. ` +
         'Savollarni shu bo\'limlar bo\'ylab taqsimlang — har bo\'limdan kamida bittadan. Mavzudan CHIQMANG.'
       : '';
-  if (domain === 'academic') {
+  if (isPatientFree(domain)) {
     return [
       `Variatsiya ID: ${generationNonce()}.`,
       `Mavzu: "${topic}". ${count} ta NOYOB test savoli.`,
       themeBlock,
       'HAR SAVOL 2–3 zich jumla: aniq shart (raqam/cheklov/standart) + qaror. Ta\'rif ("X nima?") TAQIQLANADI.',
-      'KLINIK BEMOR YO\'Q: diabet, HbA1c, metformin, qon bosimi, yoshli bemor + kasallik vignette YARATILMASIN.',
-      'TAQIQLANGAN NAMUNA: "55 yoshli ayol, qandli diabet, yangi elektron pochta, HbA1c 9.5%, metformin. Qaysi xizmat xavfsiz emas?" —',
-      'bu informatika savolini sun\'iy klinik qiladi, mantiqsiz.',
+      'INDIVIDUAL BEMOR VIGNETTE YO\'Q: "N yoshli bemor + shikoyat + tashxis/dori" ko\'rinishidagi savol YARATILMASIN.',
+      'TAQIQLANGAN NAMUNA: "Dinshunoslik" mavzusiga "45 yoshli erkak hansirash bilan murojaat qildi..." —',
+      'bu mavzuni tekshirmaydi, mantiqsiz.',
       'QAT\'IY: to\'g\'ri javob shu FAN va MAVZU (va ma\'ruza) tushunchasi bo\'lsin. Boshqa fan aralashtirilmasin.',
       'To\'g\'ri javoblar takrorlanmasin. Avvalgi savollarni nusxalamang.',
       `Savol uslublari: ${angles.join('; ')}.`,

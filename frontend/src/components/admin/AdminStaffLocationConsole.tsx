@@ -337,6 +337,9 @@ export default function AdminStaffLocationConsole() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Yordamchi ro'yxatlardan biri (ogohlantirishlar, binolar, hafta) yuklanmadi —
+   *  sahifa ishlaydi, lekin bo'sh joy "ma'lumot yo'q" degani emasligi aytiladi. */
+  const [partialLoadFailed, setPartialLoadFailed] = useState(false);
 
   const [weekInfo, setWeekInfo] = useState<ScheduleWeekInfoDto | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>('single');
@@ -443,6 +446,14 @@ export default function AdminStaffLocationConsole() {
   const load = useCallback(async () => {
     setError(null);
     setLoading(true);
+    // Yordamchi so'rov yiqilsa asosiy ro'yxat baribir ko'rsatiladi, lekin
+    // oldingi ma'lumot bo'sh ro'yxat bilan almashtirilmaydi va admin ogohlantiriladi.
+    let partial = false;
+    const soft = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch(() => {
+        partial = true;
+        return null;
+      });
     try {
       const o = ownerFilterApplied.length >= 12 ? ownerFilterApplied : undefined;
       if (tab === 'today') {
@@ -450,33 +461,35 @@ export default function AdminStaffLocationConsole() {
         // asosiy savoli: dars vaqtida o'qituvchi joyidami?
         const [live, a] = await Promise.all([
           fetchLiveTeachingStatus(),
-          listAdminStaffAlerts(o).catch(() => []),
+          soft(listAdminStaffAlerts(o)),
         ]);
         setLiveStatus(live);
-        setAlerts(a);
+        if (a) setAlerts(a);
       } else if (tab === 'schedule') {
         const [rows, wi, b] = await Promise.all([
           listAdminStaffSchedule(o),
-          getScheduleWeekInfo().catch(() => null),
-          listCampusBuildings().catch(() => []),
+          soft(getScheduleWeekInfo()),
+          soft(listCampusBuildings()),
         ]);
         setSchedule(rows);
         if (wi) setWeekInfo(wi);
-        setBuildings(b);
+        if (b) setBuildings(b);
       } else if (tab === 'livemap') {
         const [p, b] = await Promise.all([
           listAdminStaffPings(o, { mode: 'live' }),
-          listCampusBuildings().catch(() => []),
+          soft(listCampusBuildings()),
         ]);
         setPings(p);
-        setBuildings(b);
+        if (b) setBuildings(b);
         setLiveMapUpdated(new Date());
       } else if (tab === 'pings') {
         setPings(await listAdminStaffPings(o));
       } else {
         setAlerts(await listAdminStaffAlerts(o));
       }
+      setPartialLoadFailed(partial);
     } catch {
+      setPartialLoadFailed(false);
       setError(t('admin.error.scheduleLoadFailed'));
     } finally {
       setLoading(false);
@@ -905,6 +918,24 @@ export default function AdminStaffLocationConsole() {
         <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           {error}
+        </div>
+      )}
+
+      {partialLoadFailed && !error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900"
+        >
+          <AlertCircle size={18} className="shrink-0" />
+          <span className="flex-1">{t('admin.error.partialLoadFailed')}</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="shrink-0 text-[12.5px] font-semibold underline underline-offset-2 hover:text-amber-950 disabled:opacity-50"
+          >
+            {t('common.retry')}
+          </button>
         </div>
       )}
 

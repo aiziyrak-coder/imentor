@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 import os
 
@@ -17,8 +18,11 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import TopicHandout
-from .permissions import HasEducationRole, resolve_user_role
+from .pagination import paginated_response
+from .permissions import HasEducationRole, IsAdminRole, resolve_user_role
 from .serializers import TopicHandoutSerializer
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_EXTENSIONS = frozenset(
     {
@@ -188,6 +192,11 @@ class TopicHandoutListCreateView(APIView):
 
     @extend_schema(request=TopicHandoutUploadSerializer, responses=TopicHandoutSerializer)
     def post(self, request):
+        if resolve_user_role(request.user) != "admin":
+            return Response(
+                {"detail": "Tarqatma fayllarni faqat administrator yuklaydi."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         ser = TopicHandoutUploadSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
@@ -255,6 +264,87 @@ class TopicHandoutDetailView(APIView):
         try:
             obj.file.delete(save=False)
         except Exception:
-            pass
+            logger.warning("Failed to delete handout file for pk=%s", obj.pk, exc_info=True)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class AdminTopicHandoutListCreateView(APIView):
+    """Admin: barcha tarqatmalarni ko'rish va mavzuga yangi tarqatma yuklash."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(responses=TopicHandoutSerializer(many=True))
+    def get(self, request):
+        qs = TopicHandout.objects.all().order_by("-created_at")
+        norms = []
+        syllabus_raw = (request.query_params.get("syllabus_id") or "").strip()
+        variant_label = (request.query_params.get("variant_label") or "").strip()
+        topic_code = (request.query_params.get("topic_code") or "").strip()
+        if syllabus_raw and variant_label and topic_code:
+            try:
+                built = _build_topic_norm(int(syllabus_raw), variant_label, topic_code)
+            except (TypeError, ValueError):
+                built = ""
+            if built:
+                norms.append(built)
+        norms.extend(n.strip() for n in request.query_params.getlist("topic_norm") if n.strip())
+        if norms:
+            query = _topic_norm_query(norms)
+            qs = qs.filter(query) if query is not None else qs.none()
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=100,
+            max_page_size=500,
+            mapper=lambda obj: TopicHandoutSerializer(obj, context={"request": request}).data,
+        )
+
+    @extend_schema(request=TopicHandoutUploadSerializer, responses=TopicHandoutSerializer)
+    def post(self, request):
+        ser = TopicHandoutUploadSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        uploaded = data["file"]
+        topic_norm = data["topic_norm"]
+        display = (
+            f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+        )
+        max_order = (
+            TopicHandout.objects.filter(topic_norm=topic_norm).aggregate(m=Max("sort_order"))["m"]
+            or 0
+        )
+        obj = TopicHandout.objects.create(
+            owner_key=request.user.username,
+            author_name=display[:255],
+            topic=data["topic"],
+            topic_norm=topic_norm,
+            title=(data.get("title") or uploaded.name or "")[:255],
+            kind=_detect_kind(uploaded.name or "", getattr(uploaded, "content_type", "") or ""),
+            file=uploaded,
+            file_name=(uploaded.name or "file")[:512],
+            file_size=int(uploaded.size or 0),
+            sort_order=int(max_order) + 1,
+        )
+        return Response(
+            TopicHandoutSerializer(obj, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminTopicHandoutDetailView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def delete(self, request, pk: int):
+        obj = TopicHandout.objects.filter(pk=pk).first()
+        if not obj:
+            return Response({"detail": "Topilmadi."}, status=404)
+        try:
+            obj.file.delete(save=False)
+        except Exception:
+            logger.warning("Failed to delete handout file for pk=%s", obj.pk, exc_info=True)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

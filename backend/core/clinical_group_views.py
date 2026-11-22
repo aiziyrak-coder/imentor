@@ -23,6 +23,7 @@ from .clinical_group_service import (
     upsert_clinic_member,
 )
 from .models import ClinicalGroup, ClinicalGroupMember, ClinicalGroupPayment
+from .pagination import paginated_response
 from .permissions import IsAdminRole, IsKlinikaAdminRole, resolve_user_role
 from .staff_profile_views import delete_staff_profile_for_owner
 from .views import _demo_admin_phone_allowlist, _set_user_role_group
@@ -150,7 +151,7 @@ class ClinicalGroupMemberWriteSerializer(serializers.Serializer):
 
 
 class ClinicalGroupMemberPatchSerializer(serializers.Serializer):
-    app_role = serializers.ChoiceField(choices=("hodim", "startuper"), required=False)
+    app_role = serializers.ChoiceField(choices=("hodim",), required=False)
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     faculty = serializers.CharField(max_length=255, required=False, allow_blank=True)
@@ -234,7 +235,13 @@ class AdminClinicalGroupListCreateView(APIView):
             )
             .order_by("name")
         )
-        return Response(ClinicalGroupSerializer(qs, many=True).data)
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=30,
+            max_page_size=100,
+            mapper=lambda obj: ClinicalGroupSerializer(obj).data,
+        )
 
     @extend_schema(request=ClinicalGroupSerializer, responses={201: ClinicalGroupSerializer})
     def post(self, request):
@@ -329,7 +336,13 @@ class AdminClinicalGroupMembersView(APIView):
         if not clinic:
             return Response({"detail": "Topilmadi."}, status=status.HTTP_404_NOT_FOUND)
         rows = clinic.members.order_by("-is_clinic_admin", "last_name", "first_name")
-        return Response(ClinicalGroupMemberSerializer(rows, many=True).data)
+        return paginated_response(
+            rows,
+            request,
+            default_page_size=50,
+            max_page_size=200,
+            mapper=lambda member: ClinicalGroupMemberSerializer(member).data,
+        )
 
 
 class ClinicAdminDashboardView(APIView):
@@ -360,7 +373,6 @@ class ClinicAdminDashboardView(APIView):
                 "stats": {
                     "members_total": members.count(),
                     "members_hodim": members.filter(app_role="hodim").count(),
-                    "members_startuper": members.filter(app_role="startuper").count(),
                     "payments_paid_total_uzs": str(paid_total),
                     "payments_pending_total_uzs": str(pending_total),
                     "payments_overdue_count": payments.filter(
@@ -384,7 +396,13 @@ class ClinicAdminMemberListCreateView(APIView):
         if not clinic:
             return Response({"detail": "Klinika topilmadi."}, status=status.HTTP_403_FORBIDDEN)
         rows = clinic.members.filter(is_active=True).order_by("last_name", "first_name")
-        return Response(ClinicalGroupMemberSerializer(rows, many=True).data)
+        return paginated_response(
+            rows,
+            request,
+            default_page_size=50,
+            max_page_size=200,
+            mapper=lambda member: ClinicalGroupMemberSerializer(member).data,
+        )
 
     @extend_schema(request=ClinicalGroupMemberWriteSerializer, responses={201: ClinicalGroupMemberSerializer})
     def post(self, request):
@@ -508,7 +526,13 @@ class ClinicAdminPaymentListCreateView(APIView):
         if not clinic:
             return Response({"detail": "Klinika topilmadi."}, status=status.HTTP_403_FORBIDDEN)
         rows = clinic.payments.order_by("-period_start", "-created_at")
-        return Response(ClinicalGroupPaymentSerializer(rows, many=True).data)
+        return paginated_response(
+            rows,
+            request,
+            default_page_size=30,
+            max_page_size=100,
+            mapper=lambda payment: ClinicalGroupPaymentSerializer(payment).data,
+        )
 
     @extend_schema(request=ClinicalGroupPaymentSerializer, responses={201: ClinicalGroupPaymentSerializer})
     def post(self, request):

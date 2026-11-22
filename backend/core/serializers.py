@@ -12,6 +12,7 @@ from .models import (
     StaffLocationPing,
     StaffScheduleSlot,
     StartupProjectApplication,
+    SubjectBook,
     SyllabusDocument,
     TopicHandout,
     TopicPresentation,
@@ -23,11 +24,17 @@ from .week_schedule import current_week_phase_code
 class LocalLoginSerializer(serializers.Serializer):
     phone_digits = serializers.CharField(max_length=20)
     password = serializers.CharField(min_length=6, max_length=128)
-    role = serializers.ChoiceField(choices=["admin", "hodim", "startuper"], required=False)
+    role = serializers.ChoiceField(choices=["admin", "hodim"], required=False)
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     display_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     register = serializers.BooleanField(required=False, default=False)
+
+    def validate_phone_digits(self, value: str) -> str:
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if len(digits) != 12 or not digits.startswith("998"):
+            raise serializers.ValidationError("phone_digits must be Uzbekistan 12-digit number.")
+        return digits
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -44,11 +51,47 @@ class AdminDeprovisionStaffSerializer(serializers.Serializer):
             raise serializers.ValidationError("phone_digits must be Uzbekistan 12-digit number.")
         return digits
 
+
+class AdminStaffUpsertSerializer(serializers.Serializer):
+    """Admin panel: xodim yaratish/tahrirlash — parol faqat yangi xodim uchun majburiy."""
+
+    phone_digits = serializers.CharField(max_length=20)
+    password = serializers.CharField(min_length=6, max_length=128, required=False, allow_blank=True)
+    role = serializers.ChoiceField(choices=["admin", "klinika_admin", "hodim"], required=False)
+    first_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    faculty = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    department = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    direction = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    participant_kind = serializers.ChoiceField(
+        choices=["student", "employee"], required=False, allow_blank=True
+    )
+    study_group = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    job_title = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
     def validate_phone_digits(self, value: str) -> str:
         digits = "".join(ch for ch in value if ch.isdigit())
         if len(digits) != 12 or not digits.startswith("998"):
             raise serializers.ValidationError("phone_digits must be Uzbekistan 12-digit number.")
         return digits
+
+
+class AdminStaffListEntrySerializer(serializers.Serializer):
+    phone_digits = serializers.CharField()
+    phone_display = serializers.CharField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    display_name = serializers.CharField()
+    role = serializers.CharField()
+    faculty = serializers.CharField()
+    department = serializers.CharField()
+    direction = serializers.CharField()
+    participant_kind = serializers.CharField()
+    study_group = serializers.CharField()
+    job_title = serializers.CharField()
+    is_active = serializers.BooleanField()
+    date_joined = serializers.DateTimeField()
+    last_login = serializers.DateTimeField(allow_null=True)
 
 
 class PreparedContentSerializer(serializers.ModelSerializer):
@@ -84,6 +127,8 @@ class PreparedContentSerializer(serializers.ModelSerializer):
             'author_display_name',
             'subject_name',
             'subject_code',
+            'variant_label',
+            'topic_code',
             'payload',
             'created_at',
         ]
@@ -128,6 +173,51 @@ class TopicHandoutSerializer(serializers.ModelSerializer):
         if obj.owner_key == request.user.username:
             return True
         return resolve_user_role(request.user, request) == "admin"
+
+
+class SubjectBookSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source="department.name", read_only=True)
+    department_code = serializers.CharField(source="department.code", read_only=True)
+    file_url = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+    chunk_count = serializers.IntegerField(read_only=True, required=False)
+
+    class Meta:
+        model = SubjectBook
+        fields = [
+            "id",
+            "department",
+            "department_name",
+            "department_code",
+            "title",
+            "source_archive",
+            "language",
+            "page_count",
+            "chunk_count",
+            "file_url",
+            "file_size",
+            "is_active",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_file_url(self, obj: SubjectBook) -> str:
+        request = self.context.get("request")
+        if not obj.file:
+            return ""
+        try:
+            url = obj.file.url
+        except ValueError:
+            return ""
+        if request:
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_file_size(self, obj: SubjectBook) -> int:
+        try:
+            return int(obj.file.size) if obj.file else 0
+        except (ValueError, OSError):
+            return 0
 
 
 class TopicPresentationSerializer(serializers.ModelSerializer):
@@ -178,6 +268,8 @@ class SyllabusVariantSerializer(serializers.Serializer):
 
 class CourseSyllabusSerializer(serializers.ModelSerializer):
     variants = serializers.SerializerMethodField()
+    department_name = serializers.CharField(source="department.name", read_only=True, default="")
+    department_code = serializers.CharField(source="department.code", read_only=True, default="")
 
     class Meta:
         model = CourseSyllabus
@@ -185,6 +277,9 @@ class CourseSyllabusSerializer(serializers.ModelSerializer):
             "id",
             "subject_name",
             "subject_code",
+            "department",
+            "department_name",
+            "department_code",
             "description",
             "instruction_language",
             "file_name",
@@ -195,7 +290,7 @@ class CourseSyllabusSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "department_name", "department_code"]
 
     def get_variants(self, obj) -> list:
         if obj.variants:
@@ -262,7 +357,44 @@ class StaffCourseSelectionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StaffCourseSelection
-        fields = ["id", "syllabus", "selected_at"]
+        fields = ["id", "syllabus", "variant_label", "selected_at"]
+
+
+class AdminStaffCourseSelectionSerializer(serializers.ModelSerializer):
+    syllabus = CourseSyllabusSerializer(read_only=True)
+    owner_name = serializers.SerializerMethodField()
+    owner_phone_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StaffCourseSelection
+        fields = [
+            "id",
+            "owner_key",
+            "owner_name",
+            "owner_phone_display",
+            "syllabus",
+            "variant_label",
+            "selected_at",
+        ]
+
+    def get_owner_name(self, obj: StaffCourseSelection) -> str:
+        user = self._user(obj)
+        if user is None:
+            return ""
+        name = f"{user.first_name} {user.last_name}".strip()
+        return name or obj.owner_key
+
+    def get_owner_phone_display(self, obj: StaffCourseSelection) -> str:
+        d = obj.owner_key
+        return f"+{d}" if len(d) == 12 else d
+
+    def _user(self, obj: StaffCourseSelection):
+        cache = self.context.setdefault("_user_cache", {})
+        if obj.owner_key not in cache:
+            from django.contrib.auth.models import User
+
+            cache[obj.owner_key] = User.objects.filter(username=obj.owner_key).first()
+        return cache[obj.owner_key]
 
 
 class SyllabusDocumentSerializer(serializers.ModelSerializer):
@@ -291,24 +423,25 @@ class SyllabusUpsertSerializer(serializers.Serializer):
 
 
 class LiveTestUpsertSerializer(serializers.Serializer):
-    session_key = serializers.CharField(max_length=160)
+    session_key = serializers.CharField(max_length=160, required=False, allow_blank=True)
     topic = serializers.CharField(max_length=1024)
-    questions = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+    questions = serializers.ListField(child=serializers.DictField(), allow_empty=False, max_length=200)
     created_at_ms = serializers.IntegerField(required=False, min_value=0)
+    subject_code = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
 
 
 class LiveTestSubmissionCreateSerializer(serializers.Serializer):
     participant_key = serializers.CharField(max_length=64, required=False, allow_blank=True, default='')
     first_name = serializers.CharField(max_length=128)
     last_name = serializers.CharField(max_length=128)
-    answers = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
+    answers = serializers.ListField(child=serializers.IntegerField(), allow_empty=False, max_length=200)
 
 
 class LiveTestDraftUpsertSerializer(serializers.Serializer):
     participant_key = serializers.CharField(max_length=64)
     first_name = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
     last_name = serializers.CharField(max_length=128, required=False, allow_blank=True, default='')
-    answers = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
+    answers = serializers.ListField(child=serializers.IntegerField(), required=False, default=list, max_length=200)
 
 
 class StartupProjectApplicationSerializer(serializers.ModelSerializer):

@@ -1,33 +1,189 @@
+# iMentor — PRODUCTION (to'liq stack)
+#
+#   cp deploy/.env.production.example deploy/.env.production
+#   docker compose -f docker-compose.prod.yml --env-file deploy/.env.production up --scale backend=2 -d --build
+#
+# Tashqi port: IMENTOR_HTTP_BIND + IMENTOR_HTTP_PORT (gateway nginx — host nginx shu portga proxy qiladi)
+
+x-backend-env: &backend-env
+  DJANGO_ENV: prod
+  DJANGO_DEBUG: "False"
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in .env}
+  DJANGO_BEHIND_PROXY: "True"
+  DJANGO_DB_ENGINE: postgresql
+  DJANGO_DB_NAME: ${POSTGRES_DB:-imentor}
+  DJANGO_DB_USER: ${POSTGRES_USER:-imentor}
+  DJANGO_DB_PASSWORD: ${POSTGRES_PASSWORD}
+  DJANGO_DB_HOST: postgres
+  DJANGO_DB_PORT: "5432"
+  REDIS_URL: redis://redis:6379/0
+  DJANGO_MEDIA_ROOT: /app/media
+  DJANGO_SERVE_MEDIA: "True"
+  DJANGO_CORS_ALLOW_ALL_ORIGINS: "False"
+  DJANGO_CORS_ALLOWED_ORIGINS: ${DJANGO_CORS_ALLOWED_ORIGINS:-https://imentor.uz}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-https://imentor.uz}
+  DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-False}
+  DJANGO_SESSION_COOKIE_SECURE: ${DJANGO_SESSION_COOKIE_SECURE:-False}
+  DJANGO_CSRF_COOKIE_SECURE: ${DJANGO_CSRF_COOKIE_SECURE:-False}
+  DJANGO_SECURE_HSTS_SECONDS: ${DJANGO_SECURE_HSTS_SECONDS:-0}
+  DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: ${DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS:-False}
+  DJANGO_SECURE_HSTS_PRELOAD: ${DJANGO_SECURE_HSTS_PRELOAD:-False}
+  DJANGO_ALLOW_LEGACY_PREPARED_CONTENT_API: "False"
+  DJANGO_ALLOW_OPEN_REGISTRATION: ${DJANGO_ALLOW_OPEN_REGISTRATION:-True}
+  # Sessiya 12 soat (ish kuni) — o'qituvchi kun davomida qayta kirmaydi.
+  DJANGO_JWT_ACCESS_MINUTES: ${DJANGO_JWT_ACCESS_MINUTES:-720}
+  DJANGO_JWT_REFRESH_DAYS: ${DJANGO_JWT_REFRESH_DAYS:-14}
+  IMENTOR_EXTERNAL_API_KEYS: ${IMENTOR_EXTERNAL_API_KEYS:-}
+  ONLINE_TEST_API_BASE_URL: ${ONLINE_TEST_API_BASE_URL:-}
+  ONLINE_TEST_CONSUMER_API_KEY: ${ONLINE_TEST_CONSUMER_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ADMIN_PHONE: ${ADMIN_PHONE:-998907863888}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  DEMO_ADMIN_PHONES: ${DEMO_ADMIN_PHONES:-998907863888,998901110001}
+  DJANGO_ENSURE_DEMO_USERS: ${DJANGO_ENSURE_DEMO_USERS:-True}
+  DEMO_ADMIN_PHONE: ${DEMO_ADMIN_PHONE:-998901110001}
+  DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-AdminDemo123}
+  DEMO_HODIM_PHONE: ${DEMO_HODIM_PHONE:-998901112233}
+  DEMO_HODIM_PASSWORD: ${DEMO_HODIM_PASSWORD:-TestHodim123}
+  DEMO_KLINIKA_ADMIN_PHONE: ${DEMO_KLINIKA_ADMIN_PHONE:-998900000002}
+  DEMO_KLINIKA_ADMIN_PASSWORD: ${DEMO_KLINIKA_ADMIN_PASSWORD:-Demo12345!}
+  GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+  GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+  CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-6}
+
 services:
-  backend:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-imentor}
+      POSTGRES_USER: ${POSTGRES_USER:-imentor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-imentor} -d ${POSTGRES_DB:-imentor}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Django backend — FastAPI'ga cutover qilingandan keyin o'chirilgan (sovuq
+  # zaxira sifatida saqlanadi). Rollback kerak bo'lsa: quyidagi 3 xizmatni
+  # qayta yoqib, `frontend`/`nginx`ning `depends_on: backend_fastapi`sini
+  # `depends_on: backend`ga qaytaring va nginx gateway config'ida
+  # `backend_fastapi:8000` → `backend:8000`ga qaytaring.
+  #
+  # migrate:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   entrypoint: ["/app/migrate-entrypoint.sh"]
+  #   environment:
+  #     <<: *backend-env
+  #   volumes:
+  #     - media_data:/app/media
+  #     - ./books:/books:ro
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   restart: "no"
+  #
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     <<: *backend-env
+  #     RUN_MIGRATIONS: "0"
+  #   volumes:
+  #     - media_data:/app/media
+  #     - ./books:/books:ro
+  #   depends_on:
+  #     migrate:
+  #       condition: service_completed_successfully
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health/"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 8
+  #     start_period: 40s
+  #   restart: unless-stopped
+  #
+  # celery_worker:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   entrypoint: ["/app/celery-entrypoint.sh"]
+  #   environment:
+  #     <<: *backend-env
+  #     RUN_MIGRATIONS: "0"
+  #   volumes:
+  #     - media_data:/app/media
+  #   depends_on:
+  #     migrate:
+  #       condition: service_completed_successfully
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  migrate_fastapi:
     build:
-      context: ./backend
+      context: ./backend_fastapi
+      dockerfile: Dockerfile
+    entrypoint: ["sh", "/app/migrate-entrypoint.sh"]
+    environment:
+      <<: *backend-env
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  backend_fastapi:
+    build:
+      context: ./backend_fastapi
       dockerfile: Dockerfile
     environment:
-      DJANGO_ENV: "prod"
-      DJANGO_DEBUG: "False"
-      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in environment}"
-      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in environment}"
-      DJANGO_CORS_ALLOW_ALL_ORIGINS: "False"
-      DJANGO_CORS_ALLOWED_ORIGINS: "${DJANGO_CORS_ALLOWED_ORIGINS:-https://localhost}"
-      DJANGO_CSRF_TRUSTED_ORIGINS: "${DJANGO_CSRF_TRUSTED_ORIGINS:-https://localhost}"
-      DJANGO_SECURE_SSL_REDIRECT: "True"
-      DJANGO_SESSION_COOKIE_SECURE: "True"
-      DJANGO_CSRF_COOKIE_SECURE: "True"
-      DJANGO_SECURE_HSTS_SECONDS: "31536000"
-      DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: "True"
-      DJANGO_SECURE_HSTS_PRELOAD: "True"
-      DJANGO_ALLOW_LEGACY_PREPARED_CONTENT_API: "False"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
-      ADMIN_PHONE: "${ADMIN_PHONE:-998907863888}"
-      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
-      DEMO_ADMIN_PHONES: "${DEMO_ADMIN_PHONES:-998907863888}"
-    command: /app/entrypoint.sh
+      <<: *backend-env
+      RUN_MIGRATIONS: "0"
+      # Worker soni oshirilsa, app/core/db.py dagi pool qiymatlarini ham
+      # qayta hisoblang: workers x (pool_size + max_overflow) < max_connections.
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS_FASTAPI:-4}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT_FASTAPI:-300}
+      APP_THREAD_LIMIT: ${APP_THREAD_LIMIT:-48}
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      migrate_fastapi:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health/"]
       interval: 15s
       timeout: 5s
-      retries: 5
+      retries: 8
+      start_period: 40s
     restart: unless-stopped
 
   frontend:
@@ -35,9 +191,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: /api
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_ENABLE_DEMO_AUTH: ${VITE_ENABLE_DEMO_AUTH:-true}
+        VITE_DEMO_ADMIN_PHONE: ${DEMO_ADMIN_PHONE:-998901110001}
+        VITE_DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-AdminDemo123}
+        VITE_DEMO_STAFF_PHONE: ${DEMO_HODIM_PHONE:-998901112233}
+        VITE_DEMO_STAFF_PASSWORD: ${DEMO_HODIM_PASSWORD:-TestHodim123}
     depends_on:
-      backend:
+      backend_fastapi:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
@@ -45,3 +206,26 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  nginx:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    ports:
+      - "${IMENTOR_HTTP_BIND:-0.0.0.0}:${IMENTOR_HTTP_PORT:-9050}:80"
+    depends_on:
+      backend_fastapi:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/api/health/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { 
+import {
   User, 
   Mail, 
   Phone, 
@@ -11,8 +11,15 @@ import {
   Loader2,
   Camera,
   LogOut,
-  Save
+  Save,
+  GraduationCap,
+  Pencil,
 } from 'lucide-react';
+import StaffTeachingSubjectsPicker from './staff/StaffTeachingSubjectsPicker';
+import { fetchMyCourseSelections, type CourseSyllabusRow } from '../utils/syllabusApi';
+import { localizedProfileValue } from '../utils/demoProfileI18n';
+import { localizedSubjectName } from '../utils/syllabusI18n';
+import { cacheSyllabusRows } from '../utils/syllabusRowCache';
 import {
   getCurrentLocalUser,
   logoutLocalStaff,
@@ -27,6 +34,8 @@ import {
 } from '../utils/backendAuth';
 import { roleLabel as translateRoleLabel } from '../i18n/translations';
 import { useUiText } from '../i18n/useUiText';
+import StaffPageLayout from './staff/StaffPageLayout';
+import { staffBtnPrimary, staffBtnSecondary, STAFF_HEADING } from './staff/staffUi';
 import { AVATAR_ACCEPT, fileToAvatarBlob } from '../utils/profilePhoto';
 import {
   deleteStaffAvatarOnServer,
@@ -51,8 +60,35 @@ export default function UserProfile() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarMessage, setAvatarMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [editingSubjects, setEditingSubjects] = useState(false);
+  const [subjectRows, setSubjectRows] = useState<CourseSyllabusRow[]>([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
 
   const isGoogleAuth = false;
+  const isHodim = Boolean(user && normalizeUserRole(user) === 'hodim');
+
+  const reloadSubjects = async () => {
+    if (!isHodim) return;
+    setSubjectsLoading(true);
+    try {
+      const rows = await fetchMyCourseSelections();
+      const seen = new Set<number>();
+      const unique: CourseSyllabusRow[] = [];
+      for (const row of rows) {
+        if (!row.syllabus || seen.has(row.syllabus.id)) continue;
+        seen.add(row.syllabus.id);
+        unique.push(row.syllabus);
+      }
+      // Fan nomi XOM holda saqlanmaydi — til almashganda ham to'g'ri
+      // ko'rinishi uchun qator saqlanadi va render paytida o'giriladi.
+      setSubjectRows(unique);
+      cacheSyllabusRows(unique);
+    } catch {
+      setSubjectRows([]);
+    } finally {
+      setSubjectsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -62,6 +98,12 @@ export default function UserProfile() {
   }, [user]);
 
   useEffect(() => subscribeLocalAuth(() => setUser(getCurrentLocalUser())), []);
+
+  useEffect(() => {
+    if (!isHodim) return;
+    void reloadSubjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on role/user change
+  }, [user?.uid, isHodim]);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,17 +151,11 @@ export default function UserProfile() {
     setPasswordMessage(null);
     
     try {
-      if (currentPassword !== user.password) {
-        setPasswordMessage({ text: t('profile.currentPasswordWrong'), type: 'error' });
-      } else {
-        await syncCurrentUserPasswordToBackend(currentPassword, newPassword);
-        const updated = updateCurrentLocalUser({ password: newPassword });
-        setUser(updated);
-        setPasswordMessage({ text: t('profile.passwordSuccess'), type: 'success' });
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      }
+      await syncCurrentUserPasswordToBackend(currentPassword, newPassword);
+      setPasswordMessage({ text: t('profile.passwordSuccess'), type: 'success' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
     } catch (err: unknown) {
       console.error(err);
       setPasswordMessage({ text: t('profile.passwordError'), type: 'error' });
@@ -152,9 +188,9 @@ export default function UserProfile() {
       } else if (code === 'too-large' || code === 'compress-failed') {
         setAvatarMessage({ text: t('profile.avatarTooLarge'), type: 'error' });
       } else if (code === 'no-backend-token') {
-        setAvatarMessage({ text: 'Serverga ulanish yo‘q. Qayta kiring.', type: 'error' });
+        setAvatarMessage({ text: t('profile.avatarNoToken'), type: 'error' });
       } else {
-        setAvatarMessage({ text: 'Rasmni yuklab bo‘lmadi.', type: 'error' });
+        setAvatarMessage({ text: t('profile.avatarUploadFailed'), type: 'error' });
       }
     } finally {
       setUploadingAvatar(false);
@@ -178,7 +214,7 @@ export default function UserProfile() {
       setAvatarMessage({ text: t('profile.avatarRemoved'), type: 'success' });
       setTimeout(() => setAvatarMessage(null), 3000);
     } catch {
-      setAvatarMessage({ text: 'Rasmni o‘chirib bo‘lmadi.', type: 'error' });
+      setAvatarMessage({ text: t('profile.avatarRemoveFailed'), type: 'error' });
     } finally {
       setUploadingAvatar(false);
     }
@@ -188,10 +224,10 @@ export default function UserProfile() {
   const displayRole = translateRoleLabel(language, role);
 
   return (
-    <div className="w-full px-3 sm:px-5 lg:px-6 space-y-6 pb-10 flex flex-col h-full py-4 sm:py-6">
+    <StaffPageLayout className="flex flex-col h-full">
       {/* Header Profile Section */}
       <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm relative w-full border border-white/60">
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[150%] bg-gradient-to-l from-blue-500/20 to-transparent blur-3xl pointer-events-none rounded-full" />
+        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[150%] bg-[#083047]/5 blur-3xl pointer-events-none rounded-full" />
 
         <button
           type="button"
@@ -213,7 +249,7 @@ export default function UserProfile() {
               className="hidden"
               onChange={(e) => void handleAvatarFile(e.target.files)}
             />
-            <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-500 shadow-xl shadow-blue-500/30 relative">
+            <div className="w-32 h-32 md:w-40 md:h-40 rounded-[2rem] p-1.5 bg-[#083047]/15 shadow-lg relative">
               <div className="w-full h-full rounded-[1.75rem] overflow-hidden bg-white flex items-center justify-center">
                 {user?.photoURL ? (
                   <img key={user.photoURL} src={resolveProfilePhotoUrl(user.photoURL)} alt="Profile" className="w-full h-full object-cover" />
@@ -265,7 +301,7 @@ export default function UserProfile() {
           <div className="flex-1 text-center md:text-left pt-2 w-full min-w-0">
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mb-2">
               <h1 className="text-2xl md:text-3xl font-bold text-black/90 tracking-tight">
-                {user?.displayName || t('profile.defaultName')}
+                {localizedProfileValue(user?.displayName, t) || t('profile.defaultName')}
               </h1>
               <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/20 text-sky-700 text-[12px] font-semibold rounded-lg">
                 {t('common.role')}: {displayRole}
@@ -276,15 +312,18 @@ export default function UserProfile() {
             </div>
             {user?.faculty && (
               <p className="text-[14px] font-medium text-black/55 mb-2">
-                <span className="text-black/40">{t('profile.faculty')}</span> {user.faculty}
+                <span className="text-black/40">{t('profile.faculty')}</span>{' '}
+                {localizedProfileValue(user.faculty, t)}
                 <br />
-                <span className="text-black/40">{t('profile.department')}</span> {user.department}
+                <span className="text-black/40">{t('profile.department')}</span>{' '}
+                {localizedProfileValue(user.department, t)}
                 <br />
-                <span className="text-black/40">{t('profile.direction')}</span> {user.direction}
+                <span className="text-black/40">{t('profile.direction')}</span>{' '}
+                {localizedProfileValue(user.direction, t)}
               </p>
             )}
             <p className="text-[12px] font-mono text-black/40 break-all">
-              {t('profile.systemId')}: {user?.email || '—'}
+              {t('profile.systemId')} {user?.email || '—'}
             </p>
           </div>
         </div>
@@ -352,13 +391,79 @@ export default function UserProfile() {
                     <button 
                         type="submit"
                         disabled={loadingProfile}
-                        className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                        className={`w-full mt-2 ${staffBtnPrimary} py-3.5`}
                     >
                         {loadingProfile ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                         {t('profile.saveChanges')}
                     </button>
                 </form>
             </div>
+
+            {isHodim && (
+              <div className="ios-glass p-6 sm:p-8 rounded-[2rem] shadow-sm border border-white/60">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <h3 className="text-xl font-bold text-black/80 flex items-center gap-2">
+                    <GraduationCap size={22} className="text-blue-500" />
+                    {t('teachingSubjects.profileTitle')}
+                  </h3>
+                  {!editingSubjects && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingSubjects(true)}
+                      className={`${staffBtnSecondary} px-3 py-2 text-sm`}
+                    >
+                      <Pencil size={16} />
+                      {t('teachingSubjects.edit')}
+                    </button>
+                  )}
+                </div>
+                {editingSubjects ? (
+                  <StaffTeachingSubjectsPicker
+                    variant="profile"
+                    showHeader={false}
+                    onSaved={() => {
+                      setEditingSubjects(false);
+                      void reloadSubjects();
+                    }}
+                  />
+                ) : subjectsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-black/50 py-4">
+                    <Loader2 size={18} className="animate-spin" />
+                    {t('teachingSubjects.loading')}
+                  </div>
+                ) : subjectRows.length === 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                      {t('syllabus.noAssignedCoursesHint')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setEditingSubjects(true)}
+                      className={`${staffBtnPrimary} px-4 py-2.5 text-sm`}
+                    >
+                      <Pencil size={16} />
+                      {t('teachingSubjects.edit')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-black/45">
+                      {t('teachingSubjects.selectedCount', { count: subjectRows.length })}
+                    </p>
+                    <ul className="flex flex-wrap gap-2">
+                      {subjectRows.map((row) => (
+                        <li
+                          key={row.id}
+                          className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-[12px] font-semibold text-slate-800"
+                        >
+                          {localizedSubjectName(row, language)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
          </div>
 
          {/* Change Password Form */}
@@ -429,7 +534,7 @@ export default function UserProfile() {
                         <button 
                             type="submit"
                             disabled={loadingPassword}
-                            className="w-full mt-2 bg-violet-600 hover:bg-violet-700 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                            className={`w-full mt-2 ${staffBtnPrimary} py-3.5`}
                         >
                             {loadingPassword ? <Loader2 size={18} className="animate-spin" /> : <Lock size={18} />}
                             {t('profile.updatePassword')}
@@ -439,6 +544,6 @@ export default function UserProfile() {
             </div>
          </div>
       </div>
-    </div>
+    </StaffPageLayout>
   );
 }

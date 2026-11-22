@@ -1,4 +1,5 @@
 from django.db import models
+from pgvector.django import VectorField
 
 
 class PreparedContent(models.Model):
@@ -20,6 +21,16 @@ class PreparedContent(models.Model):
     author_display_name = models.CharField(max_length=128, blank=True, default='')
     subject_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
     subject_code = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    variant_label = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    topic_code = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    # Fanga qat'iy bog'lanish (test bazasi fan bo'yicha guruhlanadi). Fan o'chsa NULL.
+    syllabus = models.ForeignKey(
+        'CourseSyllabus',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='prepared_contents',
+    )
     payload = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -29,6 +40,10 @@ class PreparedContent(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['owner_key', 'kind', 'topic_norm', '-created_at']),
+            models.Index(
+                fields=['kind', 'subject_code', 'variant_label', 'topic_code'],
+                name='core_prep_kind_subj_var_topic',
+            ),
         ]
 
     def __str__(self) -> str:
@@ -64,6 +79,25 @@ class SyllabusDocument(models.Model):
         return f"{self.owner_key}:{self.file_name}"
 
 
+class AcademicDepartment(models.Model):
+    """Kafedra — fan syllabus katalogining yuqori darajasi."""
+
+    name = models.CharField(max_length=255, unique=True, db_index=True)
+    code = models.CharField(max_length=64, unique=True, db_index=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Kafedra"
+        verbose_name_plural = "Kafedralar"
+        ordering = ["sort_order", "name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class CourseSyllabus(models.Model):
     """
     Administrator yuklaydigan markaziy fan syllabus (barcha o'qituvchilar uchun katalog).
@@ -80,6 +114,13 @@ class CourseSyllabus(models.Model):
 
     subject_name = models.CharField(max_length=255, db_index=True)
     subject_code = models.CharField(max_length=64, unique=True, db_index=True)
+    department = models.ForeignKey(
+        AcademicDepartment,
+        on_delete=models.PROTECT,
+        related_name="subjects",
+        null=True,
+        blank=True,
+    )
     description = models.CharField(max_length=512, blank=True)
     instruction_language = models.CharField(
         max_length=8,
@@ -102,6 +143,10 @@ class CourseSyllabus(models.Model):
         ordering = ['sort_order', 'subject_name']
         indexes = [
             models.Index(fields=['is_active', 'sort_order', 'subject_name']),
+            models.Index(
+                fields=['department', 'subject_name'],
+                name='core_course_dept_subj_idx',
+            ),
         ]
 
     def __str__(self) -> str:
@@ -117,6 +162,9 @@ class StaffCourseSelection(models.Model):
         on_delete=models.CASCADE,
         related_name='selections',
     )
+    # Admin biriktirganda qat'iy: aynan shu yo'nalish/variant bo'yicha dars beradi.
+    # Bo'sh — hali qat'iy belgilanmagan (masalan o'qituvchi o'zi tanlagan bo'lsa).
+    variant_label = models.CharField(max_length=128, blank=True, default="")
     selected_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -124,9 +172,11 @@ class StaffCourseSelection(models.Model):
         verbose_name_plural = "O'qituvchi fan tanlovlari"
         ordering = ['-selected_at']
         constraints = [
+            # Bitta o'qituvchi bitta fanning bir nechta yo'nalishiga (variant)
+            # biriktirilishi mumkin — noyoblik (o'qituvchi + fan + variant) bo'yicha.
             models.UniqueConstraint(
-                fields=['owner_key', 'syllabus'],
-                name='core_staff_course_selection_uniq',
+                fields=['owner_key', 'syllabus', 'variant_label'],
+                name='core_staff_course_selection_variant_uniq',
             ),
         ]
         indexes = [
@@ -146,6 +196,8 @@ class LiveTestSession(models.Model):
     session_key = models.CharField(max_length=160, unique=True, db_index=True)
     owner_key = models.CharField(max_length=128, db_index=True)
     payload = models.JSONField()
+    # Fan kesimida natijalar/statistika uchun — bo'sh bo'lishi mumkin (eski yozuvlar).
+    subject_code = models.CharField(max_length=200, blank=True, default='', db_index=True)
     is_closed = models.BooleanField(default=False, db_index=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -162,6 +214,8 @@ class LiveTestSession(models.Model):
 class LiveTestSubmission(models.Model):
     session = models.ForeignKey(LiveTestSession, on_delete=models.CASCADE, related_name='submissions')
     participant_key = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    # OnlineTest AppUser.id — login qilgan talaba (guest bo'lsa bo'sh)
+    student_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
     first_name = models.CharField(max_length=128)
     last_name = models.CharField(max_length=128)
     answers = models.JSONField()
@@ -523,6 +577,34 @@ class TopicPresentation(models.Model):
         return f"{self.topic_norm}:{self.file_name}"
 
 
+class TopicVideo(models.Model):
+    """Syllabus mavzusiga biriktirilgan YouTube video (admin qo‘shadi, o‘qituvchi ko‘radi)."""
+
+    owner_key = models.CharField(max_length=128, db_index=True)
+    author_name = models.CharField(max_length=255, blank=True)
+    topic = models.CharField(max_length=255)
+    topic_norm = models.CharField(max_length=255, db_index=True)
+    title = models.CharField(max_length=255, blank=True)
+    youtube_url = models.CharField(max_length=512)
+    youtube_id = models.CharField(max_length=32, db_index=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Mavzu videosi"
+        verbose_name_plural = "Mavzu videolari"
+        ordering = ["sort_order", "created_at"]
+        indexes = [
+            models.Index(
+                fields=['topic_norm', 'sort_order', 'created_at'],
+                name='core_topicv_topic_n_6e0c9e_idx',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.topic_norm}:{self.youtube_id}"
+
+
 class DevicePairingSession(models.Model):
     """
     Hodim: kompyuter QR ↔ telefon login. GPS faqat telefondan.
@@ -572,10 +654,33 @@ def staff_avatar_upload_to(instance: "StaffProfile", filename: str) -> str:
 
 
 class StaffProfile(models.Model):
-    """Xodim profil rasmi — qurilmalar o‘rtasida sinxron."""
+    """Xodim profili — rasm va admin panelida ko'rinadigan qo'shimcha ma'lumotlar."""
+
+    PARTICIPANT_STUDENT = "student"
+    PARTICIPANT_EMPLOYEE = "employee"
+    PARTICIPANT_KIND_CHOICES = (
+        (PARTICIPANT_STUDENT, "Talaba"),
+        (PARTICIPANT_EMPLOYEE, "Xodim"),
+    )
 
     owner_key = models.CharField(max_length=128, unique=True, db_index=True)
     photo = models.FileField(upload_to=staff_avatar_upload_to, max_length=512, blank=True)
+    faculty = models.CharField(max_length=255, blank=True, default="")
+    department = models.CharField(max_length=255, blank=True, default="")
+    academic_department = models.ForeignKey(
+        "AcademicDepartment",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="staff_profiles",
+        db_column="department_id",
+    )
+    direction = models.CharField(max_length=255, blank=True, default="")
+    participant_kind = models.CharField(
+        max_length=16, choices=PARTICIPANT_KIND_CHOICES, blank=True, default=""
+    )
+    study_group = models.CharField(max_length=128, blank=True, default="")
+    job_title = models.CharField(max_length=255, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -711,3 +816,65 @@ class ClinicalGroupPayment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.clinic.name} — {self.period_label} ({self.amount_uzs} UZS)"
+
+
+def book_upload_to(instance: "SubjectBook", filename: str) -> str:
+    import re
+
+    safe = re.sub(r"[^\w.\-]", "_", filename)[:200]
+    return f"books/{instance.department_id}/{safe}"
+
+
+class SubjectBook(models.Model):
+    """Kafedraga bog'langan darslik (RAG manba materiali)."""
+
+    department = models.ForeignKey(
+        AcademicDepartment,
+        on_delete=models.CASCADE,
+        related_name="books",
+    )
+    title = models.CharField(max_length=512)
+    source_archive = models.CharField(max_length=255, blank=True, default="")
+    file = models.FileField(upload_to=book_upload_to, max_length=512, blank=True)
+    language = models.CharField(max_length=8, blank=True, default="")
+    page_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Fan darsligi"
+        verbose_name_plural = "Fan darsliklari"
+        ordering = ["department__sort_order", "title"]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class BookChunk(models.Model):
+    """SubjectBook matnidan olingan chunk + embedding (pgvector, RAG retrieval uchun)."""
+
+    book = models.ForeignKey(SubjectBook, on_delete=models.CASCADE, related_name="chunks")
+    department = models.ForeignKey(
+        AcademicDepartment,
+        on_delete=models.CASCADE,
+        related_name="book_chunks",
+        db_index=True,
+    )
+    chunk_index = models.PositiveIntegerField()
+    page_start = models.PositiveIntegerField()
+    page_end = models.PositiveIntegerField()
+    text = models.TextField()
+    embedding = VectorField(dimensions=1536)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Kitob chunk'i"
+        verbose_name_plural = "Kitob chunk'lari"
+        ordering = ["book_id", "chunk_index"]
+        indexes = [
+            models.Index(fields=["department"]),
+            models.Index(fields=["book", "chunk_index"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.book.title}#{self.chunk_index} ({self.page_start}-{self.page_end})"

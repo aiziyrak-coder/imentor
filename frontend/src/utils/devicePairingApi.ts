@@ -40,9 +40,8 @@ export async function pollDevicePairingStatus(
   if (desktopSecret) {
     headers['X-Desktop-Secret'] = desktopSecret;
   }
-  const qs = desktopSecret ? `?${new URLSearchParams({ secret: desktopSecret }).toString()}` : '';
   return httpJson(
-    `${apiBaseUrl()}/v1/device-pair/status/${encodeURIComponent(token)}/${qs}`,
+    `${apiBaseUrl()}/v1/device-pair/status/${encodeURIComponent(token)}/`,
     {
       headers,
       timeoutMs: 12000,
@@ -72,7 +71,6 @@ export async function confirmDevicePairing(
         department: profile.department,
         direction: profile.direction,
         email: profile.email,
-        role: profile.role ?? 'hodim',
       },
     },
     timeoutMs: 20000,

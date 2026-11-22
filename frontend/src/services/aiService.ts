@@ -1,24 +1,48 @@
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
 import { translate } from '../i18n/translations';
+import type { PresentationContent } from '../utils/presentationContentSchema';
+import {
+  PRESENTATION_JSON_SCHEMA,
+  normalizePresentationContent,
+  withPresentationReferences,
+} from '../utils/presentationContentSchema';
+import {
+  dedupePresentationBullets,
+  dedupePresentationSlides,
+  qaPresentationContent,
+} from '../utils/presentationQa';
+import {
+  cyrillicCharCount,
+  looksLikeUzbekText,
+  outputLanguageLooksWrong,
+  strictLanguageDirective,
+} from '../utils/outputLanguage';
+import { resolvePresentationImages } from '../utils/presentationImages';
 import {
   extractTopicsByRegex,
   guessSubjectFromDocumentText,
   isWeakSyllabusExtraction,
+  normalizeSyllabusDocumentText,
   normalizeSyllabusTopics,
   scoreSyllabusTopics,
 } from '../utils/syllabusTopicParse';
 import {
   extractSyllabusDocumentText,
   stripSyllabusFileExtension,
+  syllabusFileExtension,
 } from '../utils/syllabusDocumentText';
+import { parseSyllabusExcel } from '../utils/syllabusExcelParse';
+import { readXlsxRows } from '../utils/xlsxRows';
 import { parseAiJson } from '../utils/parseAiJson';
 import {
-  DEEPSEEK_CHAT,
-  DEEPSEEK_FAST,
-  assertDeepseekApiKey,
-  deepseekJson,
-  deepseekText,
-} from './deepseekClient';
+  OPENAI_CHAT,
+  OPENAI_FAST,
+  assertOpenAiApiKey,
+  type BookContext,
+  openaiJson,
+  openaiText,
+  openaiTextStream,
+} from './openaiClient';
 
 const SYS_MEDICAL =
   'Siz FJSTI tibbiyot professori va klinik ta\'lim metodistisiz. Javoblar ilmiy, aniq, darsga tayyor.';
@@ -34,32 +58,133 @@ import {
   summarizeTestForAvoid,
   type CaseStudyFocus,
 } from '../utils/generationVariety';
-import { listPreparedForTopic, loadPreparedById } from '../utils/preparedContentStore';
+import { listPreparedForTopicSynced, loadPreparedByIdSynced } from '../utils/preparedContentStore';
 import { normalizeCaseFocus } from '../utils/caseFocusLabels';
+import { type MedicalReference } from '../utils/medicalReferences';
+import { stripUnfilledSourceTemplate } from '../utils/sourceTemplate';
+import { stripOptionLetterPrefix } from '../utils/testOptionText';
 import {
-  LECTURE_REFERENCES_AI_RULES,
-  MEDICAL_REFERENCES_AI_RULES,
-  mergeReferences,
-  normalizeMedicalReferences,
-  type MedicalReference,
-} from '../utils/medicalReferences';
+  DEFAULT_TEST_DIFFICULTY,
+  buildTestDifficultyPrompt,
+  testDifficultyTemperature,
+  testExplanationInstruction,
+  testStemInstruction,
+  type TestDifficulty,
+} from '../utils/testDifficulty';
+import { httpJson } from '../api/httpClient';
+import { ensureBackendAccessToken, getBackendAccessToken } from '../utils/backendAuth';
 
-function previousCaseAvoidBlock(topic: string): string {
-  const summaries = listPreparedForTopic('case', topic)
-    .slice(0, 6)
-    .map((v) => loadPreparedById<CaseStudySession>('case', v.id))
-    .filter((s): s is CaseStudySession => Boolean(s?.questions?.length))
-    .map(summarizeCaseForAvoid);
-  return buildAvoidRepeatsBlock(summaries);
+// Hech qachon tashqi (DOI/PubMed/veb) havola yoki "Foydalanilgan adabiyotlar" ro'yxati so'ralmaydi —
+// bular ko'pincha AI tomonidan o'ylab topiladi (haqiqiy maqolaga bog'lanmasligi mumkin). Kitob
+// konteksti bo'lsa — manba matn ichida (Manba: kitob, sahifa-bet) ko'rinishida ko'rsatiladi;
+// bo'lmasa — hech qanday manba/havola ko'rsatilmaydi, faqat mazmun.
+const NO_EXTERNAL_REFS_JSON_RULE_BOOK =
+  'MAJBURIY: bu fan uchun rasmiy darslik (kitob) manba sifatida berilgan. Tashqi adabiyot/DOI/PubMed ' +
+  'havolalari QO\'SHMANG — "references" maydonini bo\'sh massiv [] qoldiring (manbani tizim ' +
+  'AVTOMATIK biriktiradi: qaysi darslikning qaysi betlari ishlatilgani serverga aniq ma\'lum). ' +
+  'Matn ichida ham "(Manba: ...)" YOZMANG — ayniqsa "kitob nomi", "sahifa-bet" kabi ' +
+  'TO\'LDIRILMAGAN shablonni hech qachon qoldirmang. Faqat mazmunni yozing.';
+const NO_EXTERNAL_REFS_JSON_RULE_NOBOOK =
+  'MAJBURIY: tashqi adabiyot/DOI/PubMed/veb havolalari yoki o\'ylab topilgan manbalar QO\'SHMANG — ' +
+  '"references" maydonini bo\'sh massiv [] qoldiring. Hech qanday manba ko\'rsatmasdan, faqat ' +
+  'mazmunning o\'ziga tayanib yozing.';
+const NO_EXTERNAL_REFS_TEXT_RULE_BOOK =
+  'MAJBURIY: bu fan uchun rasmiy darslik (kitob) manba sifatida berilgan. Tashqi (DOI/PubMed/veb) ' +
+  'havolalar QO\'SHMANG. Har bir asosiy bo\'limda kamida 1 marta "(Manba: <HAQIQIY kitob nomi>, ' +
+  '<HAQIQIY sahifa raqami>)" ko\'rsating — bu FORMAT namunasi, matndagi "<...>" belgilarini berilgan ' +
+  'darslik parchasidagi HAQIQIY kitob nomi va sahifa raqami bilan almashtiring. "kitob nomi", ' +
+  '"sahifa-bet" kabi TO\'LDIRILMAGAN/umumiy so\'zlarni hech qachon o\'zgarishsiz qoldirmang — agar ' +
+  'aniq kitob nomi/sahifa nomalum bo\'lsa, manba qatorini butunlay tashlab keting. Oxirida qisqa ' +
+  '"## Manbalar" bo\'limida FAQAT berilgan darsliklardan foydalanilgan kitoblar ro\'yxatini yozing ' +
+  '(tashqi adabiyot qo\'shmang).';
+const NO_EXTERNAL_REFS_TEXT_RULE_NOBOOK =
+  'MAJBURIY: oxirida "## Foydalanilgan adabiyotlar" / "## Manbalar" bo\'limini YOZMANG, tashqi ' +
+  '(DOI/PubMed/veb) havolalar yoki o\'ylab topilgan manbalar qo\'shmang — hech qanday link/manba ' +
+  'ko\'rsatmasdan, faqat mazmunning o\'ziga tayanib yozing.';
+
+/** Xavfsizlik to'ri: AI ba'zan ko'rsatma ichidagi TO'LDIRILMAGAN namuna
+ * matnini ("kitob nomi, sahifa-bet") o'zgarishsiz qaytarib yuboradi — bu
+ * haqiqiy manba emas. Promptga qo'shilgan ogohlantirish asosiy himoya,
+ * lekin shu funksiya oxirgi chiziq sifatida shunday qatorlarni matndan
+ * butunlay olib tashlaydi. */
+function stripPlaceholderManba(text: string): string {
+  if (!text) return text;
+  return text
+    .split('\n')
+    .filter((line) => !/\(?(?:Manba|Источник|Source):\s*(?:kitob\s*nomi|название\s*книги|book\s*name)/i.test(line))
+    .join('\n');
 }
 
-function previousTestAvoidBlock(topic: string): string {
-  const summaries = listPreparedForTopic('test', topic)
-    .slice(0, 6)
-    .map((v) => loadPreparedById<TestSession>('test', v.id))
-    .filter((s): s is TestSession => Boolean(s?.questions?.length))
-    .map(summarizeTestForAvoid);
-  return buildAvoidRepeatsBlock(summaries);
+/** Manba bo'limi sarlavhalari — modelning har xil variantlari. */
+const SOURCE_HEADING_RE =
+  /^(#{1,4})\s*(?:Manbalar|Манбалар|Foydalanilgan\s+adabiyotlar|Фойдаланилган\s+адабиётлар|Источники|Использованная\s+литература|Sources|References(?:\s+used)?)\s*:?\s*$/i;
+
+/** Xavfsizlik to'ri: model ba'zan o'zbekcha "Manbalar" so'zini chiqish tiliga
+ * transliteratsiya qiladi ("Манбалар"). Sarlavhani to'g'ri tarjimaga almashtiramiz. */
+function normalizeSourceHeading(text: string, language: AppLanguage): string {
+  if (!text) return text;
+  const heading = sourceWords(language).heading;
+  return text
+    .split('\n')
+    .map((line) => {
+      const m = SOURCE_HEADING_RE.exec(line.trim());
+      return m ? `${m[1]} ${heading}` : line;
+    })
+    .join('\n');
+}
+
+function jsonReferencesRule(hasBookContext: boolean): string {
+  return hasBookContext ? NO_EXTERNAL_REFS_JSON_RULE_BOOK : NO_EXTERNAL_REFS_JSON_RULE_NOBOOK;
+}
+
+/** Matn ichidagi manba sarlavhasi/yorlig'i — CHIQISH tilida bo'lishi kerak.
+ * Aks holda model o'zbekcha "Manbalar" so'zini rus tiliga transliteratsiya
+ * qilib "Манбалар" deb yozib qo'yadi. */
+const SOURCE_WORDS: Record<AppLanguage, { heading: string; label: string }> = {
+  uz: { heading: 'Manbalar', label: 'Manba' },
+  ru: { heading: 'Источники', label: 'Источник' },
+  en: { heading: 'Sources', label: 'Source' },
+};
+
+function sourceWords(language: AppLanguage) {
+  return SOURCE_WORDS[language] ?? SOURCE_WORDS.uz;
+}
+
+function textReferencesRule(hasBookContext: boolean, language: AppLanguage = 'uz'): string {
+  const w = sourceWords(language);
+  const base = hasBookContext ? NO_EXTERNAL_REFS_TEXT_RULE_BOOK : NO_EXTERNAL_REFS_TEXT_RULE_NOBOOK;
+  return (
+    `${base} Manba sarlavhasi va yorlig'i CHIQISH tilida yozilsin: bo'lim sarlavhasi ` +
+    `aynan "## ${w.heading}", matn ichidagi yorliq esa aynan "(${w.label}: ...)". ` +
+    'Bu so\'zlarni boshqa tilga transliteratsiya QILMANG.'
+  );
+}
+
+async function previousCaseAvoidBlock(topic: string): Promise<string> {
+  try {
+    const summaries = (await listPreparedForTopicSynced('case', topic)).slice(0, 6);
+    const sessions = (
+      await Promise.all(summaries.map((v) => loadPreparedByIdSynced<CaseStudySession>('case', v.id)))
+    ).filter((s): s is CaseStudySession => Boolean(s?.questions?.length));
+    return buildAvoidRepeatsBlock(sessions.map(summarizeCaseForAvoid));
+  } catch {
+    return '';
+  }
+}
+
+async function previousTestAvoidBlock(topic: string): Promise<string> {
+  try {
+    // Tezlik: to'liq payload yuklamaymiz — faqat sarlavhalar (mine list).
+    const summaries = (await listPreparedForTopicSynced('test', topic)).slice(0, 8);
+    if (!summaries.length) return '';
+    const lines = summaries.map((s, i) => `${i + 1}. ${s.topic}`).join('\n');
+    return (
+      `\nAvoid repeating these previously generated test topics / angles:\n${lines}\n` +
+      'Create NEW clinical vignettes and distractors.\n'
+    );
+  } catch {
+    return '';
+  }
 }
 
 export type { MedicalReference };
@@ -86,6 +211,15 @@ export interface TestQuestion {
   options: string[];
   correctOptionIndex: number;
   explanation: string;
+  /** Har bir variant uchun alohida izoh: nega to'g'ri yoki nega xato (options bilan bir xil uzunlik) */
+  optionExplanations?: string[];
+  references?: MedicalReference[];
+}
+
+/** Bitta tildagi test tarkibi — asosiy TestSession bilan bir xil shakl, faqat translations'siz */
+export interface TestSessionContent {
+  topic: string;
+  questions: TestQuestion[];
   references?: MedicalReference[];
 }
 
@@ -96,6 +230,12 @@ export interface TestSession {
   references?: MedicalReference[];
   createdAt?: number;
   authorUid?: string;
+  /** Asosiy generatsiya tili — `questions` shu tilda; boshqalari `translations`da. */
+  primaryLanguage?: AppLanguage;
+  /** Qolgan tillardagi tarjimalar (uz/ru/en to'liq to'plami uchun). */
+  translations?: Partial<Record<AppLanguage, TestSessionContent>>;
+  /** Oson / o'rta / qiyin — yaratishda tanlangan. */
+  difficulty?: TestDifficulty;
 }
 
 export interface LectureNote {
@@ -147,7 +287,10 @@ const SYLLABUS_AI_JSON_HINT =
   '{"subject_name":"...","instruction_language":"uz|en|ru","topics":[{"id":"L1","title":"...","type":"lecture|practical"}]}';
 
 const SYLLABUS_NO_TRANSLATE_RULE =
-  'CRITICAL: subject_name and every topic title MUST stay in the original document language. NEVER translate.';
+  'CRITICAL: subject_name and every topic title MUST stay in the original document language. NEVER translate into another language. ' +
+  'EXCEPTION for Uzbek: if the document is Uzbek (Latin OR Cyrillic), write EVERY title in Latin Uzbek script only — ' +
+  'transliterate Cyrillic Uzbek to Latin (o‘, g‘, sh, ch). Do NOT leave Uzbek Cyrillic letters (ў, қ, ғ, ҳ, …). ' +
+  'Russian titles stay Cyrillic Russian; English stays Latin English.';
 
 const SYLLABUS_AI_SYSTEM =
   'You are an academic syllabus parser for university medical courses. Return JSON only. ' +
@@ -171,47 +314,48 @@ async function extractSyllabusWithAi(
   file: File,
   docText: string,
 ): Promise<SyllabusExtractResult> {
-  const docLang = inferPdfLanguage(docText);
+  const normalizedText = normalizeSyllabusDocumentText(docText);
+  const docLang = inferPdfLanguage(normalizedText);
   const docLangName = languageName(docLang);
   let best: SyllabusExtractResult = { subject_name: '', topics: [], instruction_language: docLang };
 
   try {
-    const textRaw = await deepseekJson({
-      model: DEEPSEEK_CHAT,
+    const textRaw = await openaiJson({
+      model: OPENAI_CHAT,
       system: SYLLABUS_AI_SYSTEM,
       user:
         `Document language: ${docLangName}. File: "${file.name}". ${SYLLABUS_NO_TRANSLATE_RULE}\n\n` +
-        docText.slice(0, 100000),
+        normalizedText.slice(0, 100000),
       maxTokens: 6144,
       parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
     });
-    best = normalizeSyllabusExtract(textRaw, file.name, docText);
+    best = normalizeSyllabusExtract(textRaw, file.name, normalizedText);
   } catch (firstAiError) {
     console.warn('Syllabus AI text pass failed:', firstAiError);
   }
 
   if (isWeakSyllabusExtraction(best.topics)) {
     try {
-      const retryRaw = await deepseekJson({
-        model: DEEPSEEK_FAST,
+      const retryRaw = await openaiJson({
+        model: OPENAI_FAST,
         system:
           SYLLABUS_AI_SYSTEM +
           ' List every numbered topic line from the syllabus table of contents or topic list.',
         user:
           `Document language: ${docLangName}. Extract ALL topics with correct lecture/practical type.\n\n` +
-          docText.slice(0, 100000),
+          normalizedText.slice(0, 100000),
         maxTokens: 6144,
         parse: (t) => parseJSONSafe<Partial<SyllabusExtractResult>>(t),
       });
-      best = pickBetterExtract(best, normalizeSyllabusExtract(retryRaw, file.name, docText));
+      best = pickBetterExtract(best, normalizeSyllabusExtract(retryRaw, file.name, normalizedText));
     } catch (retryError) {
       console.warn('Syllabus AI retry failed:', retryError);
     }
   }
 
-  const regexPass = extractTopicsByRegex(docText);
+  const regexPass = extractTopicsByRegex(normalizedText);
   if (regexPass.length > 0) {
-    const regexResult = normalizeSyllabusExtract({ topics: regexPass }, file.name, docText);
+    const regexResult = normalizeSyllabusExtract({ topics: regexPass }, file.name, normalizedText);
     best = pickBetterExtract(best, regexResult);
   }
 
@@ -284,7 +428,7 @@ function syllabusExtractionErrorMessage(err: unknown, fileName: string, lang: Ap
   if (msg === 'doc-empty') {
     return translate(lang, 'ai.error.syllabusDocEmpty', { fileName });
   }
-  if (msg === 'unsupported-format') {
+  if (msg === 'unsupported-format' || msg === 'xlsx-invalid') {
     return translate(lang, 'ai.error.syllabusUnsupported', { fileName });
   }
   if (msg.startsWith('empty:')) {
@@ -298,53 +442,108 @@ function syllabusExtractionErrorMessage(err: unknown, fileName: string, lang: Ap
 
 export { syllabusExtractionErrorMessage };
 
-function sanitizeImagePrompt(prompt: string, maxLen: number): string {
-  const compact = prompt.replace(/\s+/g, ' ').trim();
-  return compact.slice(0, maxLen);
-}
-
-async function fetchImageAsDataUrl(url: string, timeoutMs: number = 14000): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(url, {
-      method: 'GET',
-      mode: 'cors',
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    window.clearTimeout(timeoutId);
-    if (!res.ok) return null;
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) return null;
-    const blob = await res.blob();
-    if (!blob || blob.size < 8_000) return null;
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('read-failed'));
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
-function isWeakCaseSession(data: CaseStudySession | null | undefined): boolean {
-  if (!data || !Array.isArray(data.questions) || data.questions.length < 3) return true;
-  const lengths = data.questions.map((q) => ({
-    s: (q.scenario || '').trim().length,
-    a: (q.answer || '').trim().length,
-  }));
-  const tooShortCount = lengths.filter((x) => x.s < 100 || x.a < 80).length;
-  return tooShortCount >= 2;
-}
-
 const CASE_FOCUS_HINTS: Record<CaseStudyFocus, string> = {
   profilaktika: 'profilaktika, skrining, xavf omillarini boshqarish, kasallikni oldini olish',
   davolash: 'davolash strategiyasi, dori tanlash, kuzatuv, asoratlarni kamaytirish',
   tashxis: 'differensial tashxis, qo\'shimcha tekshiruvlar, klinik mantiq, tashxisni asoslash',
 };
+
+/** Har fokus uchun MAJBURIY, bir-biriga o'xshamaydigan bemor profili — 3 ta
+ * vaziyat parallel generatsiya qilingani uchun (bir-biridan xabarsiz), aynan
+ * shu qat'iy demografik farq bo'lmasa, model ko'pincha bir xil ism/yosh/kasb
+ * tanlaydi (masalan hammasi "Anvar"). */
+const CASE_PERSONA_HINTS: Record<CaseStudyFocus, string> = {
+  profilaktika:
+    'Bemor: YOSH (20-35 yosh) AYOL, aniq kasbi bo\'lsin (masalan talaba, sotuvchi, muhandis). ' +
+    'Ism — kam uchraydigan, o\'ziga xos o\'zbekcha ism tanlang (Anvar/Nigora/Shirin/Gulnora kabi ' +
+    'juda keng tarqalgan ismlardan QOCHING).',
+  davolash:
+    'Bemor: O\'RTA YOSHLI (40-55 yosh) ERKAK, aniq kasbi bo\'lsin (masalan haydovchi, dehqon, ' +
+    'tadbirkor). Ism — kam uchraydigan, o\'ziga xos o\'zbekcha ism tanlang (Anvar/Nigora/Shirin/' +
+    'Gulnora kabi juda keng tarqalgan ismlardan QOCHING).',
+  tashxis:
+    'Bemor: KEKSA (60-75 yosh), jinsi ixtiyoriy, nafaqaga chiqqan yoki hali ishlaydigan bo\'lishi ' +
+    'mumkin. Ism — kam uchraydigan, o\'ziga xos o\'zbekcha ism tanlang (Anvar/Nigora/Shirin/Gulnora ' +
+    'kabi juda keng tarqalgan ismlardan QOCHING).',
+};
+
+/** Keys yechimi bo'limlarga ajratilgan holda so'raladi — bitta uzun "answer"
+ *  so'ralganda model hajm ko'rsatmasini bajarmay, 400 so'z atrofida qaytarardi.
+ *  Alohida maydonlar har biriga o'z ulushini beradi. */
+type CaseSections = {
+  patient?: string;
+  complaints?: string;
+  history?: string;
+  lifestyle?: string;
+  examination?: string;
+  labs?: string;
+  diagnosis?: string;
+  differential?: string;
+  investigations?: string;
+  management?: string;
+  recommendations?: string;
+  focus?: string;
+};
+
+const CASE_SCENARIO_PARTS: (keyof CaseSections)[] = [
+  'patient',
+  'complaints',
+  'history',
+  'lifestyle',
+  'examination',
+  'labs',
+];
+
+/** Vaziyat bo'limlarini bitta bemor tarixi matniga birlashtiradi. */
+function joinCaseScenario(raw: CaseSections): string {
+  return CASE_SCENARIO_PARTS.map((k) => String(raw[k] || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+const CASE_SECTION_KEYS: (keyof CaseSections)[] = [
+  'diagnosis',
+  'differential',
+  'investigations',
+  'management',
+  'recommendations',
+];
+
+/** Yechim bo'limlari sarlavhalari — interfeys tilida ko'rsatiladi. */
+const CASE_SECTION_TITLES: Record<AppLanguage, string[]> = {
+  uz: [
+    'Klinik tashxis va asoslanishi',
+    'Differensial tashxis',
+    "Qo'shimcha tekshiruvlar",
+    'Davolash / profilaktika taktikasi',
+    'Amaliy tavsiyalar va prognoz',
+  ],
+  ru: [
+    'Клинический диагноз и его обоснование',
+    'Дифференциальный диагноз',
+    'Дополнительные исследования',
+    'Тактика лечения / профилактики',
+    'Практические рекомендации и прогноз',
+  ],
+  en: [
+    'Clinical diagnosis and rationale',
+    'Differential diagnosis',
+    'Additional investigations',
+    'Management / prevention plan',
+    'Practical recommendations and prognosis',
+  ],
+};
+
+/** Bo'limlarni sarlavhali yagona yechim matniga birlashtiradi. */
+function joinCaseSections(raw: CaseSections, language: AppLanguage = 'uz'): string {
+  const labels = CASE_SECTION_TITLES[language] ?? CASE_SECTION_TITLES.uz;
+  return CASE_SECTION_KEYS.map((key, i) => {
+    const text = String(raw[key] || '').trim();
+    return text ? `${String.fromCharCode(97 + i)}) ${labels[i]}\n${text}` : '';
+  })
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 async function generateSingleCaseQuestion(
   topic: string,
@@ -352,45 +551,123 @@ async function generateSingleCaseQuestion(
   language: AppLanguage,
   keywordFocus: string,
   avoid: string,
+  contextText: string,
+  sources: CaseSource[],
 ): Promise<CaseStudyQuestion> {
   const outLang = languageName(language);
   const structure = buildCaseStructurePrompt(topic);
+  const hasContext = Boolean(contextText.trim());
   const request = (strict: boolean) =>
-    deepseekJson<{ scenario?: string; answer?: string; references?: MedicalReference[]; focus?: string }>({
-      model: DEEPSEEK_CHAT,
+    openaiJson<CaseSections>({
+      model: OPENAI_CHAT,
       system:
-        `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} Return ONLY valid JSON object: ` +
-        `{"scenario":"...","answer":"...","references":[{"title":"...","url":"https://..."}]}. ` +
-        `Language: ${outLang}. focus="${focus}". ${MEDICAL_REFERENCES_AI_RULES}`,
+        `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} Return ONLY valid JSON object with EXACTLY ` +
+        'these keys: {"patient","complaints","history","lifestyle","examination","labs",' +
+        '"diagnosis","differential","investigations","management","recommendations"}. ' +
+        'Har bir kalit alohida, to\'liq yozilgan matn bo\'lsin — qisqartirilgan tezis emas. ' +
+        `Language: ${outLang}. ${strictLanguageDirective(language)} focus="${focus}". ` +
+        (hasContext
+          ? 'MANBALAR (raqamlangan) sizga user xabarida berilgan — "answer" matnida HAR bir muhim klinik ' +
+            'da\'vodan keyin mos manba raqamini [n] shaklida qo\'ying (masalan "...tavsiya etiladi [2]."). ' +
+            'Kamida 5 ta turli manba raqami ishlatilsin. Manbada bo\'lmagan narsani manba raqami bilan ' +
+            'bog\'lamang. HECH QACHON o\'zingiz PMID/DOI/link yoki manba raqami o\'ylab topmang — faqat ' +
+            'sizga berilgan manbalar ro\'yxatidagi raqamlardan foydalaning. "Foydalanilgan adabiyotlar" ' +
+            'bo\'limini o\'zingiz yozmang — u dasturiy ravishda alohida qo\'shiladi.'
+          : 'Hech qanday manba berilmagan — hech qanday raqamli iqtibos [n], link yoki "Manba:" degan matn yozmang, faqat umumiy klinik bilim asosida yozing.'),
       user:
         `${structure}${keywordFocus}${avoid}\n\n` +
         `Generate ONE clinical case with focus="${focus}" (${CASE_FOCUS_HINTS[focus]}). ` +
-        'Scenario: 2–4 paragraphs with patient details. Answer: 2–4 paragraphs, focus-specific clinical reasoning. ' +
-        'Include 2 references in JSON. End answer with [1][2] style citations. ' +
-        (strict ? 'Strict valid JSON only.' : ''),
-      maxTokens: 3072,
-      temperature: strict ? 0.4 : 0.58,
+        `${CASE_PERSONA_HINTS[focus]}\n` +
+        'QATTIQ QOIDALAR:\n' +
+        '1. Vaziyat OLTITA alohida maydonga yoziladi (jami kamida 700 so\'z), har biri to\'liq ' +
+        'paragraf(lar) bo\'lsin:\n' +
+        '   "patient" (kamida 90 so\'z) — bemor ismi, yoshi, jinsi, kasbi, oilaviy holati va murojaat sababi.\n' +
+        '   "complaints" (kamida 120 so\'z) — shikoyatlar tafsiloti: xarakteri, joylashuvi, kuchi, ' +
+        'qachon kuchayadi/yengillashadi.\n' +
+        '   "history" (kamida 130 so\'z) — kasallik tarixi, o\'tgan kasalliklar, qabul qilayotgan dorilar, ' +
+        'allergiya, oilaviy anamnez.\n' +
+        '   "lifestyle" (kamida 90 so\'z) — hayot tarzi, ish sharoiti, ovqatlanish, zararli odatlar, ' +
+        'ijtimoiy-psixologik kontekst.\n' +
+        '   "examination" (kamida 140 so\'z) — obyektiv ko\'rik TIZIM-TIZIM bo\'yicha (umumiy holat, ' +
+        'yurak-qon tomir, nafas, hazm, asab), aniq o\'lchovlar bilan (AB, puls, harorat, BMI).\n' +
+        '   "labs" (kamida 130 so\'z) — laborator va instrumental natijalar ANIQ raqam va o\'lchov ' +
+        'birligi bilan, me\'yor oralig\'i ko\'rsatilgan holda.\n' +
+        '2. Yechim BESHTA ALOHIDA maydonga yoziladi. HAR BIRI o\'z hajmiga ega bo\'lsin ' +
+        '(jami kamida 1000-1200 so\'z), qisqartirmang:\n' +
+        '   "diagnosis" (kamida 180 so\'z) — klinik tashxis ANIQ nozologiya nomi bilan va uning ' +
+        'to\'liq asoslanishi: qaysi shikoyat/topilma/laborator qiymat qaysi mezonni qanoatlantiradi.\n' +
+        '   "differential" (kamida 220 so\'z) — kamida 3-4 muqobil tashxis, HAR biri uchun ' +
+        'qo\'llab-quvvatlovchi va rad etuvchi aniq dalillar.\n' +
+        '   "investigations" (kamida 180 so\'z) — qo\'shimcha tekshiruvlar, har biri uchun maqsad va ' +
+        'kutilayotgan natija (aniq qiymat oralig\'i bilan).\n' +
+        '   "management" (kamida 250 so\'z) — bosqichma-bosqich davolash/profilaktika: aniq dori nomi, ' +
+        'dozasi, qabul yo\'li va davomiyligi, muqobil variantlar, kuzatuv jadvali.\n' +
+        '   "recommendations" (kamida 170 so\'z) — bemorga/oilaga amaliy tavsiyalar, xavf belgilari ' +
+        '(qachon shoshilinch murojaat qilish) va uzoq muddatli prognoz/kuzatuv rejasi.\n' +
+        '4. REAL VA QAT\'IY BO\'LSIN: taxminiy/ehtimoliy iboralardan qoching — "taxminiy tashxis", ' +
+        '"taxmin qilish mumkin", "ehtimol", "bo\'lishi mumkin" kabi ikkilanishlar o\'rniga aniq nozologiya, ' +
+        'aniq dori nomi va dozasi, aniq tekshiruv nomi va kutilayotgan qiymat yozilsin. Laborator ' +
+        'ko\'rsatkichlar aniq raqam va o\'lchov birligi bilan berilsin. Xalqaro klinik yo\'riqnomalarga ' +
+        '(guideline) mos, haqiqiy amaliyotda qo\'llanadigan yechim bo\'lsin.\n' +
+        '3. Bu 3 ta vaziyatdan FAQAT BITTASI — qolgan ikkitasi boshqa bemor, boshqa ism, boshqa yosh/kasb ' +
+        'bilan alohida generatsiya qilinmoqda. O\'zingizning vaziyatingiz ularnikidan butunlay farq qilishi ' +
+        'shart: umumiy ismlardan (Anvar, Nigora, Shirin, Gulnora, Madina, Iskandar, Odil, Otabek kabi juda ' +
+        'ko\'p ishlatiladigan ismlardan) qoching, o\'ziga xos ism tanlang.\n' +
+        (hasContext ? `\nMANBALAR:\n${contextText}\n` : '') +
+        (strict ? `\nStrict valid JSON only.\n${strictLanguageDirective(language)}` : ''),
+      // 11 ta maydon (6 vaziyat + 5 yechim) bitta JSON'ga sig'ishi kerak.
+      // 11000 token'da JSON oxiri kesilib, yechim bo'limlari bo'sh qolardi.
+      maxTokens: 16000,
+      temperature: strict ? 0.45 : 0.65,
       parse: (t) => parseJSONSafe(t),
     });
 
-  let raw: { scenario?: string; answer?: string; references?: MedicalReference[]; focus?: string };
+  let raw: CaseSections;
   try {
     raw = await request(false);
   } catch {
     raw = await request(true);
   }
 
+  // Til nazorati: model so'ralgan til o'rniga o'zbekchani (ko'pincha kirilda)
+  // qaytarsa — bir marta qat'iyroq rejimda qayta so'raymiz.
+  if (outputLanguageLooksWrong(joinCaseSections(raw, language), language)) {
+    console.warn(`Case focus "${focus}": javob ${language} tilida emas, qayta urinilmoqda`);
+    try {
+      const retry = await request(true);
+      if (!outputLanguageLooksWrong(joinCaseSections(retry, language), language)) {
+        raw = retry;
+      }
+    } catch (err) {
+      console.warn('Case til bo\'yicha qayta urinish muvaffaqiyatsiz:', err);
+    }
+  }
+
+  const answer = joinCaseSections(raw, language);
+  const usedIndices = new Set(
+    Array.from(answer.matchAll(/\[(\d+)\]/g)).map((m) => Number(m[1])),
+  );
+  // Adabiyotlar HAR DOIM yechim oxirida ko'rsatiladi. Model iqtibos qo'ygan
+  // manbalar ustuvor; agar u [n] yozishni unutgan bo'lsa ham, yechim aynan shu
+  // manbalar asosida yaratilgani uchun ular ro'yxatda beriladi (bo'sh "Foydalanilgan
+  // adabiyotlar" bo'limi chiqmasligi kerak).
+  const citedSources = sources.filter((s) => usedIndices.has(s.index));
+  const shownSources = citedSources.length ? citedSources : sources.slice(0, 8);
+  const referencesSection = buildReferencesSection(shownSources, language);
+
   return {
-    scenario: (raw.scenario || '').trim(),
-    answer: (raw.answer || '').trim(),
+    scenario: joinCaseScenario(raw),
+    answer: answer + referencesSection,
     focus: normalizeCaseFocus(raw.focus, CASE_STUDY_FOCUS_ORDER.indexOf(focus)),
-    ...(normalizeMedicalReferences(raw.references, topic).length
-      ? { references: normalizeMedicalReferences(raw.references, topic) }
-      : {}),
+    ...(shownSources.length ? { references: sourcesToMedicalReferences(shownSources) } : {}),
   };
 }
 
-function normalizeCaseSession(topic: string, data: CaseStudySession): CaseStudySession {
+function normalizeCaseSession(
+  topic: string,
+  data: CaseStudySession,
+  language: AppLanguage = 'uz',
+): CaseStudySession {
   const rawQuestions = [...(data.questions || [])].slice(0, 3);
   while (rawQuestions.length < 3) {
     const focus = CASE_STUDY_FOCUS_ORDER[rawQuestions.length];
@@ -400,50 +677,61 @@ function normalizeCaseSession(topic: string, data: CaseStudySession): CaseStudyS
   const cleanedQuestions = rawQuestions.map((q, i) => {
       const scenario = (q.scenario || '').trim();
       const answer = (q.answer || '').trim();
-      const fallbackScenario = [
-        `Klinik vaziyat ${i + 1}: ${topic} bo'yicha murakkab holat.`,
-        "Bemorning asosiy shikoyatlari, anamnezi va xavf omillari batafsil tahlil qilinadi.",
-        "Ko'rik topilmalari hamda laborator/instrumental natijalar asosida diagnostik qaror talab etiladi.",
-      ].join(' ');
-      const fallbackAnswer = [
-        "Bosqichma-bosqich yondashuv: (1) birlamchi baholash va xavfni stratifikatsiya qilish;",
-        "(2) differensial diagnostikani klinik dalillar bilan toraytirish;",
-        "(3) asosiy tashxisni asoslash;",
-        "(4) dalillarga asoslangan davolash rejasi va monitoring;",
-        "(5) bemor xavfsizligi hamda keyingi kuzatuv rejasi.",
-      ].join(' ');
-      const refs = normalizeMedicalReferences(q.references, topic);
+      // Zaxira matn ham interfeys tilida bo'lsin.
+      const fallbackScenario = translate(language, 'case.fallbackScenario', {
+        n: String(i + 1),
+        topic,
+      });
+      const fallbackAnswer = translate(language, 'case.fallbackAnswer');
       const focus = normalizeCaseFocus((q as CaseStudyQuestion).focus, i);
+      const refs = (q as CaseStudyQuestion).references;
       return {
         scenario: scenario.length >= 120 ? scenario : fallbackScenario,
         answer: answer.length >= 120 ? answer : fallbackAnswer,
         focus,
-        ...(refs.length ? { references: refs } : {}),
+        ...(refs?.length ? { references: refs } : {}),
       };
     });
-  const sessionRefs = normalizeMedicalReferences(data.references, topic);
-  const allQRefs = cleanedQuestions.flatMap((q) => q.references || []);
   return {
     topic: (data.topic || topic || '').trim() || topic,
     questions: cleanedQuestions,
-    references: mergeReferences(sessionRefs, allQRefs),
+    references: [],
   };
 }
 
-function isWeakTestSession(data: TestSession | null | undefined, requestedCount: number): boolean {
-  if (!data || !Array.isArray(data.questions)) return true;
-  if (data.questions.length < Math.min(requestedCount, 6)) return true;
-  const badQuestions = data.questions.filter((q) => {
-    const qLen = (q.question || '').trim().length;
-    const expLen = (q.explanation || '').trim().length;
-    const opts = Array.isArray(q.options) ? q.options : [];
-    const badOptions = opts.length !== 5 || opts.some((o) => (o || '').trim().length < 8);
-    return qLen < 120 || expLen < 70 || badOptions;
-  });
-  return badQuestions.length > Math.max(1, Math.floor(data.questions.length * 0.35));
+/**
+ * Variantlarni aralashtiradi va to'g'ri javob indeksini (bor bo'lsa variant
+ * izohlarini ham) yangi tartibga moslaydi. To'g'ri javob har doim bir xil
+ * harfda turib qolmasligi uchun — bu testni ma'nosiz qilib qo'yadi.
+ */
+export function shuffleQuestionOptions(input: {
+  options: string[];
+  correctOptionIndex: number;
+  optionExplanations?: string[];
+}): { options: string[]; correctOptionIndex: number; optionExplanations?: string[] } {
+  const n = input.options.length;
+  if (n < 2) return { ...input };
+  const order = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const nextCorrect = order.indexOf(input.correctOptionIndex);
+  return {
+    options: order.map((k) => input.options[k]),
+    correctOptionIndex: nextCorrect >= 0 ? nextCorrect : 0,
+    ...(input.optionExplanations
+      ? { optionExplanations: order.map((k) => input.optionExplanations?.[k] ?? '') }
+      : {}),
+  };
 }
 
-function normalizeTestSession(topic: string, data: TestSession, requestedCount: number): TestSession {
+function normalizeTestSession(
+  topic: string,
+  data: TestSession,
+  requestedCount: number,
+  bookReferences: MedicalReference[] = [],
+): TestSession {
   const questions = (data.questions || [])
     .slice(0, requestedCount)
     .map((q) => {
@@ -453,28 +741,771 @@ function normalizeTestSession(topic: string, data: TestSession, requestedCount: 
         typeof q.correctOptionIndex === 'number' && q.correctOptionIndex >= 0 && q.correctOptionIndex < 5
           ? q.correctOptionIndex
           : 0;
-      const refs = normalizeMedicalReferences(q.references, topic);
+      const optionExplanations = (q.optionExplanations || [])
+        .slice(0, 5)
+        .map((e) => stripUnfilledSourceTemplate(e || ''));
+      while (optionExplanations.length < 5) optionExplanations.push('');
+      const hasOptionExplanations = optionExplanations.some((e) => e.length > 0);
+      // Avval savolda bor manba (per-question), keyin umumiy bookReferences.
+      const existingRefs = Array.isArray(q.references) ? q.references.filter((r) => r && (r.title || r.url)) : [];
+      const refs = existingRefs.length ? existingRefs : bookReferences;
+      // Model to'g'ri javobni deyarli DOIM A ga qo'yadi (kuzatilgan test:
+      // 10 savoldan 10 tasida correctOptionIndex=0). Bunday testda talaba
+      // hammasiga A belgilab 100% oladi. Variantlarni aralashtirib, to'g'ri
+      // javob o'rnini shu bilan birga qayta hisoblaymiz.
+      const shuffled = shuffleQuestionOptions({
+        options: options.map((o, oi) => stripOptionLetterPrefix((o || '').trim(), oi)),
+        correctOptionIndex,
+        optionExplanations: hasOptionExplanations ? optionExplanations : undefined,
+      });
       return {
         question: (q.question || '').trim(),
-        options: options.map((o) => (o || '').trim()),
-        explanation: (q.explanation || '').trim(),
-        correctOptionIndex,
+        options: shuffled.options,
+        explanation: stripUnfilledSourceTemplate(q.explanation || ''),
+        correctOptionIndex: shuffled.correctOptionIndex,
+        ...(shuffled.optionExplanations ? { optionExplanations: shuffled.optionExplanations } : {}),
         ...(refs.length ? { references: refs } : {}),
       };
     });
-  const sessionRefs = normalizeMedicalReferences(data.references, topic);
-  const allQRefs = questions.flatMap((q) => q.references || []);
+  const sessionRefs =
+    bookReferences.length > 0
+      ? bookReferences
+      : Array.from(
+          new Map(
+            questions
+              .flatMap((q) => q.references || [])
+              .filter((r) => r?.title || r?.url)
+              .map((r) => [`${(r.title || '').toLowerCase()}|${r.pages || ''}|${r.url || ''}`, r]),
+          ).values(),
+        );
   return {
     ...data,
     topic: (data.topic || topic || '').trim() || topic,
     questions,
-    references: mergeReferences(sessionRefs, allQRefs),
+    references: sessionRefs,
+    difficulty: data.difficulty,
   };
 }
+
+async function attachPerQuestionBookReferences(
+  session: TestSession,
+  subjectCode?: string,
+): Promise<TestSession> {
+  const code = (subjectCode || '').trim();
+  const questions = session.questions || [];
+  if (!code || !questions.length) return session;
+  try {
+    await ensureBackendAccessToken();
+    const token = getBackendAccessToken();
+    if (!token) return session;
+    const data = await httpJson<{ results?: MedicalReference[][] }>(
+      `${(import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL?.trim() || '/api'}/v1/education-ai/book-references/`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        // MUHIM: httpJson body'ni o'zi JSON.stringify qiladi — bu yerda oldindan
+        // stringify qilinsa, backend "string ichida string" qabul qilib 422
+        // qaytaradi (shu bug tufayli test uchun per-savol kitob manbalari
+        // sukut bo'yicha hech qachon ishlamagan edi).
+        body: {
+          subject_code: code,
+          queries: questions.map((q) => q.question || ''),
+          top_k: 3,
+        },
+      },
+    );
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) return session;
+    const nextQuestions = questions.map((q, i) => {
+      const refs = Array.isArray(results[i]) ? results[i] : [];
+      const cleaned = refs.filter((r) => r && (r.title || r.url));
+      return cleaned.length ? { ...q, references: cleaned } : q;
+    });
+    return normalizeTestSession(session.topic || '', { ...session, questions: nextQuestions }, nextQuestions.length);
+  } catch (err) {
+    console.warn('Per-question book references failed, keeping session refs', err);
+    return session;
+  }
+}
+
+/** Keys (klinik vaziyat) uchun RAG manba — backend'dan REAL retrieval orqali
+ * keladi (kitob chunk'i, PubMed/Semantic Scholar maqolasi yoki Wikipedia
+ * maqolasi — ichki VA tashqi internet manbalari). LLM bu ro'yxatni o'zi
+ * to'ldirmaydi — faqat shu manbalarni raqami bilan iqtibos qiladi
+ * ([1], [2], ...), havolalar esa dasturiy ravishda, real API javobidan
+ * biriktiriladi (Vikipediyadagi kabi ishonchli tashqi link'lar). */
+export interface CaseSource {
+  index: number;
+  type: 'book' | 'pubmed' | 'scholar' | 'wikipedia';
+  title: string;
+  authors?: string;
+  meta?: string;
+  url?: string;
+  text?: string;
+}
+
+async function fetchCaseContext(
+  topic: string,
+  subjectCode: string | undefined,
+): Promise<{ sources: CaseSource[]; contextText: string }> {
+  try {
+    await ensureBackendAccessToken();
+    const token = getBackendAccessToken();
+    if (!token) return { sources: [], contextText: '' };
+    const data = await httpJson<{ sources?: CaseSource[]; context_text?: string }>(
+      `${apiBaseUrlForCase()}/v1/education-ai/case-context/`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: { topic, subject_code: subjectCode || '' },
+        // Bu endpoint bir necha tashqi so'rov qiladi (kalit so'z tarjimasi,
+        // PubMed, Semantic Scholar, Wikipedia, kitob RAG). httpJson ning
+        // standart 12s timeout'i yetmay, so'rov uzilardi (nginx 499) va keys
+        // manbasiz — ya'ni adabiyotlarsiz — yaratilib qolardi.
+        timeoutMs: 90000,
+      },
+    );
+    return {
+      sources: Array.isArray(data.sources) ? data.sources : [],
+      contextText: data.context_text || '',
+    };
+  } catch (err) {
+    console.warn('Case RAG context (book + PubMed/Semantic Scholar) fetch failed:', err);
+    return { sources: [], contextText: '' };
+  }
+}
+
+function apiBaseUrlForCase(): string {
+  return (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL?.trim() || '/api';
+}
+
+/** `sources` ro'yxatidan haqiqiy metadata asosida (LLM ishtirokisiz) "Foydalanilgan
+ * adabiyotlar" bo'limini quradi — havolalar 100% real, chunki API'dan olingan. */
+const REFERENCES_HEADING: Record<AppLanguage, string> = {
+  uz: 'FOYDALANILGAN ADABIYOTLAR',
+  ru: 'ИСПОЛЬЗОВАННАЯ ЛИТЕРАТУРА',
+  en: 'REFERENCES USED',
+};
+
+function buildReferencesSection(sources: CaseSource[], language: AppLanguage = 'uz'): string {
+  if (!sources.length) return '';
+  const lines = sources.map((s) => {
+    if (s.type === 'book') {
+      return `[${s.index}] ${s.title}${s.meta ? `, ${s.meta}` : ''}`;
+    }
+    const kind = s.type === 'pubmed' ? 'PubMed' : s.type === 'wikipedia' ? 'Wikipedia' : 'Semantic Scholar';
+    const authorBit = s.authors ? `${s.authors}. ` : '';
+    const metaBit = s.meta ? ` (${s.meta})` : '';
+    return `[${s.index}] ${authorBit}${s.title}${metaBit}. ${kind}: ${s.url || ''}`.trim();
+  });
+  const heading = REFERENCES_HEADING[language] ?? REFERENCES_HEADING.uz;
+  return `\n\n${heading}:\n${lines.join('\n')}`;
+}
+
+function sourcePublisherLabel(type: CaseSource['type']): string {
+  if (type === 'book') return 'Darslik';
+  if (type === 'pubmed') return 'PubMed';
+  if (type === 'wikipedia') return 'Wikipedia';
+  return 'Semantic Scholar';
+}
+
+function sourcesToMedicalReferences(sources: CaseSource[]): MedicalReference[] {
+  return sources.map((s) => ({
+    title: s.title,
+    citeIndex: s.index,
+    ...(s.authors ? { authors: s.authors } : {}),
+    publisher: sourcePublisherLabel(s.type),
+    ...(s.url ? { url: s.url } : {}),
+    ...(s.type === 'book' && s.meta ? { pages: s.meta.replace(/-bet$/, '') } : {}),
+  }));
+}
+
+const ALL_TEST_LANGUAGES: AppLanguage[] = ['uz', 'ru', 'en'];
+
+function toTestSessionContent(session: TestSessionContent): TestSessionContent {
+  return {
+    topic: session.topic,
+    questions: session.questions,
+    ...(session.references?.length ? { references: session.references } : {}),
+  };
+}
+
+/**
+ * Tarjima sifatini tekshiradi.
+ * Eski bug: model yinish/bo'sh qaytarganda original (uz) matn `ru` deb saqlanardi.
+ */
+function isTestTranslationAcceptable(
+  original: TestSessionContent,
+  translated: TestSessionContent,
+  targetLang: AppLanguage,
+): boolean {
+  const srcQs = original.questions || [];
+  const dstQs = translated.questions || [];
+  if (!srcQs.length || dstQs.length !== srcQs.length) return false;
+
+  let identical = 0;
+  let uzLooking = 0;
+  let cyrillicQs = 0;
+  let empty = 0;
+
+  for (let i = 0; i < srcQs.length; i++) {
+    const src = (srcQs[i]?.question || '').trim();
+    const dst = (dstQs[i]?.question || '').trim();
+    const opts = dstQs[i]?.options || [];
+    if (!dst || opts.length !== (srcQs[i]?.options || []).length) {
+      empty += 1;
+      continue;
+    }
+    if (src && dst === src) identical += 1;
+    if (looksLikeUzbekText(dst)) uzLooking += 1;
+    if (cyrillicCharCount(dst) >= 8) cyrillicQs += 1;
+  }
+
+  const n = srcQs.length;
+  if (empty > 0) return false;
+  // 30%+ bir xil matn = tarjima amalda bo'lmagan
+  if (identical > Math.max(1, Math.floor(n * 0.3))) return false;
+  if (targetLang === 'ru') {
+    if (cyrillicQs < Math.ceil(n * 0.6)) return false;
+    if (uzLooking > Math.floor(n * 0.2)) return false;
+  }
+  if (targetLang === 'en' && uzLooking > Math.floor(n * 0.2)) return false;
+  if (targetLang === 'uz' && cyrillicQs > Math.floor(n * 0.2)) return false;
+  return true;
+}
+
+/** Bitta so'rovda nechta savolga variant izohi so'raladi. Kichik bo'lak =
+ *  qisqaroq javob (JSON kesilish ehtimoli kam) va uzilish sodir bo'lganda
+ *  yo'qoladigan savollar soni ham kam. */
+const OPTION_EXPLANATION_CHUNK = 4;
+
+/**
+ * Har variant uchun qisqa izoh (nega to'g'ri / nega xato) — generate'dan KEYIN,
+ * fonda. Asosiy generatsiyada so'ralmaydi: 5 ta izoh savol hajmini ~2 barobar
+ * oshiradi va katta partiyalarda (40+ savol) javob token limitiga urilib JSON
+ * kesilib qolardi. Alohida, bo'lak-bo'lak so'rov bunday xavfsiz — bir bo'lak
+ * yiqilsa qolganlari baribir izohli bo'ladi.
+ *
+ * Bu maydon OnlineTest natijalarida "Nega xato" qatorini to'ldiradi (tashqi API
+ * `optionExplanations` ni o'zgartirmasdan uzatadi) va iMentor test ekranida har
+ * variant ostida ko'rinadi.
+ */
+async function attachOptionExplanations(
+  session: TestSession,
+  language: AppLanguage,
+  subjectCode?: string,
+): Promise<TestSession> {
+  const questions = session.questions || [];
+  const pendingIdx = questions
+    .map((q, i) => i)
+    .filter((i) => !(questions[i].optionExplanations || []).some((e) => (e || '').trim()));
+  if (!pendingIdx.length) return session;
+
+  const outLang = languageName(language);
+  // MUHIM: eng uzun matn (klinik tahlil) aynan shu yerda yoziladi, shuning
+  // uchun DARSLIK parchalari ham shu so'rovga ulanadi. Avval bu chaqiruvda
+  // bookContext yo'q edi va tahlil manbasiz, faqat model xotirasidan chiqardi.
+  const bookContext: BookContext | undefined = subjectCode?.trim()
+    ? { subjectCode: subjectCode.trim(), topicQuery: session.topic }
+    : undefined;
+  const merged = [...questions];
+  const chunks: number[][] = [];
+  for (let start = 0; start < pendingIdx.length; start += OPTION_EXPLANATION_CHUNK) {
+    chunks.push(pendingIdx.slice(start, start + OPTION_EXPLANATION_CHUNK));
+  }
+
+  const runChunk = async (idxs: number[]) => {
+    {
+      // Variantlar RAQAMLANGAN holda yuboriladi va model har izohga o'sha
+      // raqamni qaytarishi shart. Ilgari oddiy massiv so'ralardi va model
+      // ko'pincha TO'G'RI variant izohini birinchi qilib qo'yardi — natijada
+      // izohlar boshqa variantlar ostiga tushib qolardi (10 savoldan 5 tasida).
+      const source = idxs.map((i) => ({
+        id: i,
+        question: questions[i].question,
+        options: questions[i].options.map((opt, oi) => ({
+          i: oi,
+          text: stripOptionLetterPrefix(opt, oi),
+        })),
+        correctOptionIndex: questions[i].correctOptionIndex,
+      }));
+      try {
+        const parsed = await openaiJson<unknown>({
+          // Klinik fikrlash zanjiri va darslikka tayanish uchun kuchli model.
+          // Avval OPENAI_FAST (mini) edi — u qisqa, umumiy javob berardi.
+          // Bo'lak 4 tadan va parallel ketadi, shuning uchun vaqt sezilarli
+          // uzaymaydi.
+          model: OPENAI_CHAT,
+          system:
+            `${SYS_MEDICAL} Har savol uchun IKKITA narsa yoz.\n` +
+            '1) `analysis` — to\'g\'ri javob tahlili: KAMIDA 8, KO\'PI BILAN 12 gap (230-330 so\'z). ' +
+            'Bu shunchaki javob emas — TALABAGA KLINIK FIKRLASHNI o\'rgatadigan tahlil bo\'lsin, ' +
+            'quyidagi ketma-ketlikda:\n' +
+            '(a) Kalit ma\'lumotlar: vignettadagi qaysi belgilar/ko\'rsatkichlar hal qiluvchi va ' +
+            'qaysilari chalg\'ituvchi ekanini ajrating (yosh, muddat, dinamika, laborator qiymat).\n' +
+            '(b) Klinik fikrlash zanjiri: shikoyat → yetakchi sindrom → differensial doira → ' +
+            'qaysi belgi qaysi tashxisni kesib tashlaydi → nega aynan shu javob qoladi.\n' +
+            '(c) Patofiziologiya: qaysi ferment/retseptor/hujayra/tizim buzilgan va bu belgilarni ' +
+            'qanday mexanizm bilan keltirib chiqaradi.\n' +
+            '(d) Tasdiqlash: "oltin standart" va birinchi navbatdagi tekshiruv, undan kutiladigan ' +
+            'ANIQ natija (ko\'rsatkich nomi va o\'zgarish yo\'nalishi bilan).\n' +
+            '(e) Taktika: keyingi qadam va tanlangan usul/dori mexanizmi, nega aynan shu ustuvor.\n' +
+            '(f) Xavf va prognoz: kechiktirilsa yuzaga keladigan asorat, "red flag" belgilari.\n' +
+            'Har gap YANGI ma\'lumot bersin — bir fikrni boshqacha so\'z bilan takrorlamang; ' +
+            'umumiy iboralar ("muhim ahamiyatga ega", "e\'tibor berish kerak") o\'rniga aniq ' +
+            'atama, ko\'rsatkich, muddat va doza guruhini yozing. ' +
+            'Savol matnini takrorlamang. Boshqa variantlarni bu yerda muhokama qilmang — ular ' +
+            'uchun alohida izoh bor. "Shuning uchun ... eng maqsadga muvofiq" kabi xulosa gapini ' +
+            'YOZMANG, u hech qanday ma\'lumot qo\'shmaydi.\n' +
+            '2) `explanations` — HAR BIR variantga bittadan qisqa izoh: to\'g\'ri variant uchun ' +
+            'nega aynan shu to\'g\'ri; qolganlari uchun nega bu klinik vaziyatda noto\'g\'ri. ' +
+            'Har izoh 1 ta gap, 20 so\'zgacha.\n' +
+            'JSON: {items:[{id:<berilgan id>, analysis:"...", explanations:[{i:<variantning berilgan i raqami>, text:"..."}]}]}. ' +
+            'MUHIM: `i` — aynan o\'sha variantning berilgan raqami; izoh SHU variant haqida bo\'lsin. ' +
+            'To\'g\'ri variant izohini birinchi o\'ringa ko\'chirmang — har bir variant o\'z `i` si bilan qaytsin. ' +
+            'Har variant uchun bittadan yozing, birortasini tashlab ketmang.\n' +
+            (bookContext
+              ? 'MANBA: yuqoridagi darslik parchalariga TAYANING — ta\'rif, tasnif, ' +
+                'ko\'rsatkich va davolash sxemasi imkon qadar o\'sha matndan olinsin. ' +
+                'Parchalarda yo\'q narsani o\'ylab topmang; darslikda yo\'q bo\'lsa, umumiy tan ' +
+                'olingan klinik amaliyotga tayaning va aniq raqam o\'rniga umumiy qoidani yozing. '
+              : 'Faqat umumiy tan olingan klinik bilimga tayaning. ') +
+            'HECH QACHON o\'ylab topilgan raqam, doza, statistika yoki havola yozmang. ' +
+            'SAFSATA TAQIQLANADI: "muhim ahamiyatga ega", "e\'tibor berish kerak", "to\'g\'ri ' +
+            'yondashuv talab etiladi" kabi hech narsa tushuntirmaydigan gaplar YOZMANG — ' +
+            'har gapda aniq atama, mexanizm, ko\'rsatkich yoki qadam bo\'lsin.\n' +
+            `Til: ${outLang}. ${strictLanguageDirective(language)}`,
+          user: JSON.stringify(source),
+          bookContext,
+          // ~1800 token/savol: 8-12 gaplik klinik tahlil + 5 ta variant izohi
+          // (o'zbek tilida ~3 token/so'z). Bo'lak 4 ta savoldan iborat, ya'ni
+          // ~7600 — 16000 limitidan xavfsiz uzoqda. Ishlatilmagan limit hech
+          // narsa turmaydi (faqat generatsiya qilingan tokenlar hisoblanadi),
+          // kesilish esa butun bo'lakni yo'qotadi.
+          maxTokens: Math.min(16000, idxs.length * 1800 + 400),
+          temperature: 0.2,
+          parse: (t) => parseJSONSafe<unknown>(t),
+        });
+        // Model javob shaklini turlicha berishi mumkin: {items:[…]}, {questions:[…]}
+        // yoki to'g'ridan-to'g'ri massiv. Uchalasini ham qabul qilamiz — aks holda
+        // izohlar jimgina yo'qoladi va ekranda hech narsa ko'rinmaydi.
+        type OptionExplanationItem = {
+          id?: number;
+          analysis?: string;
+          explanations?: { i?: number; index?: number; text?: string }[];
+        };
+        const box = (parsed || {}) as { items?: unknown; questions?: unknown };
+        const items: OptionExplanationItem[] = (
+          Array.isArray(parsed)
+            ? parsed
+            : Array.isArray(box.items)
+              ? box.items
+              : Array.isArray(box.questions)
+                ? box.questions
+                : []
+        ) as OptionExplanationItem[];
+        items.forEach((item, pos) => {
+          // `id` — biz bergan global indeks; yo'q bo'lsa bo'lak ichidagi tartib.
+          const rawId = typeof item?.id === 'number' ? item.id : undefined;
+          const i = rawId !== undefined ? rawId : (idxs[pos] ?? -1);
+          if (!merged[i]) return;
+          // Kengaytirilgan tahlil. Generatsiyada `explanation` ataylab 1–2 gap
+          // (birinchi ko'rinish tez chiqishi uchun) — bu yerda to'liqrog'i
+          // bilan almashtiriladi. Qisqarib ketmasligi uchun faqat mavjudidan
+          // uzunroq bo'lsa yoziladi.
+          const analysis = stripUnfilledSourceTemplate(String(item?.analysis || '')).trim();
+          if (analysis.length > (merged[i].explanation || '').trim().length) {
+            merged[i] = { ...merged[i], explanation: analysis };
+          }
+
+          const list = Array.isArray(item?.explanations) ? item.explanations : [];
+          const sized = new Array<string>(merged[i].options.length).fill('');
+          let filled = 0;
+          for (const row of list) {
+            const at = typeof row?.i === 'number' ? row.i : typeof row?.index === 'number' ? row.index : -1;
+            // Raqamsiz izohni ISHLATMAYMIZ: tartibiga ishonib bo'lmaydi, noto'g'ri
+            // variant ostida turgan izoh umuman izoh yo'qligidan ko'ra yomonroq.
+            if (at < 0 || at >= sized.length) continue;
+            const text = stripUnfilledSourceTemplate(String(row?.text || '')).trim();
+            if (!text) continue;
+            sized[at] = text;
+            filled += 1;
+          }
+          if (!filled) return;
+          merged[i] = { ...merged[i], optionExplanations: sized };
+        });
+      } catch (err) {
+        // Izohlar — qo'shimcha qiymat, majburiy emas: testni yiqitmaymiz.
+        console.warn('Variant izohlari olinmadi (bo\'lak o\'tkazib yuborildi):', err);
+      }
+    }
+  };
+
+  const stillEmpty = (i: number) =>
+    !(merged[i].optionExplanations || []).some((e) => (e || '').trim());
+
+  await Promise.all(chunks.map(runChunk));
+
+  // 2-urinish. Bitta so'rovning uzilishi (tarmoq, model xatosi, buzuq JSON)
+  // butun bo'lakni izohsiz qoldiradi — prod'da aynan shu sodir bo'ldi:
+  // bir testda 10/10 izoh, keyingisida 0/10. Qolganlarini kichikroq
+  // bo'laklarda qayta so'raymiz.
+  const retryIdx = pendingIdx.filter(stillEmpty);
+  if (retryIdx.length) {
+    console.warn(`Variant izohlari ${retryIdx.length} ta savolda kelmadi — qayta urinilmoqda`);
+    const retryChunks: number[][] = [];
+    for (let start = 0; start < retryIdx.length; start += 2) {
+      retryChunks.push(retryIdx.slice(start, start + 2));
+    }
+    await Promise.all(retryChunks.map(runChunk));
+  }
+
+  return { ...session, questions: merged };
+}
+
+/** Tayyor testni boshqa tilga tarjima qiladi — faktlar/to'g'ri javob o'zgarmaydi, faqat matn. */
+async function translateTestSession(
+  content: TestSessionContent,
+  targetLang: AppLanguage,
+): Promise<TestSessionContent> {
+  const outLang = languageName(targetLang);
+  const source = {
+    topic: content.topic,
+    questions: content.questions.map((q) => ({
+      question: q.question,
+      options: q.options,
+      correctOptionIndex: q.correctOptionIndex,
+      explanation: q.explanation,
+      optionExplanations: q.optionExplanations,
+    })),
+  };
+  const translated = await openaiJson<{ topic?: string; questions?: TestQuestion[] }>({
+    model: OPENAI_FAST,
+    system:
+      'You are a precise medical translator. Translate the given JSON test into ' +
+      `${outLang}. Keep the EXACT same JSON structure, keys, array lengths and order. ` +
+      'NEVER change correctOptionIndex or any number. Translate every text field ' +
+      '(topic, question, options, explanation, optionExplanations) naturally, including any ' +
+      'inline citation phrase like "(Manba: kitob, sahifa-bet)" — translate the label word too ' +
+      `("Manba" → "Источник" for Russian, "Source" for English), keeping the book title and page number unchanged. ` +
+      `CRITICAL: Output MUST be entirely in ${outLang}. Do NOT leave any Uzbek/source-language sentences. ` +
+      'NEVER transliterate — do not rewrite Uzbek words in another alphabet. In particular, Russian ' +
+      'output must be real Russian medical language ("5-летний ребёнок поступил в больницу с красными ' +
+      'папулёзными высыпаниями на коже…"), never Uzbek written in Cyrillic ("5 ёшли бола терисида…") ' +
+      'and it must not contain the letters қ ғ ҳ ў. ' +
+      'Option texts must contain ONLY the answer itself — no "A.", "B)" or any letter/number prefix. ' +
+      'Return ONLY valid JSON, no markdown fences.',
+    user: JSON.stringify(source),
+    // Savol boshiga token budjeti — pastda `translateBudgetPerQuestion` bilan
+    // bir xil hisob: bo'lak kattaligi ham shunga qarab tanlanadi, shunda javob
+    // 16000 limitiga urilib o'rtasidan kesilmaydi ("incomplete questions").
+    maxTokens: Math.min(16000, content.questions.length * translateBudgetPerQuestion(content) + 500),
+    temperature: 0.1,
+    parse: (t) => parseJSONSafe(t),
+  });
+
+  if (!Array.isArray(translated.questions) || translated.questions.length !== content.questions.length) {
+    throw new Error(`Translation to ${targetLang} returned incomplete questions`);
+  }
+
+  const questions: TestQuestion[] = content.questions.map((original, i) => {
+    const t = translated.questions?.[i];
+    const question = (t?.question || '').trim();
+    const options = (t?.options || []).map((o) => (o || '').trim());
+    const explanation = (t?.explanation || '').trim();
+    if (!question || options.length !== original.options.length) {
+      throw new Error(`Translation to ${targetLang} missing fields at question ${i + 1}`);
+    }
+    return {
+      question,
+      options,
+      correctOptionIndex: original.correctOptionIndex,
+      explanation,
+      ...(original.optionExplanations
+        ? {
+            optionExplanations: (
+              t?.optionExplanations?.length === original.optionExplanations.length
+                ? t.optionExplanations
+                : original.optionExplanations
+            ).map((e) => (e || '').trim()),
+          }
+        : {}),
+      ...(original.references ? { references: original.references } : {}),
+    };
+  });
+
+  const result: TestSessionContent = {
+    topic: (translated.topic || '').trim() || content.topic,
+    questions,
+    references: content.references,
+  };
+  if (!isTestTranslationAcceptable(content, result, targetLang)) {
+    throw new Error(`Translation to ${targetLang} failed quality check (still source language)`);
+  }
+  return result;
+}
+
+/** Bitta savolni tarjima qilishga ketadigan taxminiy token. */
+function translateBudgetPerQuestion(content: TestSessionContent): number {
+  const hasOptionExplanations = content.questions.some((q) =>
+    (q.optionExplanations || []).some((e) => (e || '').trim()),
+  );
+  // Izoh 8-12 gapga o'sgach bitta savol tarjimasi ~1200 tokengacha chiqadi.
+  return hasOptionExplanations ? 1400 : 800;
+}
+
+async function translateChunkWithRetry(
+  content: TestSessionContent,
+  targetLang: AppLanguage,
+): Promise<TestSessionContent> {
+  try {
+    return await translateTestSession(content, targetLang);
+  } catch (err) {
+    console.warn(`Test translation to ${targetLang} failed, retrying…`, err);
+    return translateTestSession(content, targetLang);
+  }
+}
+
+/**
+ * Tarjimani BO'LAKLARGA bo'lib bajaradi.
+ *
+ * Avval butun test bitta so'rovda tarjima qilinardi. Klinik tahlil 8-12 gapga
+ * uzaygandan keyin 30 ta savolning tarjimasi 16000 token limitiga urilib,
+ * javob o'rtasidan kesilardi — natijada ru/en versiyalar butunlay yo'qolardi.
+ */
+async function translateTestSessionWithRetry(
+  content: TestSessionContent,
+  targetLang: AppLanguage,
+): Promise<TestSessionContent> {
+  const perQuestion = translateBudgetPerQuestion(content);
+  const maxPerChunk = Math.max(1, Math.floor(14000 / perQuestion));
+  if (content.questions.length <= maxPerChunk) {
+    return translateChunkWithRetry(content, targetLang);
+  }
+  const chunks: TestSessionContent[] = [];
+  for (let i = 0; i < content.questions.length; i += maxPerChunk) {
+    chunks.push({ ...content, questions: content.questions.slice(i, i + maxPerChunk) });
+  }
+  const parts = await Promise.all(chunks.map((c) => translateChunkWithRetry(c, targetLang)));
+  return {
+    topic: parts[0]?.topic || content.topic,
+    questions: parts.flatMap((p) => p.questions),
+    references: content.references,
+  };
+}
+
+/** Test'ni asosiy tilda generatsiya qilgandan keyin qolgan 2 tilga parallel tarjima qiladi.
+ * Har doim 3 til (primary + 2 tarjima) bo'lishiga urinadi. */
+async function attachTestTranslations(session: TestSession, primaryLang: AppLanguage): Promise<TestSession> {
+  const remaining = ALL_TEST_LANGUAGES.filter((l) => l !== primaryLang);
+  const baseContent = toTestSessionContent(session);
+  const results = await Promise.allSettled(
+    remaining.map((lang) => translateTestSessionWithRetry(baseContent, lang)),
+  );
+  const translations: Partial<Record<AppLanguage, TestSessionContent>> = {};
+  results.forEach((res, i) => {
+    if (res.status === 'fulfilled') {
+      translations[remaining[i]] = res.value;
+    } else {
+      console.warn(`Test translation to ${remaining[i]} failed:`, res.reason);
+    }
+  });
+  return {
+    ...session,
+    primaryLanguage: primaryLang,
+    ...(Object.keys(translations).length ? { translations } : {}),
+  };
+}
+
+
+async function requestPresentationDeckFromAi(params: {
+  topicTitle: string;
+  topicId: string;
+  topicType: 'lecture' | 'practical';
+  subjectName: string;
+  variantLabel: string;
+  language: AppLanguage;
+  mode: 'generate' | 'enhance';
+  sourceFileName?: string;
+  sourceText?: string;
+  /** Mavzu bo'yicha tayyor ma'ruza matni — taqdimotning ASOSIY manbasi. */
+  lectureText?: string;
+  subjectCode?: string;
+  onProgress?: (rawTextSoFar: string) => void;
+}): Promise<PresentationContent> {
+  assertOpenAiApiKey();
+  const bookContext: BookContext | undefined = params.subjectCode
+    ? { subjectCode: params.subjectCode, topicQuery: params.topicTitle }
+    : undefined;
+  const kind = params.topicType === 'practical' ? "amaliy mashg'ulot" : "ma'ruza";
+  const fallbackTitle = `${params.topicId} — ${params.topicTitle}`;
+
+  // Taqdimot ma'ruza matni asosida quriladi; yuklangan PDF (bo'lsa) qo'shimcha
+  // kontekst sifatida beriladi.
+  const lecture = (params.lectureText || '').trim();
+  const pdfText = (params.sourceText || '').trim();
+  const sourceBlock =
+    (lecture
+      ? 'ASOSIY MANBA — shu mavzu bo\'yicha tayyorlangan MA\'RUZA MATNI. Taqdimot ' +
+        'AYNAN shu matn asosida qurilsin: uning bo\'limlari, atamalari, misollari va ' +
+        'mantiqiy ketma-ketligi saqlansin. O\'zingizdan yangi mavzu qo\'shmang.\n' +
+        `<MARUZA_MATNI>\n${lecture.slice(0, 24000)}\n</MARUZA_MATNI>\n`
+      : '') +
+    (pdfText
+      ? `QO'SHIMCHA MANBA — o'qituvchi yuklagan fayl ("${params.sourceFileName || 'fayl'}"). ` +
+        'Faqat ma\'ruza matnini to\'ldirish uchun ishlating, unga zid bo\'lsa ma\'ruza matni ustun.\n' +
+        `<QOSHIMCHA_MANBA>\n${pdfText.slice(0, 6000)}\n</QOSHIMCHA_MANBA>\n`
+      : '');
+
+  const system =
+    `${SYS_MEDICAL} Sen FAQAT kontent qaytarasan — dizayn, rang, font haqida hech narsa yozma. ` +
+    'Akademik ohang: aniq, ilmiy, tibbiy ta\'lim (FJSTI) standartiga mos. ' +
+    'Har slaydda MAX 5 bullet. HAR bullet MINIMUM 15, MAXIMUM 36 so\'z: ' +
+    'faqat atama emas — nima ekanligi, qanday ishlashi yoki klinik ahamiyati tushuntirilsin. ' +
+    'Qisqa 2–4 so\'zli tezislar TAQIQLANGAN. ' +
+    'MAJBURIY HAJM: KAMIDA 20, KO\'PI BILAN 25 slayd. Mavzu qanchalik keng bo\'lsa, ' +
+    'shuncha ko\'p slayd. 20 tadan kam qaytarish XATO hisoblanadi — ma\'ruza matnini ' +
+    'bo\'limlarga bo\'lib, har bir muhim bo\'limga alohida slayd ajrating. ' +
+    'SLAYD TURLARI KVOTASI (majburiy, taqdimot bir xil bo\'lib qolmasin): ' +
+    '1 ta title, 1 ta agenda, 1 ta summary (oxirgi), KAMIDA 2 ta statistics (body.stats — ' +
+    'real raqamlar bilan), KAMIDA 2 ta comparison_table (body.comparison_rows + ' +
+    'body.comparison_headers, masalan left="Birlamchi toshma", right="Ikkilamchi toshma" — ' +
+    '"chap/o\'ng" kabi ma\'nosiz nom YOZMA), KAMIDA 1 ta process_flow (body.process_steps), ' +
+    'KAMIDA 1 ta case_study (real klinik holat), KAMIDA 1 ta two_column (body.columns). ' +
+    'Qolganlari content_bullets / image_focus. MUHIM: qaysi turni tanlasang, o\'sha turning ' +
+    'body maydonini TO\'LDIR — statistics deb yozib stats\'ni bo\'sh qoldirma. ' +
+    'HAR SLAYDDA image_query MAJBURIY va HAR BIRI BOSHQACHA bo\'lsin: inglizcha ANIQ ' +
+    'atama — kasallik/anatomik tuzilma/protsedura nomi (masalan "impetigo", "psoriasis plaque", ' +
+    '"skin biopsy procedure", "melanoma ABCDE"). Umumiy so\'rovlar ("skin", "medicine", ' +
+    '"human anatomy") TAQIQLANGAN — ular butun taqdimotga bitta bir xil rasm keltiradi. ' +
+    'summary (xulosa) slaydi FAQAT BITTA va ENG OXIRGI slayd bo\'lsin — o\'rtada xulosa yaratmang. ' +
+    'summary bulletlari "Sarlavha: tushuntirish" formatida bo\'lsin. ' +
+    'ADABIYOTLAR/MANBALAR SLAYDI KERAK EMAS — references yoki "Foydalanilgan adabiyotlar" ' +
+    'slaydini umuman yaratmang va matn ichida havola/iqtibos yozmang. ' +
+    'HAR BIR SLAYD NOYOB bo\'lsin: bir xil sarlavhani yoki bir xil bulletlarni ikkinchi ' +
+    'marta qaytarmang, oldingi slaydni boshqacha so\'z bilan takrorlamang — har slayd ' +
+    'ma\'ruzaning YANGI qismini yoritsin. ' +
+    'TAVTOLOGIYA TAQIQLANGAN: bullet sarlavhani boshqa so\'z bilan qaytarmasin ' +
+    '("Profilaktika choralarini ko\'rish oldini olishga qaratilgan" kabi bo\'sh jumlalar ' +
+    'yozma). Har bullet YANGI fakt bersin: mexanizm, aniq belgi, preparat/doza guruhi, ' +
+    'muddat yoki raqam. Bitta jumlani ikki slaydda takrorlash XATO. ' +
+    'Agar 5 ta mazmunli bullet chiqmasa — 3-4 ta yozing, "suv quymang". ' +
+    `${strictLanguageDirective(params.language)} Bu qoida butun JSON'ga tegishli: ` +
+    'presentation_title, sarlavhalar, bulletlar, speaker_notes. ' +
+    'image_query esa har doim inglizcha qoladi. ' +
+    (bookContext
+      ? 'Darslik parchalari qo\'shimcha kontekst; o\'ylab topilgan manba yozma.'
+      : "O'ylab topilgan manba/havola qo'shma.");
+
+  const user =
+    `Fan: ${params.subjectName}. Yo'nalish: ${params.variantLabel}. ` +
+    `Mavzu ${params.topicId} (${kind}): ${params.topicTitle}.\n${sourceBlock}\n` +
+    (lecture
+      ? 'VAZIFA: yuqoridagi ma\'ruza matnini 20-25 slaydlik dars taqdimotiga aylantiring. ' +
+        'Matnni qisqartirib tashlamang — har bo\'lim va kichik bo\'lim slaydlarda aks etsin.\n'
+      : 'VAZIFA: mavzu bo\'yicha 20-25 slaydlik dars taqdimoti yarating.\n') +
+    'JSON: presentation_title, subject_area, author, slides[]. ' +
+    'slides[].slide_type, title, subtitle, body{bullets,key_stat,stats,columns,comparison_headers,comparison_rows,process_steps,quote_text,quote_author}, ' +
+    'image_query, speaker_notes. Ishlatilmagan body maydonlari bo\'sh string/array.';
+
+  params.onProgress?.(translate(params.language, 'ai.progress.content'));
+
+  const responseFormat = {
+    type: 'json_schema',
+    json_schema: PRESENTATION_JSON_SCHEMA,
+  };
+
+  let raw: Partial<PresentationContent> | null = null;
+  try {
+    raw = await openaiJson<Partial<PresentationContent>>({
+      model: OPENAI_CHAT,
+      system,
+      user,
+      maxTokens: 16000,
+      temperature: 0.35,
+      bookContext,
+      responseFormat,
+      parse: (t) => parseJSONSafe<Partial<PresentationContent>>(t),
+    });
+  } catch (err) {
+    console.warn('Presentation json_schema failed, prompt fallback:', err);
+    raw = await openaiJson<Partial<PresentationContent>>({
+      model: OPENAI_CHAT,
+      system: system + ' Return ONLY valid JSON matching the schema.',
+      user,
+      maxTokens: 16000,
+      temperature: 0.3,
+      bookContext,
+      parse: (t) => parseJSONSafe<Partial<PresentationContent>>(t),
+    });
+  }
+
+  params.onProgress?.(translate(params.language, 'ai.progress.normalize'));
+  let content = normalizePresentationContent(raw, {
+    title: fallbackTitle,
+    subject: params.subjectName,
+    author: 'iMentor',
+  });
+  // Adabiyotlar/manbalar slaydi taqdimotda ko'rsatilmaydi (foydalanuvchi so'rovi):
+  // AI ni o'zi yaratib qo'ygan bo'lsa ham olib tashlanadi.
+  content = {
+    ...content,
+    slides: content.slides.filter((s) => s.slide_type !== 'references'),
+  };
+  // Takroriy slaydlarni olib tashlaymiz — model uzun matnda bir slaydni
+  // bir necha marta qaytarishi mumkin.
+  content = dedupePresentationSlides(content);
+  // Bullet darajasidagi takror: bir jumla ikki slaydda yoki sarlavhaning
+  // qayta aytilishi (slayd darajasidagi dedupe buni ushlamaydi).
+  content = dedupePresentationBullets(content);
+  qaPresentationContent(content);
+  params.onProgress?.(translate(params.language, 'ai.progress.images'));
+  content = await resolvePresentationImages(content);
+  return content;
+}
+
+function presentationReferencesTitle(language: AppLanguage): string {
+  if (language === 'ru') return 'Использованные источники';
+  if (language === 'en') return 'References';
+  return 'Foydalanilgan manbalar';
+}
+
+function dedupePresentationRefs(refs: MedicalReference[]): MedicalReference[] {
+  const out: MedicalReference[] = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    if (!ref?.title?.trim()) continue;
+    const key = `${ref.title.trim().toLowerCase()}|${ref.pages || ''}|${ref.url || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ref);
+  }
+  return out.slice(0, 12);
+}
+
+/** Ichki (kitob+bet) + tashqi (PubMed/Scholar/Wikipedia) + rasm kreditlari. */
 
 export const aiService = {
   async extractSyllabusFromDocument(file: File): Promise<SyllabusExtractResult> {
     try {
+      if (syllabusFileExtension(file.name) === '.xlsx') {
+        const rows = await readXlsxRows(await file.arrayBuffer());
+        const parsed = parseSyllabusExcel(rows);
+        if (!parsed.topics.length) {
+          throw new Error('empty-document');
+        }
+        return normalizeSyllabusExtract(
+          { topics: parsed.topics },
+          file.name,
+          parsed.asText,
+        );
+      }
       const docText = await extractSyllabusDocumentText(file);
       if (!docText.trim()) {
         throw new Error('empty-document');
@@ -486,11 +1517,6 @@ export const aiService = {
     }
   },
 
-  /** @deprecated use extractSyllabusFromDocument */
-  async extractSyllabusFromPdf(file: File): Promise<SyllabusExtractResult> {
-    return aiService.extractSyllabusFromDocument(file);
-  },
-
   async extractSyllabusTopics(file: File): Promise<SyllabusTopic[]> {
     const result = await aiService.extractSyllabusFromDocument(file);
     return result.topics;
@@ -499,56 +1525,56 @@ export const aiService = {
   async generateCaseStudy(
     topic: string,
     language: AppLanguage = 'uz',
-    keywords: string[] = []
+    keywords: string[] = [],
+    subjectCode?: string,
   ): Promise<CaseStudySession> {
     try {
-      assertDeepseekApiKey();
-      const outLang = languageName(language);
-      const avoid = previousCaseAvoidBlock(topic);
+      assertOpenAiApiKey();
+      const avoid = await previousCaseAvoidBlock(topic);
       const keywordFocus = buildCaseKeywordsFocusPrompt(keywords);
+      // RAG: kitob chunk'lari + PubMed/Semantic Scholar'dan REAL manbalar — bir marta
+      // olinadi va 3 ta fokus (profilaktika/davolash/tashxis) uchun baravar ishlatiladi.
+      const { sources: caseSources, contextText: caseContextText } = await fetchCaseContext(topic, subjectCode);
 
-      const requestBatch = async (strict: boolean): Promise<CaseStudySession> => {
-        const structure = buildCaseStructurePrompt(topic);
-        return deepseekJson({
-          model: DEEPSEEK_CHAT,
-          system: `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} 3 ta klinik case JSON: {topic, references:[...], questions:[{focus:"profilaktika"|"davolash"|"tashxis", scenario, answer, references:[...]}]}. Aynan 3 ta: 1-profilaktika, 2-davolash, 3-tashxis. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
-          user: `${structure}${keywordFocus}${avoid}\n\nHar scenario 2-4 paragraf. Har answer fokusga mos. Javob oxirida [1][2] iqtiboslar. ${strict ? 'Maksimal sifat, faqat valid JSON.' : ''}`,
-          maxTokens: 8192,
-          temperature: strict ? 0.45 : 0.6,
-          parse: (t) => parseJSONSafe<CaseStudySession>(t),
-        });
-      };
-
-      let questions: CaseStudyQuestion[];
-      try {
-        questions = await Promise.all(
-          CASE_STUDY_FOCUS_ORDER.map((focus) =>
-            generateSingleCaseQuestion(topic, focus, language, keywordFocus, avoid),
-          ),
-        );
-      } catch (parallelError) {
-        console.warn('Parallel case generation failed, trying batch:', parallelError);
-        let data: CaseStudySession;
-        try {
-          data = await requestBatch(false);
-        } catch {
-          data = await requestBatch(true);
-        }
-        if (isWeakCaseSession(data)) {
-          data = await requestBatch(true);
-        }
-        questions = data.questions || [];
-      }
-
-      const sessionRefs = mergeReferences(
-        ...questions.map((q) => normalizeMedicalReferences(q.references, topic)),
+      // Har bir fokus MUSTAQIL urinadi — bittasi vaqtinchalik xato bersa ham
+      // (tarmoq/JSON parse), qolgan ikkitasi qisqa/manbasiz eski rejimga
+      // qaytarilmaydi (avval shunday edi: Promise.all bittasi rad etsa,
+      // HAMMASI eski, manbasiz, qisqa promptga tushib qolardi — aynan shu
+      // sabab foydalanuvchi qisqa/manbasiz javob ko'rgan edi). Endi shu
+      // fokus alohida, o'sha boy/manbali prompt bilan yana bir marta uriniladi.
+      const questions: CaseStudyQuestion[] = await Promise.all(
+        CASE_STUDY_FOCUS_ORDER.map(async (focus) => {
+          try {
+            return await generateSingleCaseQuestion(
+              topic,
+              focus,
+              language,
+              keywordFocus,
+              avoid,
+              caseContextText,
+              caseSources,
+            );
+          } catch (err) {
+            console.warn(`Case focus "${focus}" birinchi urinishda muvaffaqiyatsiz, qayta urinilmoqda:`, err);
+            return generateSingleCaseQuestion(
+              topic,
+              focus,
+              language,
+              keywordFocus,
+              avoid,
+              caseContextText,
+              caseSources,
+            );
+          }
+        }),
       );
+
       const data: CaseStudySession = {
         topic,
         questions,
-        references: sessionRefs,
+        references: [],
       };
-      const normalized = normalizeCaseSession(topic, data);
+      const normalized = normalizeCaseSession(topic, data, language);
       return keywords.length ? { ...normalized, keywords } : normalized;
     } catch (error) {
       console.error("Case study generation failed:", error);
@@ -556,76 +1582,197 @@ export const aiService = {
     }
   },
 
-  async generateTests(topic: string, count: number = 10, language: AppLanguage = 'uz'): Promise<TestSession> {
-    assertDeepseekApiKey();
+  /**
+   * Tez yo‘l: faqat asosiy tilda 1 ta AI so‘rov.
+   * Tarjima + kitob manbalari — `enrichTestSession` (fonda, UI kutmaydi).
+   */
+  async generateTests(
+    topic: string,
+    count: number = 10,
+    language: AppLanguage = 'uz',
+    subjectCode?: string,
+    difficulty: TestDifficulty = DEFAULT_TEST_DIFFICULTY,
+  ): Promise<TestSession> {
+    assertOpenAiApiKey();
+    const safeCount = Math.min(90, Math.max(10, Math.round(count) || 10));
     const outLang = languageName(language);
-    const avoid = previousTestAvoidBlock(topic);
-    const generate = async (requestedCount: number, shortMode: boolean, strict: boolean): Promise<TestSession> => {
-      const variety = buildTestVarietyPrompt(topic, requestedCount);
-      const parsed = await deepseekJson({
-        model: DEEPSEEK_CHAT,
-        system: `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} ${requestedCount} ta test JSON: {topic, references:[{title,authors,year,publisher,url}], questions:[{question, options[5], correctOptionIndex, explanation, references:[...]}]}. Til: ${outLang}. ${MEDICAL_REFERENCES_AI_RULES}`,
-        user: `${variety}${avoid}\n\n${requestedCount} ta NOYOB savol. Klinik vignette 3-6 gap, 5 ta teng variant, kuchli distraktorlar. explanation ${shortMode ? '2-3' : '3-5'} gap — oxirida [1][2] iqtiboslar. ${strict ? 'Faqat valid JSON.' : ''}`,
-        maxTokens: 4096,
-        temperature: strict ? 0.42 : 0.68,
+    const bookContext: BookContext | undefined = subjectCode?.trim()
+      ? { subjectCode: subjectCode.trim(), topicQuery: topic }
+      : undefined;
+    // Avoid-list ixtiyoriy — timeout bilan, generate’ni ushlab turmasin
+    const avoid = await Promise.race([
+      previousTestAvoidBlock(topic),
+      new Promise<string>((resolve) => setTimeout(() => resolve(''), 800)),
+    ]);
+
+    const generate = async (requestedCount: number): Promise<TestSession> => {
+      const variety = buildTestVarietyPrompt(topic, requestedCount, difficulty);
+      const levelBlock = buildTestDifficultyPrompt(difficulty);
+      // ~480 token/savol: 5-7 gaplik klinik `explanation` (o'zbekcha ~3 token/so'z).
+      // gpt-4o max output (16000) dan oshmasin.
+      const scaledMaxTokens = Math.min(16000, Math.ceil(requestedCount * 480) + 500);
+      // OpenAI + server RAG: book_references completion javobidan olinadi.
+      let bookReferences: MedicalReference[] = [];
+      const parsed = await openaiJson({
+        model: OPENAI_CHAT,
+        system:
+          `${SYS_MEDICAL} ${GENERATION_UNIQUENESS_RULE} ${jsonReferencesRule(Boolean(bookContext))} ` +
+          `${requestedCount} ta test JSON: ` +
+          `{topic, references:[], questions:[{question, options[5], correctOptionIndex, explanation, references:[]}]}. ` +
+          // optionExplanations shu yerda so'ralmaydi — u `enrichTestSession`
+          // ichida, fonda, bo'lak-bo'lak olinadi (katta partiyalarda javob
+          // token limitiga urilib JSON kesilib qolmasligi uchun).
+          `${testExplanationInstruction(difficulty)} ` +
+          'O\'ylab topilgan raqam, doza, statistika yoki havola yozmang — ishonchingiz komil ' +
+          'bo\'lmasa, aniq son o\'rniga umumiy qoidani yozing. ' +
+          `${levelBlock} ` +
+          'optionExplanations YOZMANG. ' +
+          `Til: ${outLang}. ${strictLanguageDirective(language)}`,
+        user:
+          `${variety}${avoid}\n\n${requestedCount} ta NOYOB savol. ${testStemInstruction(difficulty)} ` +
+          'Har savolni yozishdan oldin o\'zingizga savol bering: "to\'g\'ri javobim shu mavzuga kiradimi va stemdan kelib chiqadimi? Ikkinchi variant ham to\'g\'rimi?" — ' +
+          'kirmasa yoki ikkita to\'g\'ri bo\'lsa, savolni almashtiring. explanation — 5-7 gaplik klinik tahlil. Faqat valid JSON.',
+        maxTokens: scaledMaxTokens,
+        temperature: testDifficultyTemperature(difficulty),
+        bookContext,
+        onBookReferences: (refs) => {
+          bookReferences = refs;
+        },
         parse: (t) => parseJSONSafe<TestSession>(t),
       });
-      return normalizeTestSession(topic, parsed, requestedCount);
+      return { ...normalizeTestSession(topic, { ...parsed, difficulty }, requestedCount, bookReferences) };
     };
 
-    const generateChunked = async (total: number): Promise<TestSession> => {
-      const safeTotal = Math.max(1, total);
-      const chunkSize = 4;
-      let remaining = safeTotal;
-      const merged: TestQuestion[] = [];
-      while (remaining > 0) {
-        const current = Math.min(chunkSize, remaining);
-        const part = await generate(current, true, true);
-        merged.push(...(part.questions || []).slice(0, current));
-        remaining -= current;
-      }
-      return normalizeTestSession(topic, { topic, questions: merged }, safeTotal);
-    };
+    /** Savol matnlari so'ralgan tilda ekanini tekshiradi. */
+    const sessionLanguageWrong = (s: TestSession): boolean =>
+      outputLanguageLooksWrong((s.questions || []).map((q) => q.question).join(' '), language);
 
     try {
-      let data: TestSession;
-      try {
-        data = await generate(count, false, false);
-      } catch {
-        data = await generate(Math.min(count, 10), true, true);
+      let data = await generate(safeCount);
+      // Faqat juda buzilgan bo‘lsa qayta urin (kam savol) — weak sifat uchun ikkinchi to‘liq generate yo‘q
+      if (!data.questions?.length || data.questions.length < Math.min(6, safeCount)) {
+        data = await generate(Math.min(safeCount, 10));
       }
-      if (isWeakTestSession(data, count)) {
-        data = await generate(Math.min(count, 10), true, true);
+      // Til nazorati: model boshqa tilda (ko'pincha kirilcha o'zbekchada)
+      // qaytarsa — bir marta qayta so'raymiz.
+      if (sessionLanguageWrong(data)) {
+        console.warn(`Test ${language} tilida emas, qayta urinilmoqda`);
+        try {
+          const retry = await generate(safeCount);
+          if (retry.questions?.length && !sessionLanguageWrong(retry)) data = retry;
+        } catch (err) {
+          console.warn('Test tili bo\'yicha qayta urinish muvaffaqiyatsiz:', err);
+        }
       }
-      if (isWeakTestSession(data, count)) {
-        data = await generateChunked(Math.min(count, 12));
-      }
-      return normalizeTestSession(topic, data, count);
+      return { ...normalizeTestSession(topic, data, safeCount), primaryLanguage: language, difficulty };
     } catch (error) {
-      try {
-        return await generateChunked(Math.min(count, 12));
-      } catch (fallbackError) {
-        console.error("Test generation failed:", fallbackError);
-        throw fallbackError;
-      }
+      console.warn('Test generation failed, compact retry…', error);
+      const data = await generate(Math.min(safeCount, 10));
+      return { ...normalizeTestSession(topic, data, safeCount), primaryLanguage: language, difficulty };
     }
   },
 
-  async generateLectureNotes(topic: string, description: string = '', language: AppLanguage = 'uz'): Promise<LectureNote> {
+  /** Tarjima (ru/en) + kitob manbalari — generate’dan KEYIN fonda. */
+  async enrichTestSession(
+    session: TestSession,
+    language: AppLanguage = 'uz',
+    subjectCode?: string,
+  ): Promise<TestSession> {
+    const primary = session.primaryLanguage || language;
+    // MUHIM tartib: variant izohlari TARJIMADAN OLDIN qo'shiladi — aks holda
+    // tarjima manbasida ular bo'lmaydi va ru/en versiyalar izohsiz qolardi.
+    const withOptionExplanations = await attachOptionExplanations(session, primary, subjectCode);
+    const [withRefs, translated] = await Promise.all([
+      attachPerQuestionBookReferences(withOptionExplanations, subjectCode),
+      attachTestTranslations(withOptionExplanations, primary),
+    ]);
+    const translations = translated.translations
+      ? Object.fromEntries(
+          Object.entries(translated.translations).map(([lang, content]) => [
+            lang,
+            {
+              ...content,
+              questions: content.questions.map((q, i) => ({
+                ...q,
+                ...(withRefs.questions[i]?.references?.length
+                  ? { references: withRefs.questions[i].references }
+                  : {}),
+              })),
+              ...(withRefs.references?.length ? { references: withRefs.references } : {}),
+            },
+          ]),
+        )
+      : undefined;
+
+    return {
+      ...withRefs,
+      primaryLanguage: primary,
+      ...(translations && Object.keys(translations).length
+        ? { translations: translations as TestSession['translations'] }
+        : {}),
+    };
+  },
+
+  async generateLectureNotes(
+    topic: string,
+    description: string = '',
+    language: AppLanguage = 'uz',
+    subjectCode?: string,
+    /** Matn generatsiya bo'lgan sari chaqiriladi — foydalanuvchi darhol
+     * ko'rishi uchun (kutish tuyg'usini yo'qotadi, umumiy vaqt bir xil). */
+    onProgress?: (textSoFar: string) => void,
+  ): Promise<LectureNote> {
     try {
-      assertDeepseekApiKey();
+      assertOpenAiApiKey();
       const outLang = languageName(language);
-      const content = await deepseekText({
-        model: DEEPSEEK_CHAT,
-        system: `${SYS_MEDICAL} Ma'ruza faqat Markdown. Kirish, 3-4 bo'lim, klinik qo'llash, xulosa. Matn ichida muhim faktlar yonida [manba](url) havolalari. ${LECTURE_REFERENCES_AI_RULES} Til: ${outLang}.`,
-        user: `Mavzu: "${topic}". Qo'shimcha: ${description || '—'}. Batafsil ma'ruza matni. Har bo'limda ilmiy dalillar va havolalar bo'lsin.`,
-        maxTokens: 8192,
+      const bookContext: BookContext | undefined = subjectCode ? { subjectCode, topicQuery: topic } : undefined;
+      const requestLecture = () => openaiTextStream({
+        model: OPENAI_CHAT,
+        system: `${SYS_MEDICAL} Ma'ruza faqat Markdown. HAJM: qisqa konspekt EMAS — real 60-90 daqiqalik ` +
+          'universitet ma\'ruzasi (taxminan 3500-6000 so\'z yoki undan ko\'p). ' +
+          'Tuzilma majburiy: # sarlavha; ## Kirish (ahamiyat, maqsad, reja — kamida 3-4 paragraf); ' +
+          'kamida 7-9 ta ## asosiy bo\'lim (har birida kamida 4-6 to\'liq paragraf + kerak bo\'lsa ### ' +
+          'va ro\'yxatlar; ta\'rif, mexanizm, tasnif, misol); ## Klinik / amaliy qo\'llash (kamida 3-4 ' +
+          'paragraf); ## Xulosa (asosiy xulosalar). Sayoz umumiy gaplar bilan cheklanmang — chuqur ' +
+          'tushuntiring, ta\'rif va misollarni ochib yozing. ' +
+          (bookContext
+            ? 'Berilgan darslik parchalaridagi BARCHA tegishli tafsilotlardan to\'liq foydalaning — ' +
+              'qisqartirmasdan, kengaytirib tushuntiring. HAR BIR ## bo\'limda kamida bitta ' +
+              '"(Manba: <HAQIQIY kitob nomi>, <HAQIQIY sahifa raqami>)" ko\'rsating — "<...>" ' +
+              'belgilarini haqiqiy nom/raqam bilan almashtiring, "kitob nomi"/"sahifa-bet" so\'zlarini ' +
+              'o\'zgarishsiz qoldirmang; aniq bilmasangiz manba qatorini butunlay tashlab keting.'
+            : 'Tashqi havola yoki o\'ylab topilgan manba qo\'shmang.'
+          ) + ` ${textReferencesRule(Boolean(bookContext), language)} Til: ${outLang}. ${strictLanguageDirective(language)}`,
+        user:
+          `Mavzu: "${topic}". Qo'shimcha: ${description || '—'}. ` +
+          'UZUN va BATAFSIL ma\'ruza matni yozing — qisqa xulosa yoki tezislar emas. ' +
+          'Kamida 7 ta asosiy bo\'lim, har biri bir necha to\'liq paragraf. ' +
+          (bookContext
+            ? `Darslik manbalarini matn ichida (${sourceWords(language).label}: ...) ko'rsating va ` +
+              `oxirida "## ${sourceWords(language).heading}" bo'limini qo'shing.`
+            : ''),
+        maxTokens: 16000,
         temperature: 0.4,
+        bookContext,
+        onDelta: onProgress ?? (() => {}),
       });
+
+      let content = await requestLecture();
+      // Til nazorati: model so'ralgan til o'rniga o'zbekchani (ko'pincha kirilda)
+      // qaytarsa — bir marta qayta so'raymiz.
+      if (outputLanguageLooksWrong(content || '', language)) {
+        console.warn(`Ma'ruza matni ${language} tilida emas, qayta urinilmoqda`);
+        try {
+          const retry = await requestLecture();
+          if (!outputLanguageLooksWrong(retry || '', language)) content = retry;
+        } catch (err) {
+          console.warn('Ma\'ruza tili bo\'yicha qayta urinish muvaffaqiyatsiz:', err);
+        }
+      }
 
       return {
         topic: topic,
-        content: content || ''
+        content: normalizeSourceHeading(stripPlaceholderManba(content || ''), language)
       };
     } catch (error) {
       console.error("Lecture Note generation failed:", error);
@@ -635,8 +1782,8 @@ export const aiService = {
 
   async generateImagePrompt(title: string, content: string[]): Promise<string> {
     try {
-      const text = await deepseekText({
-        model: DEEPSEEK_FAST,
+      const text = await openaiText({
+        model: OPENAI_FAST,
         system: 'One English image prompt for medical slide. Output prompt only, no quotes.',
         user: `Title: ${title}\nBullets:\n${content.join('\n')}`,
         maxTokens: 200,
@@ -651,8 +1798,8 @@ export const aiService = {
 
   async generateExercises(topic: string): Promise<Exercise> {
     try {
-      return deepseekJson({
-        model: DEEPSEEK_CHAT,
+      return openaiJson({
+        model: OPENAI_CHAT,
         system: `${SYS_MEDICAL} JSON: {title, description, tasks:[{task, type, options?, answer}]}. Til: O'zbek.`,
         user: `Mavzu: "${topic}". Interaktiv mashqlar.`,
         maxTokens: 2048,
@@ -664,41 +1811,26 @@ export const aiService = {
     }
   },
 
-  async generateImage(prompt: string): Promise<string | null> {
-    try {
-      const p = prompt.toLowerCase();
-      const isXray =
-        p.includes('x-ray') || p.includes('xray') || p.includes('mri') || p.includes('ct scan');
-      const isDiagram =
-        /diagram|infographic|flowchart|chart|schema|pathway|vector|illustration|graph|anatom|cross-section|histolog|statistic|bar chart|pie chart|timeline|process/.test(
-          p
-        );
-      let suffix: string;
-      if (isXray) {
-        suffix = ', realistic medical imaging quality, clinical radiology style';
-      } else if (isDiagram) {
-        suffix =
-          ', professional medical infographic and diagram style, clean flat educational illustration, readable shapes and arrows, soft shadows, white or light background, high clarity, minimal overlaid text in image';
-      } else {
-        suffix =
-          ', authentic clinical photograph, highly realistic medical photography, textbook quality, accurate anatomy, no exaggerated gore, natural lighting';
-      }
-      const maxCore = 300;
-      const core = sanitizeImagePrompt(prompt, maxCore);
-      const fullPrompt = `${core}${suffix}`;
-      const candidates = [
-        `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=576&nologo=true&seed=${Math.floor(Math.random() * 100000)}&model=flux-realism`,
-        `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=576&nologo=true&seed=${Math.floor(Math.random() * 100000)}&model=flux`,
-        `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=576&nologo=true&seed=${Math.floor(Math.random() * 100000)}`,
-      ];
-      for (const url of candidates) {
-        const dataUrl = await fetchImageAsDataUrl(url);
-        if (dataUrl) return dataUrl;
-      }
-      return candidates[0];
-    } catch (error) {
-      console.error("Image generation failed:", error);
-      return null;
-    }
+  async generatePresentationDeck(params: {
+    topicTitle: string;
+    topicId: string;
+    topicType: 'lecture' | 'practical';
+    subjectName: string;
+    variantLabel: string;
+    language: AppLanguage;
+    mode: 'generate' | 'enhance';
+    sourceFileName?: string;
+    sourceText?: string;
+    /** Mavzu bo'yicha tayyor ma'ruza matni — taqdimotning asosiy manbasi. */
+    lectureText?: string;
+    subjectCode?: string;
+    onProgress?: (rawTextSoFar: string) => void;
+  }): Promise<PresentationContent> {
+    return requestPresentationDeckFromAi(params);
+  },
+
+  async generateImage(_prompt: string): Promise<string | null> {
+    // Maxfiylik: tashqi rasm generatsiya servislari o‘chirilgan (pollinations.ai).
+    return null;
   },
 };

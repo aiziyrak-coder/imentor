@@ -1,7 +1,7 @@
 import { logStaffActivity } from './staffActivityLog';
 
-/** admin — to‘liq kirish; hodim — ta'lim modullari; startuper — innovatsiya loyihalari */
-export type UserRole = 'admin' | 'hodim' | 'startuper';
+/** admin — to‘liq kirish; hodim — ta'lim; student — OnlineTest talaba */
+export type UserRole = 'admin' | 'hodim' | 'student';
 
 export interface LocalStaffUser {
   uid: string;
@@ -22,10 +22,12 @@ export interface LocalStaffUser {
   /** Unix ms — oxirgi kirish yoki tizimdagi so‘nggi faollik */
   lastActiveAt?: number;
   photoURL?: string | null;
-  /** Startuper: talaba yoki xodim */
+  /** Legacy optional fields (eski startuper profili) */
   participantKind?: 'student' | 'employee';
   /** Talaba: o‘quv guruhi */
   studyGroup?: string;
+  /** OnlineTest AppUser.id (faqat role=student) */
+  onlineTestStudentId?: string;
   /** Xodim: lavozim */
   jobTitle?: string;
 }
@@ -34,50 +36,56 @@ const USERS_KEY = 'salomatlik-local-staff-users-v1';
 const SESSION_KEY = 'salomatlik-local-staff-session-v1';
 const AUTH_EVENT = 'salomatlik-local-auth-changed';
 
+/** Parollar localStorage'da saqlanmaydi — faqat server JWT orqali autentifikatsiya. */
+const PASSWORD_NOT_STORED = '';
+
+function withoutStoredPassword(user: LocalStaffUser): LocalStaffUser {
+  return { ...user, password: PASSWORD_NOT_STORED };
+}
+
 export const TEST_STAFF_PHONE = '+998901112233';
-export const TEST_STAFF_PASSWORD = 'TestHodim123';
-
 export const TEST_ADMIN_PHONE = '+998901110001';
-export const TEST_ADMIN_PASSWORD = 'AdminDemo123';
 
-export const TEST_STARTUPER_PHONE = '+998901110003';
-export const TEST_STARTUPER_PASSWORD = 'StartupDemo123';
-
-/** Demo kirish uchun (login sahifasi) */
-export const DEMO_ROLE_LOGINS: {
+type DemoRoleLogin = {
   role: UserRole;
   title: string;
   subtitle: string;
   phone: string;
   password: string;
-}[] = [
-  {
-    role: 'admin',
-    title: 'Admin',
-    subtitle: 'Barcha modullar',
-    phone: TEST_ADMIN_PHONE,
-    password: TEST_ADMIN_PASSWORD,
-  },
-  {
-    role: 'hodim',
-    title: 'Assistant professor',
-    subtitle: 'Ta\'lim modullari',
-    phone: TEST_STAFF_PHONE,
-    password: TEST_STAFF_PASSWORD,
-  },
-  {
-    role: 'startuper',
-    title: 'Startuper',
-    subtitle: 'Innovatsiya va startap loyihalari',
-    phone: TEST_STARTUPER_PHONE,
-    password: TEST_STARTUPER_PASSWORD,
-  },
-];
+};
+
+function readDemoEnv(key: string): string {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  return (env?.[key] || '').trim();
+}
+
+/** Demo kirish — faqat dev va VITE_DEMO_*_PASSWORD sozlangan bo'lsa. */
+export function getDemoRoleLogins(): DemoRoleLogin[] {
+  if (!isDemoAuthEnabled()) return [];
+  const entries: DemoRoleLogin[] = [
+    {
+      role: 'admin',
+      title: 'Admin',
+      subtitle: 'Barcha modullar',
+      phone: readDemoEnv('VITE_DEMO_ADMIN_PHONE') || TEST_ADMIN_PHONE,
+      password: readDemoEnv('VITE_DEMO_ADMIN_PASSWORD'),
+    },
+    {
+      role: 'hodim',
+      title: "O'qituvchi",
+      subtitle: "Ta'lim modullari",
+      phone: readDemoEnv('VITE_DEMO_STAFF_PHONE') || TEST_STAFF_PHONE,
+      password: readDemoEnv('VITE_DEMO_STAFF_PASSWORD'),
+    },
+  ];
+  return entries.filter((e) => e.password.length >= 6);
+}
 
 export function normalizeUserRole(user: LocalStaffUser | null | undefined): UserRole {
-  const r = user?.role;
-  if (r === 'admin' || r === 'hodim' || r === 'startuper') return r;
-  if (r === 'tarjimon') return 'hodim';
+  const r = user?.role as string | undefined;
+  if (r === 'admin' || r === 'hodim' || r === 'student') return r;
+  // Legacy roles
+  if (r === 'startuper' || r === 'tarjimon') return 'hodim';
   return 'hodim';
 }
 
@@ -106,77 +114,40 @@ function upsertDemoUser(user: LocalStaffUser): void {
   writeUsers(users);
 }
 
-/** Productionda demo hisoblar yaratilmaydi (faqat dev yoki VITE_ENABLE_DEMO_AUTH=true). */
+/** Productionda demo hisoblar yaratilmaydi (faqat dev + VITE_DEMO_* parollari). */
 export function isDemoAuthEnabled(): boolean {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | boolean | undefined> }).env;
+  if (env?.PROD && env?.VITE_ENABLE_DEMO_AUTH !== 'true') return false;
   return Boolean(env?.DEV) || env?.VITE_ENABLE_DEMO_AUTH === 'true';
 }
 
-/** Uchta demo rol uchun login/parol bilan foydalanuvchilarni yaratadi yoki yangilaydi */
+/** Demo rollar uchun mahalliy profil (parol saqlanmaydi — server login). */
 export function ensureDefaultRoleDemosExist(): void {
   if (!isDemoAuthEnabled()) return;
+  const demos = getDemoRoleLogins();
+  if (demos.length === 0) return;
   const now = Date.now();
 
-  upsertDemoUser({
-    uid: `demo_admin_${now}`,
-    displayName: 'Demo Admin',
-    firstName: 'Demo',
-    lastName: 'Admin',
-    phoneDisplay: TEST_ADMIN_PHONE,
-    phoneDigits: normalizePhoneDigits(TEST_ADMIN_PHONE),
-    faculty: 'Administrator',
-    department: 'Tizim',
-    direction: 'To‘liq kirish',
-    email: phoneDigitsToEmail(normalizePhoneDigits(TEST_ADMIN_PHONE)),
-    password: TEST_ADMIN_PASSWORD,
-    role: 'admin',
-    createdAt: now,
-    updatedAt: now,
-    photoURL: null,
-  });
-
-  upsertDemoUser({
-    uid: `demo_hodim_${now}`,
-    displayName: 'Test Hodim',
-    firstName: 'Test',
-    lastName: 'Hodim',
-    phoneDisplay: TEST_STAFF_PHONE,
-    phoneDigits: normalizePhoneDigits(TEST_STAFF_PHONE),
-    faculty: 'Tibbiyot fakulteti',
-    department: 'Ichki kasalliklar kafedrasi',
-    direction: "Terapiya yo'nalishi",
-    email: phoneDigitsToEmail(normalizePhoneDigits(TEST_STAFF_PHONE)),
-    password: TEST_STAFF_PASSWORD,
-    role: 'hodim',
-    createdAt: now,
-    updatedAt: now,
-    photoURL: null,
-  });
-
-  upsertDemoUser({
-    uid: `demo_startuper_${now}`,
-    displayName: 'Demo Startuper',
-    firstName: 'Demo',
-    lastName: 'Startuper',
-    phoneDisplay: TEST_STARTUPER_PHONE,
-    phoneDigits: normalizePhoneDigits(TEST_STARTUPER_PHONE),
-    faculty: 'Tibbiyot fakulteti',
-    department: 'Ichki kasalliklar kafedrasi',
-    direction: "Terapiya yo'nalishi",
-    email: phoneDigitsToEmail(normalizePhoneDigits(TEST_STARTUPER_PHONE)),
-    password: TEST_STARTUPER_PASSWORD,
-    role: 'startuper',
-    participantKind: 'student',
-    studyGroup: '421-22 guruh',
-    createdAt: now,
-    updatedAt: now,
-    photoURL: null,
-  });
-}
-
-/** @deprecated ensureDefaultRoleDemosExist ishlating */
-export function ensureDefaultTestStaffExists(): void {
-  ensureDefaultRoleDemosExist();
+  for (const demo of demos) {
+    const digits = normalizePhoneDigits(demo.phone);
+    upsertDemoUser({
+      uid: `demo_${demo.role}_${digits}`,
+      displayName: demo.title,
+      firstName: 'Demo',
+      lastName: demo.title,
+      phoneDisplay: demo.phone,
+      phoneDigits: digits,
+      faculty: demo.role === 'admin' ? 'Administrator' : 'Tibbiyot fakulteti',
+      department: demo.role === 'admin' ? 'Tizim' : 'Ichki kasalliklar kafedrasi',
+      direction: demo.role === 'admin' ? "To'liq kirish" : "Terapiya yo'nalishi",
+      email: phoneDigitsToEmail(digits),
+      password: PASSWORD_NOT_STORED,
+      role: demo.role,
+      createdAt: now,
+      updatedAt: now,
+      photoURL: null,
+    });
+  }
 }
 
 function readUsers(): LocalStaffUser[] {
@@ -184,14 +155,15 @@ function readUsers(): LocalStaffUser[] {
     const raw = localStorage.getItem(USERS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as LocalStaffUser[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(withoutStoredPassword);
   } catch {
     return [];
   }
 }
 
 function writeUsers(users: LocalStaffUser[]): void {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  localStorage.setItem(USERS_KEY, JSON.stringify(users.map(withoutStoredPassword)));
 }
 
 /** Sessiyada parol saqlanmaydi — faqat users ro‘yxatida. */
@@ -204,11 +176,11 @@ function hydrateSessionUser(session: LocalStaffUser): LocalStaffUser {
   const stored =
     users.find((u) => u.uid === session.uid) ??
     users.find((u) => u.phoneDigits === session.phoneDigits);
-  if (!stored) return withRoleDefault(session);
+  if (!stored) return withRoleDefault(withoutStoredPassword(session));
   return withRoleDefault({
     ...stored,
     ...session,
-    password: stored.password,
+    password: PASSWORD_NOT_STORED,
     role: stored.role ?? session.role,
   });
 }
@@ -246,6 +218,30 @@ export function isValidPhoneDigits(digits: string): boolean {
   return digits.length === 12 && digits.startsWith('998');
 }
 
+/** Xodim ID uzunligi chegarasi — backend `app/core/staff_login.py` bilan bir xil. */
+const MIN_STAFF_ID_LEN = 4;
+const MAX_STAFF_ID_LEN = 32;
+
+/**
+ * Xodim login identifikatorini normallashtiradi.
+ *
+ * Xodim ikki xil identifikator bilan kiradi: telefon raqami (eski, qo'lda
+ * qo'shilgan hisoblar) yoki **Xodim ID** (kadrlar tabel raqami — ommaviy
+ * import qilingan hisoblar). Ikkalasi ham serverda `username` ustunida
+ * saqlanadi, shuning uchun tekshiruv backenddagi bilan bir xil bo'lishi kerak.
+ */
+export function normalizeStaffLogin(input: string): string {
+  const phone = normalizePhoneDigits(input || '');
+  if (isValidPhoneDigits(phone)) return phone;
+  return (input || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+}
+
+export function isValidStaffLogin(value: string): boolean {
+  const normalized = normalizeStaffLogin(value);
+  if (isValidPhoneDigits(normalized)) return true;
+  return normalized.length >= MIN_STAFF_ID_LEN && normalized.length <= MAX_STAFF_ID_LEN;
+}
+
 export function phoneDigitsToEmail(digits: string): string {
   return `phone_${digits}@local.staff`;
 }
@@ -258,25 +254,11 @@ export interface RegisterLocalInput {
   faculty: string;
   department: string;
   direction: string;
-  /** Standart ro‘yxatdan o‘tishda default hodim; startuper uchun tanlanadi */
+  /** Standart ro‘yxatdan o‘tishda default hodim */
   role?: UserRole;
   participantKind?: 'student' | 'employee';
   studyGroup?: string;
   jobTitle?: string;
-}
-
-/** Loyiha arizasi uchun JWT egasi profilini backend bilan mos JSON ko‘rinishida qaytaradi */
-export function buildStartupProfileSnapshot(user: LocalStaffUser): Record<string, unknown> {
-  return {
-    displayName: user.displayName,
-    faculty: user.faculty,
-    department: user.department,
-    direction: user.direction,
-    participantKind: user.participantKind ?? null,
-    studyGroup: user.studyGroup ?? '',
-    jobTitle: user.jobTitle ?? '',
-    phoneDigits: user.phoneDigits,
-  };
 }
 
 export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
@@ -291,16 +273,7 @@ export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
   const now = Date.now();
-  const role = input.role ?? 'hodim';
-  if (role === 'startuper') {
-    const kind = input.participantKind ?? 'student';
-    if (kind === 'student' && !input.studyGroup?.trim()) throw new Error('startuper-no-group');
-    if (kind === 'employee' && !input.jobTitle?.trim()) throw new Error('startuper-no-title');
-  }
-  const pk =
-    role === 'startuper'
-      ? input.participantKind ?? 'student'
-      : undefined;
+  const role = input.role === 'admin' || input.role === 'student' ? input.role : 'hodim';
 
   const user: LocalStaffUser = {
     uid: `local_${now}_${Math.random().toString(36).slice(2, 8)}`,
@@ -315,7 +288,7 @@ export function registerLocalStaff(input: RegisterLocalInput): LocalStaffUser {
     email: phoneDigitsToEmail(digits),
     password: input.password,
     role,
-    participantKind: pk,
+    participantKind: input.participantKind,
     studyGroup: input.studyGroup?.trim() || undefined,
     jobTitle: input.jobTitle?.trim() || undefined,
     createdAt: now,
@@ -373,7 +346,7 @@ export function establishLocalSessionFromProfile(profile: LocalStaffUser): Local
     ...(existing ?? profile),
     ...profile,
     uid: existing?.uid ?? profile.uid,
-    password: profile.password || existing?.password || '',
+    password: PASSWORD_NOT_STORED,
     lastActiveAt: now,
     updatedAt: now,
   });
@@ -388,12 +361,11 @@ export function establishLocalSessionFromProfile(profile: LocalStaffUser): Local
   return sessionUser;
 }
 
-export function loginLocalStaff(phoneInput: string, password: string): LocalStaffUser {
+export function loginLocalStaff(phoneInput: string, _password: string): LocalStaffUser {
   const digits = normalizePhoneDigits(phoneInput);
   const users = readUsers();
   const idx = users.findIndex((u) => u.phoneDigits === digits);
   if (idx < 0) throw new Error('user-not-found');
-  if (users[idx].password !== password) throw new Error('wrong-password');
   const now = Date.now();
   const sessionUser = withRoleDefault({
     ...users[idx],
@@ -445,6 +417,7 @@ export function updateCurrentLocalUser(
       | 'studyGroup'
       | 'jobTitle'
       | 'photoURL'
+      | 'onlineTestStudentId'
     >
   >
 ): LocalStaffUser {
@@ -539,9 +512,9 @@ export function adminCreateStaffUser(input: AdminMutateStaffInput): LocalStaffUs
     email: phoneDigitsToEmail(digits),
     password: input.password,
     role: input.role,
-    participantKind: input.role === 'startuper' ? input.participantKind ?? 'student' : undefined,
-    studyGroup: input.role === 'startuper' ? input.studyGroup?.trim() || undefined : undefined,
-    jobTitle: input.role === 'startuper' ? input.jobTitle?.trim() || undefined : undefined,
+    participantKind: input.participantKind,
+    studyGroup: input.studyGroup?.trim() || undefined,
+    jobTitle: input.jobTitle?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
     photoURL: null,
@@ -602,13 +575,7 @@ export function adminUpdateStaffUser(
       throw new Error('last-admin');
     }
   }
-  const effectiveRole = normalizeUserRole(merged);
-  if (effectiveRole !== 'startuper') {
-    merged.participantKind = undefined;
-    merged.studyGroup = undefined;
-    merged.jobTitle = undefined;
-  }
-  users[idx] = merged;
+  users[idx] = withRoleDefault(merged);
   writeUsers(users);
 
   const session = getCurrentLocalUser();
@@ -633,4 +600,3 @@ export function adminDeleteStaffUser(uid: string): void {
   writeUsers(users.filter((u) => u.uid !== uid));
   emitAuthChanged();
 }
-

@@ -1,11 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ChevronDown, Loader2, MapPin, Plus, Radio, Trash2 } from 'lucide-react';
-import {
-  listAllStaffUsers,
-  normalizeUserRole,
-  subscribeLocalAuth,
-  type LocalStaffUser,
-} from '../../utils/localStaffAuth';
+import { fetchStaffDirectory, type StaffDirectoryEntry } from '../../utils/staffDirectoryApi';
 import AdminStaffLiveMapPanel from './AdminStaffLiveMapPanel';
 import { useUiText } from '../../i18n/useUiText';
 import type { UiTextKey } from '../../i18n/translations';
@@ -196,7 +191,8 @@ export default function AdminStaffLocationConsole() {
   const [tab, setTab] = useState<Tab>('schedule');
   /** 12 raqam (998...) yoki bo'sh: barcha hodimlar */
   const [staffOwnerDigits, setStaffOwnerDigits] = useState('');
-  const [staffOptions, setStaffOptions] = useState<LocalStaffUser[]>([]);
+  const [staffOptions, setStaffOptions] = useState<StaffDirectoryEntry[]>([]);
+  const [kafedraFilter, setKafedraFilter] = useState('');
   const [schedule, setSchedule] = useState<StaffScheduleSlotDto[]>([]);
   const [pings, setPings] = useState<StaffLocationPingDto[]>([]);
   const [alerts, setAlerts] = useState<StaffLocationAlertDto[]>([]);
@@ -215,11 +211,11 @@ export default function AdminStaffLocationConsole() {
 
   const LIVE_MAP_POLL_SEC = 5;
 
-  const refreshStaffOptions = useCallback(() => {
+  const refreshStaffOptions = useCallback(async () => {
     try {
-      const rows = listAllStaffUsers()
-        .filter((u) => normalizeUserRole(u) === 'hodim')
-        .sort((a, b) => a.displayName.localeCompare(b.displayName, 'uz'));
+      const rows = (await fetchStaffDirectory())
+        .filter((u) => u.role === 'hodim')
+        .sort((a, b) => a.display_name.localeCompare(b.display_name, 'uz'));
       setStaffOptions(rows);
     } catch {
       setStaffOptions([]);
@@ -227,17 +223,27 @@ export default function AdminStaffLocationConsole() {
   }, []);
 
   useEffect(() => {
-    refreshStaffOptions();
-  }, [refreshStaffOptions]);
-
-  useEffect(() => {
-    return subscribeLocalAuth(() => {
-      refreshStaffOptions();
-    });
+    void refreshStaffOptions();
   }, [refreshStaffOptions]);
 
   const ownerFilterApplied = useMemo(() => staffOwnerDigits.replace(/\D/g, ''), [staffOwnerDigits]);
   const editorDigits = ownerFilterApplied;
+
+  // Kafedra bo'yicha filtr — hodimlar soni ko'p bo'lganda (masalan docx'dan
+  // import qilingan o'qituvchilar) ro'yxatni qisqartirish uchun. Qo'shimcha
+  // API so'rov shart emas — StaffDirectoryEntry.department allaqachon bor.
+  const kafedraOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const u of staffOptions) {
+      if (u.department && u.department.trim()) set.add(u.department.trim());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'uz'));
+  }, [staffOptions]);
+
+  const filteredStaffOptions = useMemo(
+    () => (kafedraFilter ? staffOptions.filter((u) => u.department === kafedraFilter) : staffOptions),
+    [staffOptions, kafedraFilter],
+  );
 
   const scheduleGrouped = useMemo(() => {
     const m: { every: StaffScheduleSlotDto[]; upper: StaffScheduleSlotDto[]; lower: StaffScheduleSlotDto[] } = {
@@ -621,6 +627,24 @@ export default function AdminStaffLocationConsole() {
       </div>
 
       <div className="flex flex-col gap-1">
+        {kafedraOptions.length > 1 ? (
+          <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 flex-1 min-w-[200px]">
+            {t('admin.filterByKafedra')}
+            <select
+              value={kafedraFilter}
+              onChange={(e) => {
+                setKafedraFilter(e.target.value);
+                setStaffOwnerDigits('');
+              }}
+              className="rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[14px] text-black/90"
+            >
+              <option value="">{t('admin.allKafedraOption')}</option>
+              {kafedraOptions.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="flex flex-col gap-1 text-[12px] font-medium text-black/60 flex-1 min-w-[200px]">
           {t('admin.selectStaff')}
           <select
@@ -629,9 +653,9 @@ export default function AdminStaffLocationConsole() {
             className="rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[14px] text-black/90"
           >
             <option value="">{t('admin.allStaffOption')}</option>
-            {staffOptions.map((u) => (
-              <option key={u.uid} value={u.phoneDigits}>
-                {u.displayName} · {u.phoneDisplay}
+            {filteredStaffOptions.map((u) => (
+              <option key={u.phone_digits} value={u.phone_digits}>
+                {u.display_name} · {u.phone_display}
               </option>
             ))}
           </select>

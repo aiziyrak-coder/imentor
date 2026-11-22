@@ -1,9 +1,10 @@
 import os
 import re
+import secrets
 
 from django.conf import settings
-from django.contrib.auth.models import Group, User
-from django.db import transaction
+from django.contrib.auth.models import Group, User, update_last_login
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
@@ -14,38 +15,48 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 
+from .content_catalog_service import parse_topic_norm
 from .permissions import (
     ALLOWED_ROLES,
+    STAFF_ROLES,
+    HasAnyPlatformRole,
     HasEducationRole,
     IsAdminRole,
     IsHodimRole,
     IsStartuperOrAdmin,
+    IsStudentRole,
+    resolve_student_id,
     resolve_user_role,
 )
-from .clinical_group_service import (
-    can_provision_role,
-    clinic_auth_payload,
-    upsert_clinic_member,
+from .online_test_client import (
+    OnlineTestAuthError,
+    fetch_academic_catalog,
+    online_test_login,
+    split_person_name,
 )
 from .models import (
     CampusBuilding,
-    ClinicalGroup,
+    CourseSyllabus,
     LiveTestDraft,
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
     StaffLocationAlert,
     StaffLocationPing,
+    StaffProfile,
     StaffScheduleSlot,
     StartupProjectApplication,
     SyllabusDocument,
 )
 from .location_service import record_ping_and_evaluate
-from .live_test_service import finalize_live_test_session
+from .live_test_service import finalize_live_test_session, strip_questions_for_student
+from .pagination import paginated_response
+from .throttling import LiveTestAnonThrottle, LoginRateThrottle, StaffPingRateThrottle
 from .staff_profile_views import delete_staff_profile_for_owner, staff_photo_url_for_user
 from .week_schedule import current_week_phase_code, iso_week_number, week_phase_label_uz
 from .serializers import (
     AdminDeprovisionStaffSerializer,
+    AdminStaffUpsertSerializer,
     CampusBuildingSerializer,
     ChangePasswordSerializer,
     LocalLoginSerializer,
@@ -197,27 +208,53 @@ class PreparedContentV1View(PreparedContentView):
         payload["owner_key"] = request.user.username
         serializer = PreparedContentSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        item = serializer.save()
+
+        subject_code = (serializer.validated_data.get("subject_code") or "").strip()
+        syllabus = (
+            CourseSyllabus.objects.filter(subject_code=subject_code).first()
+            if subject_code
+            else None
+        )
+        save_kwargs: dict = {}
+        if syllabus:
+            save_kwargs["syllabus"] = syllabus
+            save_kwargs["subject_name"] = syllabus.subject_name
+            save_kwargs["subject_code"] = subject_code or syllabus.subject_code
+
+        variant_label = (serializer.validated_data.get("variant_label") or "").strip()
+        topic_code = (serializer.validated_data.get("topic_code") or "").strip()
+        if not variant_label or not topic_code:
+            parsed = parse_topic_norm(serializer.validated_data.get("topic_norm") or "")
+            variant_label = variant_label or parsed.get("variant_label", "")
+            topic_code = topic_code or parsed.get("topic_code", "")
+        if variant_label:
+            save_kwargs["variant_label"] = variant_label[:128]
+        if topic_code:
+            save_kwargs["topic_code"] = topic_code[:32]
+
+        item = serializer.save(**save_kwargs)
         return Response(PreparedContentSerializer(item).data, status=status.HTTP_201_CREATED)
 
 
 class AuthMeView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, HasEducationRole]
+    permission_classes = [IsAuthenticated, HasAnyPlatformRole]
 
     @extend_schema(responses=AuthMeResponseSerializer)
     def get(self, request):
         role = resolve_user_role(request.user, request)
-        return Response(
-            {
-                "id": request.user.id,
-                "username": request.user.username,
-                "role": role,
-                "first_name": request.user.first_name or "",
-                "last_name": request.user.last_name or "",
-                "photo_url": staff_photo_url_for_user(request, request.user.username),
-            }
-        )
+        payload = {
+            "id": request.user.id,
+            "username": request.user.username,
+            "role": role,
+            "first_name": request.user.first_name or "",
+            "last_name": request.user.last_name or "",
+            "photo_url": staff_photo_url_for_user(request, request.user.username),
+        }
+        sid = resolve_student_id(request.user, request)
+        if sid:
+            payload["student_id"] = sid
+        return Response(payload)
 
 
 def _demo_admin_phone_allowlist() -> frozenset[str]:
@@ -239,7 +276,7 @@ def _set_user_role_group(user: User, role: str) -> None:
     role = (role or "").strip().lower()
     if role not in ALLOWED_ROLES:
         return
-    for name in ALLOWED_ROLES:
+    for name in ALLOWED_ROLES + ("startuper",):
         group = Group.objects.filter(name=name).first()
         if group is not None:
             user.groups.remove(group)
@@ -257,19 +294,29 @@ def _resolve_login_role(user: User, requested_role: str) -> str:
     if requested == "admin":
         db_role = resolve_user_role(user, request=None)
         return db_role or "hodim"
-    if requested in ("hodim", "startuper"):
+    if requested == "hodim":
         _set_user_role_group(user, requested)
         return requested
     db_role = resolve_user_role(user, request=None)
     return db_role or "hodim"
 
 
-def _login_response_payload(user: User, role: str, request=None) -> dict:
+def _login_response_payload(
+    user: User,
+    role: str,
+    request=None,
+    *,
+    student_id: str | None = None,
+    group_name: str | None = None,
+) -> dict:
     refresh = RefreshToken.for_user(user)
     refresh["role"] = role
     access = refresh.access_token
     access["role"] = role
-    return {
+    if student_id:
+        refresh["student_id"] = student_id
+        access["student_id"] = student_id
+    out = {
         "access": str(access),
         "refresh": str(refresh),
         "role": role,
@@ -278,11 +325,101 @@ def _login_response_payload(user: User, role: str, request=None) -> dict:
         "last_name": user.last_name or "",
         "photo_url": staff_photo_url_for_user(request, user.username),
     }
+    if student_id:
+        out["student_id"] = student_id
+    if group_name:
+        out["group_name"] = group_name
+    return out
+
+
+def _ensure_online_test_student_user(student_id: str, first_name: str, last_name: str) -> User:
+    """OnlineTest talabasi uchun iMentor shadow user (parol OnlineTestda)."""
+    sid = str(student_id or "").strip()
+    if not sid:
+        raise ValueError("student_id required")
+    username = f"ot_{sid}"[:150]
+    user = User.objects.filter(username=username).first()
+    if user is None:
+        user = User(username=username, first_name=(first_name or "")[:150], last_name=(last_name or "")[:150])
+        user.set_unusable_password()
+        user.save()
+    else:
+        user.first_name = (first_name or "")[:150]
+        user.last_name = (last_name or "")[:150]
+        user.save(update_fields=["first_name", "last_name"])
+    _set_user_role_group(user, "student")
+    return user
+
+
+class AcademicCatalogView(APIView):
+    """
+    OnlineTest'dagi Kafedra -> Yo'nalish -> Guruh daraxtini frontendga beradi
+    (StaffProfile/ClinicalGroupMember formalaridagi dropdown'lar uchun).
+    Kalit (ONLINE_TEST_CONSUMER_API_KEY) faqat backend tomonida — frontend
+    hech qachon ko'rmaydi (`online_test_login` bilan bir xil naqsh).
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasAnyPlatformRole]
+
+    def get(self, request):
+        try:
+            data = fetch_academic_catalog()
+        except OnlineTestAuthError as exc:
+            return Response({"detail": exc.message}, status=exc.status_code)
+        return Response(data)
+
+
+class OnlineTestStudentLoginView(APIView):
+    """
+    Talaba OnlineTest ID+parol bilan kiradi.
+    iMentor JWT (role=student) beriladi — alohida talaba bazasi yo'q.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
+
+    def post(self, request):
+        payload = request.data or {}
+        student_id = str(
+            payload.get("id")
+            or payload.get("student_id")
+            or payload.get("username")
+            or ""
+        ).strip()
+        password = str(payload.get("password") or "").strip()
+        if not student_id or not password:
+            return Response(
+                {"detail": "Talaba ID va parol majburiy."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ot = online_test_login(student_id, password)
+        except OnlineTestAuthError as exc:
+            return Response({"detail": exc.message}, status=exc.status_code)
+
+        user_info = ot["user"]
+        first_name, last_name = split_person_name(str(user_info.get("name") or ""))
+        sid = str(user_info.get("id") or student_id).strip()
+        user = _ensure_online_test_student_user(sid, first_name, last_name)
+        update_last_login(None, user)
+        group_name = str(user_info.get("group_name") or "").strip() or None
+        return Response(
+            _login_response_payload(
+                user,
+                "student",
+                request,
+                student_id=sid,
+                group_name=group_name,
+            )
+        )
 
 
 class LocalLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     @extend_schema(request=LocalLoginSerializer, responses=LocalLoginResponseSerializer)
     def post(self, request):
@@ -307,8 +444,13 @@ class LocalLoginView(APIView):
                     {"detail": "Telefon yoki parol noto‘g‘ri."},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
+            if not getattr(settings, "ALLOW_OPEN_REGISTRATION", True):
+                return Response(
+                    {"detail": "Ro‘yxatdan o‘tish faqat administrator orqali mumkin."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             reg_role = requested_role or "hodim"
-            if reg_role not in ("hodim", "startuper"):
+            if reg_role != "hodim":
                 reg_role = "hodim"
             user = User.objects.create_user(
                 username=username,
@@ -332,25 +474,26 @@ class LocalLoginView(APIView):
                 )
             role = resolve_user_role(user, request=None) or "hodim"
 
+        update_last_login(None, user)
         return Response(_login_response_payload(user, role, request))
 
 
 class AdminProvisionStaffView(APIView):
-    """Administrator yangi xodimni server bazasiga qo‘shadi yoki parolini yangilaydi."""
+    """Administrator yangi xodimni server bazasiga qo‘shadi yoki mavjudini tahrirlaydi."""
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsAdminRole]
 
-    @extend_schema(request=LocalLoginSerializer)
+    @extend_schema(request=AdminStaffUpsertSerializer)
     def post(self, request):
-        serializer = LocalLoginSerializer(data=request.data)
+        serializer = AdminStaffUpsertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
         username = data["phone_digits"]
-        password = data["password"]
+        password = (data.get("password") or "").strip()
         role = (data.get("role") or "hodim").strip().lower()
-        if role not in ALLOWED_ROLES:
+        if role not in STAFF_ROLES:
             role = "hodim"
 
         defaults = {
@@ -358,15 +501,34 @@ class AdminProvisionStaffView(APIView):
             "last_name": (data.get("last_name") or "").strip(),
         }
         user, created = User.objects.get_or_create(username=username, defaults=defaults)
-        user.set_password(password)
+        if created and not password:
+            return Response(
+                {"detail": "Yangi xodim uchun parol majburiy."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        update_fields = ["first_name", "last_name"]
+        if password:
+            user.set_password(password)
+            update_fields.append("password")
         if not created:
             user.first_name = defaults["first_name"] or user.first_name
             user.last_name = defaults["last_name"] or user.last_name
-        user.save(update_fields=["password", "first_name", "last_name"])
+        user.save(update_fields=update_fields)
 
         if role == "admin" and username not in _demo_admin_phone_allowlist():
             role = "hodim"
         _set_user_role_group(user, role)
+
+        profile_fields = {
+            k: (data.get(k) or "").strip()
+            for k in ("faculty", "department", "direction", "participant_kind", "study_group", "job_title")
+            if k in data
+        }
+        if profile_fields:
+            profile, _ = StaffProfile.objects.get_or_create(owner_key=username)
+            for field, value in profile_fields.items():
+                setattr(profile, field, value)
+            profile.save(update_fields=list(profile_fields.keys()) + ["updated_at"])
 
         return Response(
             {
@@ -475,7 +637,17 @@ class LiveTestUpsertView(APIView):
         serializer = LiveTestUpsertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
-        key = d['session_key'].strip()
+        key = (d.get('session_key') or '').strip()
+        if not key:
+            for _ in range(5):
+                key = f"lts_{secrets.token_urlsafe(16)}"
+                if not LiveTestSession.objects.filter(session_key=key).exists():
+                    break
+            else:
+                return Response(
+                    {'detail': 'Could not allocate session key.'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
         owner = request.user.username
 
         existing = LiveTestSession.objects.filter(session_key=key).first()
@@ -492,6 +664,9 @@ class LiveTestUpsertView(APIView):
             'createdAt': created_ms,
         }
         defaults = {'owner_key': owner, 'payload': payload}
+        subject_code = (d.get('subject_code') or '').strip()
+        if subject_code or existing is None:
+            defaults['subject_code'] = subject_code
         if existing is None:
             defaults['is_closed'] = False
             defaults['closed_at'] = None
@@ -499,7 +674,7 @@ class LiveTestUpsertView(APIView):
             session_key=key,
             defaults=defaults,
         )
-        return Response({'ok': True}, status=status.HTTP_200_OK)
+        return Response({'ok': True, 'session_key': key}, status=status.HTTP_200_OK)
 
 
 def _live_test_submissions_payload(session: LiveTestSession) -> list[dict]:
@@ -507,6 +682,7 @@ def _live_test_submissions_payload(session: LiveTestSession) -> list[dict]:
         {
             'first_name': s.first_name,
             'last_name': s.last_name,
+            'student_id': s.student_id or '',
             'answers': s.answers,
             'submitted_at': s.submitted_at.isoformat(),
         }
@@ -517,6 +693,7 @@ def _live_test_submissions_payload(session: LiveTestSession) -> list[dict]:
 class LiveTestPublicRetrieveView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LiveTestAnonThrottle]
 
     def get(self, request, session_key: str):
         obj = LiveTestSession.objects.filter(session_key=session_key.strip()).first()
@@ -526,12 +703,20 @@ class LiveTestPublicRetrieveView(APIView):
         created_ms = p.get('createdAt')
         if created_ms is None:
             created_ms = int(obj.created_at.timestamp() * 1000)
+        raw_questions = p.get('questions', [])
+        questions = (
+            strip_questions_for_student(raw_questions)
+            if isinstance(raw_questions, list)
+            else []
+        )
+        closed_ms = int(obj.closed_at.timestamp() * 1000) if obj.closed_at else None
         return Response(
             {
                 'topic': p.get('topic', ''),
-                'questions': p.get('questions', []),
+                'questions': questions,
                 'created_at_ms': created_ms,
                 'is_closed': bool(obj.is_closed),
+                'closed_at_ms': closed_ms,
             }
         )
 
@@ -539,19 +724,21 @@ class LiveTestPublicRetrieveView(APIView):
 class LiveTestSubmissionView(APIView):
     """
     GET: teacher JWT — list submissions for own session.
-    POST: anonymous — student submits answers (QR flow).
+    POST: student JWT (OnlineTest login) — QR test topshirish.
     """
 
     def get_authenticators(self):
-        req = getattr(self, 'request', None)
-        if req is not None and req.method == 'POST':
-            return []
         return [JWTAuthentication()]
 
     def get_permissions(self):
         if getattr(self, 'request') and self.request.method == 'POST':
-            return [AllowAny()]
+            return [IsAuthenticated(), IsStudentRole()]
         return [IsAuthenticated(), HasEducationRole()]
+
+    def get_throttles(self):
+        if getattr(self, 'request') and self.request.method == 'POST':
+            return [LiveTestAnonThrottle()]
+        return []
 
     def get(self, request, session_key: str):
         obj = LiveTestSession.objects.filter(
@@ -569,27 +756,110 @@ class LiveTestSubmissionView(APIView):
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         if obj.is_closed:
             return Response({'detail': 'Test sessiyasi yakunlangan.'}, status=status.HTTP_403_FORBIDDEN)
+        student_id = resolve_student_id(request.user, request)
+        if not student_id:
+            return Response(
+                {'detail': 'Talaba ID topilmadi. OnlineTest orqali qayta kiring.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         serializer = LiveTestSubmissionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         participant_key = (d.get('participant_key') or '').strip()
-        LiveTestSubmission.objects.create(
-            session=obj,
-            participant_key=participant_key,
-            first_name=d['first_name'].strip(),
-            last_name=d['last_name'].strip(),
-            answers=list(d['answers']),
-        )
+        if obj.submissions.filter(student_id=student_id).exists():
+            return Response({'ok': True, 'already_submitted': True}, status=status.HTTP_200_OK)
+        if participant_key and obj.submissions.filter(participant_key=participant_key).exists():
+            return Response({'ok': True, 'already_submitted': True}, status=status.HTTP_200_OK)
+        first_name = d['first_name'].strip() or (request.user.first_name or '').strip() or 'Talaba'
+        last_name = d['last_name'].strip() or (request.user.last_name or '').strip() or student_id
+        try:
+            LiveTestSubmission.objects.create(
+                session=obj,
+                participant_key=participant_key,
+                student_id=student_id,
+                first_name=first_name,
+                last_name=last_name,
+                answers=list(d['answers']),
+            )
+        except IntegrityError:
+            return Response({'ok': True, 'already_submitted': True}, status=status.HTTP_200_OK)
         if participant_key:
             obj.drafts.filter(participant_key=participant_key).delete()
         return Response({'ok': True}, status=status.HTTP_201_CREATED)
 
 
+# Fan kodi biriktirilmagan sessiyalar uchun sun'iy kod (frontend ham shu kalitni biladi).
+UNASSIGNED_SUBJECT_CODE = '__unassigned__'
+
+
+def _score_submission(questions: list, answers: list) -> tuple[int, int]:
+    """To'g'ri javoblar sonini hisoblaydi (savol.correctOptionIndex bilan solishtirib)."""
+    total = len(questions) if isinstance(questions, list) else 0
+    if not total or not isinstance(answers, list):
+        return 0, total
+    correct = 0
+    for i, q in enumerate(questions):
+        if i >= len(answers) or not isinstance(q, dict):
+            continue
+        if int(q.get('correctOptionIndex', -1)) == int(answers[i]):
+            correct += 1
+    return correct, total
+
+
+class LiveTestMySubmissionsView(APIView):
+    """Talaba: o'zi topshirgan dars testlari — fan kesimida, ball bilan."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsStudentRole]
+
+    def get(self, request):
+        student_id = resolve_student_id(request.user, request)
+        if not student_id:
+            return Response({'detail': 'Talaba ID topilmadi.'}, status=status.HTTP_403_FORBIDDEN)
+        rows = (
+            LiveTestSubmission.objects.filter(student_id=student_id)
+            .select_related('session')
+            .order_by('-submitted_at')[:100]
+        )
+        codes = {r.session.subject_code for r in rows if r.session.subject_code}
+        # Fan -> (nom, kafedra) — talaba natijalarini kafedra kesimida ham ko'rsatish uchun.
+        subjects = {
+            syl.subject_code: (syl.subject_name, syl.department.name if syl.department else '')
+            for syl in CourseSyllabus.objects.filter(subject_code__in=codes).select_related('department')
+        }
+        data = []
+        for s in rows:
+            payload = s.session.payload if isinstance(s.session.payload, dict) else {}
+            questions = payload.get('questions', [])
+            correct, total = _score_submission(questions if isinstance(questions, list) else [], s.answers)
+            subject_code = s.session.subject_code or ''
+            subject_name, department = subjects.get(subject_code, ('', ''))
+            data.append(
+                {
+                    'id': s.id,
+                    'session_key': s.session.session_key,
+                    'topic': str(payload.get('topic') or ''),
+                    'subject_code': subject_code,
+                    'subject_name': subject_name,
+                    'department': department,
+                    'first_name': s.first_name,
+                    'last_name': s.last_name,
+                    'answers': s.answers,
+                    'score': correct,
+                    'total': total,
+                    'submitted_at': s.submitted_at.isoformat(),
+                    'is_closed': bool(s.session.is_closed),
+                }
+            )
+        return Response(data)
+
+
 class LiveTestDraftUpsertView(APIView):
     """Talaba: QR test ochganda draft javoblarni saqlaydi (yuborishdan oldin)."""
 
-    authentication_classes = []
-    permission_classes = [AllowAny]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsStudentRole]
+    throttle_classes = [LiveTestAnonThrottle]
 
     def post(self, request, session_key: str):
         obj = LiveTestSession.objects.filter(session_key=session_key.strip()).first()
@@ -597,6 +867,9 @@ class LiveTestDraftUpsertView(APIView):
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         if obj.is_closed:
             return Response({'detail': 'Test sessiyasi yakunlangan.'}, status=status.HTTP_403_FORBIDDEN)
+        student_id = resolve_student_id(request.user, request)
+        if student_id and obj.submissions.filter(student_id=student_id).exists():
+            return Response({'ok': True, 'already_submitted': True}, status=status.HTTP_200_OK)
         serializer = LiveTestDraftUpsertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
@@ -632,10 +905,12 @@ class LiveTestFinalizeView(APIView):
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         auto_count = finalize_live_test_session(obj)
         obj.refresh_from_db()
+        closed_ms = int(obj.closed_at.timestamp() * 1000) if obj.closed_at else None
         return Response(
             {
                 'ok': True,
                 'is_closed': obj.is_closed,
+                'closed_at_ms': closed_ms,
                 'auto_submitted': auto_count,
                 'submissions': _live_test_submissions_payload(obj),
             },
@@ -648,8 +923,14 @@ class StartupApplicationListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsStartuperOrAdmin]
 
     def get(self, request):
-        qs = StartupProjectApplication.objects.filter(owner_key=request.user.username)
-        return Response(StartupProjectApplicationSerializer(qs, many=True).data)
+        qs = StartupProjectApplication.objects.filter(owner_key=request.user.username).order_by('-updated_at')
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=30,
+            max_page_size=100,
+            mapper=lambda obj: StartupProjectApplicationSerializer(obj).data,
+        )
 
     def post(self, request):
         serializer = StartupProjectApplicationSerializer(
@@ -728,7 +1009,13 @@ class StartupApplicationAdminInboxView(APIView):
         qs = StartupProjectApplication.objects.filter(
             status=StartupProjectApplication.STATUS_SUBMITTED,
         ).order_by('-submitted_at')
-        return Response(StartupProjectApplicationSerializer(qs, many=True).data)
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=30,
+            max_page_size=100,
+            mapper=lambda obj: StartupProjectApplicationSerializer(obj).data,
+        )
 
 
 class StaffLocationPingView(APIView):
@@ -738,6 +1025,7 @@ class StaffLocationPingView(APIView):
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsHodimRole]
+    throttle_classes = [StaffPingRateThrottle]
 
     def post(self, request):
         serializer = StaffLocationPingCreateSerializer(data=request.data)
@@ -1007,7 +1295,13 @@ class AdminStaffLocationPingsView(APIView):
             rows = sorted(latest.values(), key=lambda p: p.owner_key)
             return Response(StaffLocationPingSerializer(rows, many=True).data)
 
-        return Response(StaffLocationPingSerializer(qs[:2000], many=True).data)
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=100,
+            max_page_size=500,
+            mapper=lambda ping: StaffLocationPingSerializer(ping).data,
+        )
 
 
 class AdminStaffLocationAlertsView(APIView):
@@ -1019,4 +1313,247 @@ class AdminStaffLocationAlertsView(APIView):
         qs = StaffLocationAlert.objects.all().order_by('-created_at')
         if owner:
             qs = qs.filter(owner_key=owner)
-        return Response(StaffLocationAlertSerializer(qs[:500], many=True).data)
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=50,
+            max_page_size=200,
+            mapper=lambda alert: StaffLocationAlertSerializer(alert).data,
+        )
+
+
+class AdminLiveTeachingStatusView(APIView):
+    """"Katta ekran" jonli monitoring — hozir kim darsda, kim yo'q."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        from .location_service import get_live_teaching_status
+
+        return Response(get_live_teaching_status())
+
+
+class AdminLiveTestStatsView(APIView):
+    """Fan (va kafedra) kesimida — kim qancha jonli test yechgani statistikasi."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        from django.db.models import Avg, Count
+
+        rows = list(
+            LiveTestSubmission.objects.exclude(session__subject_code='')
+            .values('session__subject_code')
+            .annotate(submission_count=Count('id'), student_count=Count('student_id', distinct=True))
+            .order_by('-submission_count')
+        )
+        codes = [r['session__subject_code'] for r in rows]
+        subjects = {
+            s.subject_code: {'subject_name': s.subject_name, 'department': s.department.name if s.department else ''}
+            for s in CourseSyllabus.objects.filter(subject_code__in=codes).select_related('department')
+        }
+        # Har bir fan uchun o'rtacha ball (%) — submission bo'yicha alohida hisoblanadi (JSON payload).
+        avg_scores: dict[str, list[float]] = {}
+        for sub in LiveTestSubmission.objects.exclude(session__subject_code='').select_related('session'):
+            payload = sub.session.payload if isinstance(sub.session.payload, dict) else {}
+            questions = payload.get('questions', [])
+            correct, total = _score_submission(questions if isinstance(questions, list) else [], sub.answers)
+            if total:
+                avg_scores.setdefault(sub.session.subject_code, []).append(correct / total * 100)
+
+        data = []
+        for r in rows:
+            code = r['session__subject_code']
+            meta = subjects.get(code, {'subject_name': '', 'department': ''})
+            scores = avg_scores.get(code, [])
+            data.append(
+                {
+                    'subject_code': code,
+                    'subject_name': meta['subject_name'],
+                    'department': meta['department'],
+                    'submission_count': r['submission_count'],
+                    'student_count': r['student_count'],
+                    'avg_score_pct': round(sum(scores) / len(scores), 1) if scores else None,
+                }
+            )
+        return Response({'results': data})
+
+
+class AdminLiveTestSubmissionsView(APIView):
+    """Har bir talabaning jonli test (QR) topshirig'i — sahifalangan, fan bo'yicha filtrlanadi."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        subject_code = (request.query_params.get('subject_code') or '').strip()
+        session_key = (request.query_params.get('session_key') or '').strip()
+        student_id = (request.query_params.get('student_id') or '').strip()
+        qs = LiveTestSubmission.objects.select_related('session').order_by('-submitted_at')
+        if subject_code:
+            qs = qs.filter(session__subject_code=subject_code)
+        if session_key:
+            qs = qs.filter(session__session_key=session_key)
+        if student_id:
+            qs = qs.filter(student_id=student_id)
+
+        codes = set(qs.values_list('session__subject_code', flat=True))
+        subjects = dict(
+            CourseSyllabus.objects.filter(subject_code__in=codes).values_list('subject_code', 'subject_name')
+        )
+
+        def _map(sub: LiveTestSubmission) -> dict:
+            payload = sub.session.payload if isinstance(sub.session.payload, dict) else {}
+            questions = payload.get('questions', [])
+            correct, total = _score_submission(questions if isinstance(questions, list) else [], sub.answers)
+            code = sub.session.subject_code or ''
+            return {
+                'id': sub.id,
+                'session_key': sub.session.session_key,
+                'topic': str(payload.get('topic') or ''),
+                'subject_code': code,
+                'subject_name': subjects.get(code, ''),
+                'student_id': sub.student_id or '',
+                'first_name': sub.first_name,
+                'last_name': sub.last_name,
+                'score': correct,
+                'total': total,
+                'submitted_at': sub.submitted_at.isoformat(),
+            }
+
+        return paginated_response(qs, request, default_page_size=50, max_page_size=200, mapper=_map)
+
+
+class AdminLiveTestSessionsView(APIView):
+    """Fan ichidagi har bir jonli test (mavzu + sana) — nechta talaba yechgani bilan."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        from django.db.models import Count
+
+        subject_code = (request.query_params.get('subject_code') or '').strip()
+        qs = LiveTestSession.objects.all()
+        if subject_code == UNASSIGNED_SUBJECT_CODE:
+            qs = qs.filter(subject_code='')
+        elif subject_code:
+            qs = qs.filter(subject_code=subject_code)
+        qs = qs.annotate(submission_count=Count('submissions')).order_by('-created_at')
+
+        results = []
+        for sess in qs:
+            payload = sess.payload if isinstance(sess.payload, dict) else {}
+            results.append(
+                {
+                    'session_key': sess.session_key,
+                    'topic': str(payload.get('topic') or ''),
+                    'created_at_ms': int(sess.created_at.timestamp() * 1000),
+                    'is_closed': bool(sess.is_closed),
+                    'submission_count': sess.submission_count,
+                }
+            )
+        return Response({'results': results})
+
+
+class AdminStudentLiveTestReportView(APIView):
+    """
+    Bitta talabaning to'liq test hisoboti: talaba ID -> fanlar -> darslar.
+
+    Har bir fan uchun o'sha fanda o'tkazilgan BARCHA testlar qaytariladi —
+    talaba yechganlari ball bilan, yechmaganlari `taken: false` bilan. Shu
+    tufayli "qaysi darsni yechgan, qaysinisini yechmagan" ko'rinib turadi.
+
+    Fanlar ro'yxati talaba kamida bitta test topshirgan fanlardan olinadi
+    (platformada talaba–fan biriktiruvi yo'q).
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        from django.db.models import Count
+
+        student_id = (request.query_params.get('student_id') or '').strip()
+        if not student_id:
+            return Response({'detail': 'student_id parametri kerak.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        own = list(
+            LiveTestSubmission.objects.filter(student_id=student_id)
+            .select_related('session')
+            .order_by('-submitted_at')
+        )
+        if not own:
+            return Response(
+                {'found': False, 'student_id': student_id, 'first_name': '', 'last_name': '', 'subjects': []}
+            )
+
+        latest = own[0]
+        # Fan kodlari: talaba qatnashgan fanlar (kodsiz sessiyalar alohida guruh).
+        subject_codes = {sub.session.subject_code or '' for sub in own}
+
+        sessions = (
+            LiveTestSession.objects.filter(subject_code__in=subject_codes)
+            .annotate(submission_count=Count('submissions'))
+            .order_by('-created_at')
+        )
+        names = dict(
+            CourseSyllabus.objects.filter(subject_code__in=[c for c in subject_codes if c]).values_list(
+                'subject_code', 'subject_name'
+            )
+        )
+
+        by_session = {sub.session.session_key: sub for sub in own}
+        grouped: dict[str, list[dict]] = {code: [] for code in subject_codes}
+
+        for sess in sessions:
+            payload = sess.payload if isinstance(sess.payload, dict) else {}
+            questions = payload.get('questions', [])
+            questions = questions if isinstance(questions, list) else []
+            sub = by_session.get(sess.session_key)
+            row = {
+                'session_key': sess.session_key,
+                'topic': str(payload.get('topic') or ''),
+                'created_at_ms': int(sess.created_at.timestamp() * 1000),
+                'is_closed': bool(sess.is_closed),
+                'question_count': len(questions),
+                'participant_count': sess.submission_count,
+                'taken': sub is not None,
+                'score': None,
+                'total': len(questions),
+                'submitted_at': None,
+            }
+            if sub is not None:
+                correct, total = _score_submission(questions, sub.answers)
+                row['score'] = correct
+                row['total'] = total
+                row['submitted_at'] = sub.submitted_at.isoformat()
+            grouped.setdefault(sess.subject_code or '', []).append(row)
+
+        subjects = []
+        for code, rows in grouped.items():
+            taken_rows = [r for r in rows if r['taken'] and r['total']]
+            pcts = [r['score'] / r['total'] * 100 for r in taken_rows]
+            subjects.append(
+                {
+                    'subject_code': code or UNASSIGNED_SUBJECT_CODE,
+                    'subject_name': names.get(code, ''),
+                    'total_sessions': len(rows),
+                    'taken_sessions': sum(1 for r in rows if r['taken']),
+                    'avg_score_pct': round(sum(pcts) / len(pcts), 1) if pcts else None,
+                    'sessions': rows,
+                }
+            )
+        subjects.sort(key=lambda x: (-x['taken_sessions'], x['subject_name'] or x['subject_code']))
+
+        return Response(
+            {
+                'found': True,
+                'student_id': student_id,
+                'first_name': latest.first_name,
+                'last_name': latest.last_name,
+                'subjects': subjects,
+            }
+        )

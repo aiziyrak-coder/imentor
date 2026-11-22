@@ -6,9 +6,14 @@ from django.utils.translation import gettext_lazy as _
 
 from .forms import PhoneAdminLoginForm
 from .models import (
+    AcademicDepartment,
     CampusBuilding,
+    ClinicalGroup,
+    ClinicalGroupMember,
+    ClinicalGroupPayment,
     CourseSyllabus,
     DevicePairingSession,
+    LiveTestDraft,
     LiveTestSession,
     LiveTestSubmission,
     PreparedContent,
@@ -23,8 +28,8 @@ from .models import (
     TopicPresentation,
 )
 
-admin.site.site_header = "Salomatlik AI — boshqaruv paneli"
-admin.site.site_title = "Salomatlik AI admin"
+admin.site.site_header = "iMentor — boshqaruv paneli"
+admin.site.site_title = "iMentor admin"
 admin.site.index_title = "Boshqaruv paneli"
 admin.site.login_form = PhoneAdminLoginForm
 
@@ -33,11 +38,38 @@ class ReadOnlyTimestampAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at", "recorded_at", "submitted_at", "selected_at")
 
 
+@admin.register(AcademicDepartment)
+class AcademicDepartmentAdmin(ReadOnlyTimestampAdmin):
+    list_display = ("id", "name", "code", "sort_order", "is_active", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("name", "code")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(CourseSyllabus)
+class CourseSyllabusAdmin(ReadOnlyTimestampAdmin):
+    list_display = ("id", "subject_name", "department", "subject_code", "sort_order", "is_active", "created_at")
+    list_filter = ("is_active", "department", "instruction_language")
+    search_fields = ("subject_name", "subject_code", "department__name")
+    readonly_fields = ("created_at", "updated_at")
+    autocomplete_fields = ("department",)
+
+
 @admin.register(PreparedContent)
 class PreparedContentAdmin(ReadOnlyTimestampAdmin):
-    list_display = ("id", "owner_key", "kind", "topic", "created_at")
-    list_filter = ("kind",)
-    search_fields = ("owner_key", "topic", "topic_norm")
+    list_display = (
+        "id",
+        "kind",
+        "subject_name",
+        "variant_label",
+        "topic_code",
+        "topic",
+        "author_display_name",
+        "owner_key",
+        "created_at",
+    )
+    list_filter = ("kind", "subject_code", "variant_label")
+    search_fields = ("owner_key", "topic", "topic_norm", "subject_name", "author_display_name")
     readonly_fields = ("created_at",)
 
 
@@ -46,21 +78,6 @@ class SyllabusDocumentAdmin(ReadOnlyTimestampAdmin):
     list_display = ("id", "owner_key", "file_name", "external_id", "created_at")
     search_fields = ("owner_key", "file_name", "external_id")
     readonly_fields = ("created_at",)
-
-
-@admin.register(CourseSyllabus)
-class CourseSyllabusAdmin(ReadOnlyTimestampAdmin):
-    list_display = (
-        "subject_name",
-        "subject_code",
-        "instruction_language",
-        "is_active",
-        "sort_order",
-        "updated_at",
-    )
-    list_filter = ("is_active", "instruction_language")
-    search_fields = ("subject_name", "subject_code", "file_name")
-    readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(StaffCourseSelection)
@@ -80,9 +97,40 @@ class LiveTestSessionAdmin(ReadOnlyTimestampAdmin):
 
 @admin.register(LiveTestSubmission)
 class LiveTestSubmissionAdmin(ReadOnlyTimestampAdmin):
-    list_display = ("id", "session", "last_name", "first_name", "submitted_at")
-    search_fields = ("first_name", "last_name", "session__session_key")
+    list_display = ("id", "session", "student_id", "last_name", "first_name", "submitted_at")
+    search_fields = ("student_id", "first_name", "last_name", "session__session_key")
     readonly_fields = ("submitted_at",)
+
+
+@admin.register(LiveTestDraft)
+class LiveTestDraftAdmin(ReadOnlyTimestampAdmin):
+    list_display = ("id", "session", "participant_key", "last_name", "first_name", "updated_at")
+    search_fields = ("participant_key", "last_name", "first_name", "session__session_key")
+    readonly_fields = ("updated_at",)
+
+
+@admin.register(ClinicalGroup)
+class ClinicalGroupAdmin(ReadOnlyTimestampAdmin):
+    list_display = ("name", "code", "subscription_plan", "subscription_status", "is_active", "updated_at")
+    list_filter = ("subscription_plan", "subscription_status", "is_active")
+    search_fields = ("name", "code", "phone", "contact_person")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(ClinicalGroupMember)
+class ClinicalGroupMemberAdmin(ReadOnlyTimestampAdmin):
+    list_display = ("owner_key", "clinic", "app_role", "is_clinic_admin", "is_active", "joined_at")
+    list_filter = ("app_role", "is_clinic_admin", "is_active", "clinic")
+    search_fields = ("owner_key", "first_name", "last_name", "clinic__name")
+    readonly_fields = ("joined_at", "updated_at")
+
+
+@admin.register(ClinicalGroupPayment)
+class ClinicalGroupPaymentAdmin(ReadOnlyTimestampAdmin):
+    list_display = ("clinic", "period_start", "amount_uzs", "status", "paid_at", "created_at")
+    list_filter = ("status", "clinic")
+    search_fields = ("clinic__name", "notes")
+    readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(StartupProjectApplication)

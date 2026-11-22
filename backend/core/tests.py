@@ -1,7 +1,32 @@
 from django.contrib.auth.models import Group, User
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
+
+
+def _student_access_token(student_id: str = 'STU001', first_name: str = 'Ali', last_name: str = 'Valiyev') -> str:
+    """OnlineTest shadow student JWT (role=student + student_id claim)."""
+    Group.objects.get_or_create(name='student')
+    username = f'ot_{student_id}'
+    user, _ = User.objects.get_or_create(
+        username=username,
+        defaults={'first_name': first_name, 'last_name': last_name},
+    )
+    user.first_name = first_name
+    user.last_name = last_name
+    user.set_unusable_password()
+    user.save()
+    group = Group.objects.get(name='student')
+    user.groups.set([group])
+    refresh = RefreshToken.for_user(user)
+    refresh['role'] = 'student'
+    refresh['student_id'] = student_id
+    access = refresh.access_token
+    access['role'] = 'student'
+    access['student_id'] = student_id
+    return str(access)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, ALLOW_LEGACY_PREPARED_CONTENT_API=True)
@@ -193,7 +218,12 @@ class PreparedContentApiTests(TestCase):
         pub = self.client.get('/api/v1/live-tests/lts_qr_demo_1/')
         self.assertEqual(pub.status_code, 200)
         self.assertEqual(pub.json()['topic'], 'Demo mavzu')
+        pub_q = pub.json()['questions'][0]
+        self.assertNotIn('correctOptionIndex', pub_q)
+        self.assertNotIn('explanation', pub_q)
 
+        student_tok = _student_access_token('STU_QR_1')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {student_tok}')
         sub = self.client.post(
             '/api/v1/live-tests/lts_qr_demo_1/submissions/',
             {
@@ -237,7 +267,8 @@ class PreparedContentApiTests(TestCase):
             format='json',
         )
 
-        self.client.credentials()
+        st1 = _student_access_token('STU_FIN_1', 'Ali', 'Complete')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {st1}')
         self.client.post(
             '/api/v1/live-tests/lts_finalize_demo/drafts/',
             {
@@ -248,6 +279,8 @@ class PreparedContentApiTests(TestCase):
             },
             format='json',
         )
+        st2 = _student_access_token('STU_FIN_2', 'Vali', 'Incomplete')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {st2}')
         self.client.post(
             '/api/v1/live-tests/lts_finalize_demo/drafts/',
             {
@@ -284,9 +317,8 @@ class PreparedContentApiTests(TestCase):
         )
         self.assertEqual(blocked.status_code, 403)
 
-    def test_content_catalog_one_hour_delay(self):
-        from datetime import timedelta
-
+    def test_content_catalog_publishes_immediately(self):
+        """PUBLISH_DELAY=0 — yangi material darhol katalogda ko'rinadi."""
         from core.models import PreparedContent
 
         Group.objects.get_or_create(name='hodim')
@@ -318,25 +350,400 @@ class PreparedContentApiTests(TestCase):
             subject_code='ANAT',
             payload={'topic': 'Eski test', 'questions': [{'question': 'q', 'options': ['a'], 'correctOptionIndex': 0, 'explanation': 'e'}]},
         )
-        PreparedContent.objects.filter(pk=old.pk).update(
-            created_at=timezone.now() - timedelta(hours=2)
-        )
 
         lst = self.client.get('/api/v1/content-catalog/')
         self.assertEqual(lst.status_code, 200)
-        self.assertEqual(len(lst.json()), 1)
-        self.assertEqual(lst.json()[0]['topic'], 'Eski test')
+        catalog_items = lst.json().get('results', lst.json())
+        topics = {row['topic'] for row in catalog_items}
+        self.assertEqual(topics, {'Yangi keys', 'Eski test'})
 
         detail = self.client.get(f'/api/v1/content-catalog/{old.pk}/')
         self.assertEqual(detail.status_code, 200)
         self.assertIn('payload', detail.json())
 
-        blocked = self.client.get(f'/api/v1/content-catalog/{recent.pk}/')
-        self.assertEqual(blocked.status_code, 404)
+        recent_detail = self.client.get(f'/api/v1/content-catalog/{recent.pk}/')
+        self.assertEqual(recent_detail.status_code, 200)
+        self.assertTrue(recent_detail.json().get('is_published'))
 
         subjects = self.client.get('/api/v1/content-catalog/subjects/')
         self.assertEqual(subjects.status_code, 200)
         self.assertEqual(subjects.json()[0]['subject_name'], 'Anatomiya')
+
+    @override_settings(EXTERNAL_API_KEYS='ext-test-key-123')
+    def test_admin_and_external_test_stats(self):
+        from datetime import timedelta
+
+        from core.models import PreparedContent
+
+        admin_bundle = self._ensure_admin_user()
+        admin_access = admin_bundle['access']
+
+        hodim = self._register_user('998901114466', 'StrongPass123', first_name='Test', last_name='Teacher')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {hodim["access"]}')
+        create_resp = self.client.post(
+            '/api/v1/prepared-content/',
+            {
+                'kind': 'test',
+                'topic': 'Yurak anatomiyasi',
+                'topic_norm': '12::pi::m1',
+                'variant_label': 'PI',
+                'topic_code': 'm1',
+                'subject_name': 'Anatomiya',
+                'subject_code': 'ANAT',
+                'author_display_name': 'Test Teacher',
+                'payload': {
+                    'topic': 'Yurak anatomiyasi',
+                    'questions': [
+                        {
+                            'question': f'Q{i}',
+                            'options': ['a', 'b', 'c', 'd', 'e'],
+                            'correctOptionIndex': 0,
+                            'explanation': f'explanation {i}',
+                        }
+                        for i in range(1, 16)
+                    ],
+                },
+            },
+            format='json',
+        )
+        self.assertEqual(create_resp.status_code, 201, create_resp.content)
+        self.assertEqual(create_resp.json()['variant_label'], 'PI')
+        self.assertEqual(create_resp.json()['topic_code'], 'm1')
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {admin_access}')
+        stats = self.client.get('/api/v1/admin/content-catalog/stats/?kind=test')
+        self.assertEqual(stats.status_code, 200)
+        body = stats.json()
+        self.assertGreaterEqual(body['totals']['test_count'], 1)
+        self.assertGreaterEqual(body['totals']['subjects_distinct'], 1)
+        self.assertTrue(any(row['subject_code'] == 'ANAT' for row in body['by_subject']))
+
+        blocked = self.client.get('/api/v1/external/tests/stats/')
+        self.assertEqual(blocked.status_code, 403)
+
+        self.client.credentials()
+        ext_blocked = self.client.get(
+            '/api/v1/external/tests/stats/',
+            HTTP_X_API_KEY='wrong-key',
+        )
+        self.assertEqual(ext_blocked.status_code, 403)
+
+        ext_stats = self.client.get(
+            '/api/v1/external/tests/stats/',
+            HTTP_X_API_KEY='ext-test-key-123',
+        )
+        self.assertEqual(ext_stats.status_code, 200)
+        self.assertEqual(ext_stats.json()['kind'], 'test')
+
+        recent_pk = create_resp.json()['id']
+        # PUBLISH_DELAY=0 — yangi test darhol tashqi API da ko'rinadi.
+        ext_list = self.client.get(
+            '/api/v1/external/tests/',
+            HTTP_X_API_KEY='ext-test-key-123',
+        )
+        self.assertEqual(ext_list.status_code, 200)
+        items = ext_list.json().get('results', ext_list.json())
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['id'], recent_pk)
+        self.assertEqual(items[0]['variant_label'], 'PI')
+        self.assertEqual(items[0]['question_count'], 15)
+        self.assertTrue(items[0].get('is_published'))
+
+        bad_limit = self.client.get(
+            f'/api/v1/external/tests/{recent_pk}/?question_limit=5',
+            HTTP_X_API_KEY='ext-test-key-123',
+        )
+        self.assertEqual(bad_limit.status_code, 400)
+
+        limited = self.client.get(
+            f'/api/v1/external/tests/{recent_pk}/?question_limit=12',
+            HTTP_X_API_KEY='ext-test-key-123',
+        )
+        self.assertEqual(limited.status_code, 200)
+        limited_body = limited.json()
+        self.assertEqual(limited_body['question_limit'], 12)
+        self.assertEqual(limited_body['question_count_available'], 15)
+        self.assertEqual(limited_body['question_count_returned'], 12)
+        self.assertEqual(len(limited_body['payload']['questions']), 12)
+
+        filtered = self.client.get(
+            '/api/v1/external/tests/?min_questions=20',
+            HTTP_X_API_KEY='ext-test-key-123',
+        )
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(filtered.json().get('results', []), [])
+
+        filtered_ok = self.client.get(
+            '/api/v1/external/tests/?min_questions=10&max_questions=15',
+            HTTP_X_API_KEY='ext-test-key-123',
+        )
+        self.assertEqual(filtered_ok.status_code, 200)
+        self.assertEqual(len(filtered_ok.json().get('results', [])), 1)
+
+    @override_settings(EXTERNAL_API_KEYS='ext-test-key-123')
+    def test_external_questions_sample_unique_pool(self):
+        from datetime import timedelta
+
+        from core.models import AcademicDepartment, CourseSyllabus, PreparedContent
+
+        dept = AcademicDepartment.objects.create(name='Sample kafedra', code='sample-dept', sort_order=1)
+        syllabus = CourseSyllabus.objects.create(
+            subject_name='Sample fan',
+            subject_code='sample-dept__fan',
+            department=dept,
+            variants=[{'label': 'XT', 'topics': [{'id': 'M1', 'title': 'Mavzu'}]}],
+            topics=[{'id': 'M1', 'title': 'Mavzu'}],
+        )
+        hodim = self._register_user('998901114488', 'StrongPass123', first_name='S', last_name='T')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {hodim["access"]}')
+
+        def _create(questions, subject_code='sample-dept__fan'):
+            resp = self.client.post(
+                '/api/v1/prepared-content/',
+                {
+                    'kind': 'test',
+                    'topic': 'Sample topic',
+                    'topic_norm': f'{syllabus.pk}::xt::m1',
+                    'variant_label': 'XT',
+                    'topic_code': 'm1',
+                    'subject_name': 'Sample fan',
+                    'subject_code': subject_code,
+                    'author_display_name': 'S T',
+                    'payload': {
+                        'topic': 'Sample topic',
+                        'references': [{'title': 'Payload Book', 'pages': '1'}],
+                        'questions': questions,
+                    },
+                },
+                format='json',
+            )
+            self.assertEqual(resp.status_code, 201, resp.content)
+            return resp.json()['id']
+
+        pk1 = _create(
+            [
+                {
+                    'question': 'Unique one',
+                    'options': ['a', 'b', 'c', 'd', 'e'],
+                    'correctOptionIndex': 0,
+                    'explanation': 'ex',
+                    'references': [{'title': 'PerQ Book', 'pages': '5'}],
+                },
+                {
+                    'question': 'Shared dup',
+                    'options': ['a', 'b', 'c', 'd', 'e'],
+                    'correctOptionIndex': 1,
+                    'explanation': 'ex',
+                },
+            ]
+            + [
+                {
+                    'question': f'Extra A{i}',
+                    'options': ['a', 'b', 'c', 'd', 'e'],
+                    'correctOptionIndex': 0,
+                    'explanation': 'ex',
+                }
+                for i in range(8)
+            ]
+        )
+        pk2 = _create(
+            [
+                {
+                    'question': '  shared   DUP ',
+                    'options': ['a', 'b', 'c', 'd', 'e'],
+                    'correctOptionIndex': 0,
+                    'explanation': 'dup',
+                },
+                {
+                    'question': 'Unique two',
+                    'options': ['a', 'b', 'c', 'd', 'e'],
+                    'correctOptionIndex': 2,
+                    'explanation': 'ex2',
+                },
+            ]
+            + [
+                {
+                    'question': f'Extra B{i}',
+                    'options': ['a', 'b', 'c', 'd', 'e'],
+                    'correctOptionIndex': 0,
+                    'explanation': 'ex',
+                }
+                for i in range(8)
+            ]
+        )
+        PreparedContent.objects.filter(pk__in=[pk1, pk2]).update(
+            created_at=timezone.now() - timedelta(hours=2)
+        )
+
+        self.client.credentials()
+        headers = {'HTTP_X_API_KEY': 'ext-test-key-123'}
+
+        missing = self.client.get('/api/v1/external/questions/sample/', **headers)
+        self.assertEqual(missing.status_code, 400)
+
+        bad = self.client.get(
+            '/api/v1/external/questions/sample/?subject_code=sample-dept__fan&count=5',
+            **headers,
+        )
+        self.assertEqual(bad.status_code, 400)
+
+        ok = self.client.get(
+            '/api/v1/external/questions/sample/?subject_code=sample-dept__fan&count=10',
+            **headers,
+        )
+        self.assertEqual(ok.status_code, 200, ok.content)
+        body = ok.json()
+        self.assertEqual(body['count_requested'], 10)
+        self.assertEqual(body['tests_scanned'], 2)
+        # 10 + 10 raw, 1 duplicate → 19 unique available
+        self.assertEqual(body['count_available'], 19)
+        self.assertEqual(body['count_returned'], 10)
+        self.assertEqual(len(body['questions']), 10)
+        self.assertIn('available_languages', body)
+        keys = [
+            ' '.join(q['languages']['uz']['question'].lower().split())
+            for q in body['questions']
+        ]
+        self.assertEqual(len(keys), len(set(keys)))
+
+        all_qs = self.client.get(
+            '/api/v1/external/questions/sample/?subject_code=sample-dept__fan',
+            **headers,
+        )
+        self.assertEqual(all_qs.status_code, 200)
+        all_body = all_qs.json()
+        self.assertEqual(all_body['count_requested'], None)
+        self.assertEqual(all_body['count_returned'], 19)
+        one = next(
+            q
+            for q in all_body['questions']
+            if ' '.join(q['languages']['uz']['question'].lower().split()) == 'unique one'
+        )
+        self.assertEqual(one['references'][0]['title'], 'PerQ Book')
+        shared = next(
+            q
+            for q in all_body['questions']
+            if ' '.join(q['languages']['uz']['question'].lower().split()) == 'shared dup'
+        )
+        self.assertEqual(shared['references'][0]['title'], 'Payload Book')
+        self.assertIn(shared['source_test_id'], (pk1, pk2))
+
+    @override_settings(EXTERNAL_API_KEYS='ext-test-key-123')
+    def test_external_catalog_and_tests_flow(self):
+        from datetime import timedelta
+
+        from core.models import AcademicDepartment, CourseSyllabus, PreparedContent
+
+        dept = AcademicDepartment.objects.create(name='Anatomiya kafedrasi', code='anat-kaf', sort_order=1)
+        CourseSyllabus.objects.create(
+            subject_name='Anatomiya',
+            subject_code='ANAT-CAT',
+            department=dept,
+            variants=[
+                {
+                    'label': 'PI',
+                    'file_name': 'Anatomiya(PI).pdf',
+                    'topics': [
+                        {'id': 'M1', 'title': 'Yurak anatomiyasi', 'type': 'lecture'},
+                        {'id': 'M2', 'title': 'Miya anatomiyasi', 'type': 'lecture'},
+                    ],
+                }
+            ],
+            topics=[{'id': 'M1', 'title': 'Yurak anatomiyasi', 'type': 'lecture'}],
+        )
+
+        headers = {'HTTP_X_API_KEY': 'ext-test-key-123'}
+
+        cat_stats = self.client.get('/api/v1/external/catalog/stats/', **headers)
+        self.assertEqual(cat_stats.status_code, 200)
+        cat_body = cat_stats.json()
+        self.assertGreaterEqual(cat_body['departments_count'], 1)
+        self.assertGreaterEqual(cat_body['subjects_count'], 1)
+        self.assertGreaterEqual(cat_body['variants_count'], 1)
+        self.assertGreaterEqual(cat_body['topics_count'], 2)
+
+        depts = self.client.get('/api/v1/external/catalog/departments/', **headers)
+        self.assertEqual(depts.status_code, 200)
+        dept_body = depts.json()
+        self.assertGreaterEqual(dept_body['count'], 1)
+        self.assertIn('next_step', dept_body)
+        self.assertTrue(any(d['code'] == 'anat-kaf' and d['subjects_count'] >= 1 for d in dept_body['results']))
+
+        dept_subjects = self.client.get('/api/v1/external/catalog/departments/anat-kaf/subjects/', **headers)
+        self.assertEqual(dept_subjects.status_code, 200)
+        ds_body = dept_subjects.json()
+        self.assertEqual(ds_body['department']['name'], 'Anatomiya kafedrasi')
+        self.assertTrue(any(r['subject_code'] == 'ANAT-CAT' for r in ds_body['results']))
+
+        subjects = self.client.get(
+            '/api/v1/external/catalog/subjects/?department_code=anat-kaf',
+            **headers,
+        )
+        self.assertEqual(subjects.status_code, 200)
+        subj_rows = subjects.json()['results']
+        self.assertTrue(any(r['subject_code'] == 'ANAT-CAT' for r in subj_rows))
+
+        detail = self.client.get('/api/v1/external/catalog/subjects/ANAT-CAT/', **headers)
+        self.assertEqual(detail.status_code, 200)
+        detail_body = detail.json()
+        self.assertEqual(detail_body['subject_name'], 'Anatomiya')
+        self.assertEqual(detail_body['department_name'], 'Anatomiya kafedrasi')
+        self.assertEqual(detail_body['variants'][0]['label'], 'PI')
+        self.assertEqual(len(detail_body['variants'][0]['topics']), 2)
+
+        dept_detail = self.client.get('/api/v1/external/catalog/departments/anat-kaf/', **headers)
+        self.assertEqual(dept_detail.status_code, 200)
+        dept_body = dept_detail.json()
+        self.assertEqual(dept_body['name'], 'Anatomiya kafedrasi')
+        self.assertTrue(any(s['subject_code'] == 'ANAT-CAT' for s in dept_body['subjects']))
+
+        hodim = self._register_user('998901114477', 'StrongPass123', first_name='Cat', last_name='Teacher')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {hodim["access"]}')
+        create_resp = self.client.post(
+            '/api/v1/prepared-content/',
+            {
+                'kind': 'test',
+                'topic': 'Yurak anatomiyasi',
+                'topic_norm': f'{CourseSyllabus.objects.get(subject_code="ANAT-CAT").pk}::pi::m1',
+                'variant_label': 'PI',
+                'topic_code': 'm1',
+                'subject_name': 'Anatomiya',
+                'subject_code': 'ANAT-CAT',
+                'author_display_name': 'Cat Teacher',
+                'payload': {
+                    'topic': 'Yurak anatomiyasi',
+                    'questions': [
+                        {
+                            'question': f'Q{i}',
+                            'options': ['a', 'b', 'c', 'd', 'e'],
+                            'correctOptionIndex': 0,
+                            'explanation': 'ex',
+                        }
+                        for i in range(1, 11)
+                    ],
+                },
+            },
+            format='json',
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        test_pk = create_resp.json()['id']
+        syllabus_id = CourseSyllabus.objects.get(subject_code='ANAT-CAT').pk
+
+        self.client.credentials()
+        PreparedContent.objects.filter(pk=test_pk).update(
+            created_at=timezone.now() - timedelta(hours=2)
+        )
+
+        by_syllabus = self.client.get(
+            f'/api/v1/external/tests/?syllabus_id={syllabus_id}&subject_code=ANAT-CAT&topic_code=m1',
+            **headers,
+        )
+        self.assertEqual(by_syllabus.status_code, 200)
+        self.assertEqual(len(by_syllabus.json()['results']), 1)
+        test_row = by_syllabus.json()['results'][0]
+        self.assertEqual(test_row['department_name'], 'Anatomiya kafedrasi')
+        self.assertEqual(test_row['department_code'], 'anat-kaf')
+        self.assertEqual(test_row['subject_name'], 'Anatomiya')
 
     def test_login_preserves_server_role_from_db(self):
         Group.objects.get_or_create(name='hodim')
@@ -469,8 +876,7 @@ class PreparedContentApiTests(TestCase):
         secret = create.json()['desktop_secret']
 
         legacy_poll = self.client.get(f'/api/v1/device-pair/status/{token}/')
-        self.assertEqual(legacy_poll.status_code, 200)
-        self.assertEqual(legacy_poll.json()['status'], 'pending')
+        self.assertEqual(legacy_poll.status_code, 403)
 
         wrong_secret = self.client.get(f'/api/v1/device-pair/status/{token}/?secret=wrong-value')
         self.assertEqual(wrong_secret.status_code, 403)
@@ -554,3 +960,344 @@ class PreparedContentApiTests(TestCase):
         self.assertEqual(upload.status_code, 200, upload.content)
         photo_url = upload.json().get('photo_url', '')
         self.assertIn('v=', photo_url)
+
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class SecurityAndFeatureApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+
+    def _register_hodim(self, phone: str = '998901112299', password: str = 'StrongPass123') -> str:
+        Group.objects.get_or_create(name='hodim')
+        resp = self.client.post(
+            '/api/v1/auth/local-login/',
+            {
+                'phone_digits': phone,
+                'password': password,
+                'role': 'hodim',
+                'register': True,
+                'first_name': 'Test',
+                'last_name': 'Hodim',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        return resp.json()['access']
+
+    def test_migrate_endpoint_removed(self):
+        resp = self.client.get('/api/v1/migrate/full-export/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_live_test_server_generates_session_key(self):
+        access = self._register_hodim('998901112288')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        q = {
+            'question': 'Clinical vignette text here.',
+            'options': ['A opt', 'B opt', 'C opt', 'D opt', 'E opt'],
+            'correctOptionIndex': 2,
+            'explanation': 'Because clinical reasoning.',
+        }
+        up = self.client.post(
+            '/api/v1/live-tests/',
+            {'topic': 'Server key mavzu', 'questions': [q]},
+            format='json',
+        )
+        self.assertEqual(up.status_code, 200, up.content)
+        body = up.json()
+        self.assertTrue(body.get('session_key', '').startswith('lts_'))
+        self.assertTrue(body.get('ok'))
+
+        self.client.credentials()
+        pub = self.client.get(f'/api/v1/live-tests/{body["session_key"]}/')
+        self.assertEqual(pub.status_code, 200)
+        self.assertEqual(pub.json()['topic'], 'Server key mavzu')
+
+    def test_staff_location_ping_accepts_hodim(self):
+        from core.models import CampusBuilding
+
+        access = self._register_hodim('998901112277')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        CampusBuilding.objects.create(
+            name='Test bino',
+            short_code='TB1',
+            latitude=40.384,
+            longitude=71.784,
+            radius_m=120,
+            is_active=True,
+        )
+        resp = self.client.post(
+            '/api/v1/staff/location-ping/',
+            {'latitude': 40.3841, 'longitude': 71.7841, 'accuracy_m': 12},
+            format='json',
+        )
+        self.assertIn(resp.status_code, (200, 201), resp.content)
+        self.assertTrue(resp.json().get('ok'))
+
+    def test_admin_clinical_group_crud(self):
+        Group.objects.get_or_create(name='admin')
+        admin_user, _ = User.objects.get_or_create(username='998901110001')
+        admin_user.set_password('AdminDemo123')
+        admin_user.save()
+        admin_group, _ = Group.objects.get_or_create(name='admin')
+        admin_user.groups.add(admin_group)
+        login = self.client.post(
+            '/api/v1/auth/local-login/',
+            {'phone_digits': '998901110001', 'password': 'AdminDemo123'},
+            format='json',
+        )
+        self.assertEqual(login.status_code, 200)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {login.json()["access"]}')
+
+        create = self.client.post(
+            '/api/v1/admin/clinical-groups/',
+            {'name': 'Test klinika', 'phone': '+998901234567'},
+            format='json',
+        )
+        self.assertEqual(create.status_code, 201, create.content)
+        clinic_id = create.json()['id']
+        self.assertEqual(create.json()['name'], 'Test klinika')
+
+        listing = self.client.get('/api/v1/admin/clinical-groups/')
+        self.assertEqual(listing.status_code, 200)
+        listing_items = listing.json().get('results', listing.json())
+        self.assertEqual(len(listing_items), 1)
+
+        detail = self.client.get(f'/api/v1/admin/clinical-groups/{clinic_id}/')
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['id'], clinic_id)
+
+    def test_content_catalog_pagination(self):
+        from datetime import timedelta
+
+        from core.models import PreparedContent
+
+        Group.objects.get_or_create(name='hodim')
+        access = self._register_hodim('998901113366')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        for i in range(3):
+            obj = PreparedContent.objects.create(
+                owner_key='998901113366',
+                kind=PreparedContent.KIND_CASE,
+                topic=f'Eski keys {i}',
+                topic_norm=f'eski keys {i}',
+                author_display_name='Pager',
+                subject_name='Anatomiya',
+                subject_code='ANAT',
+                payload={'topic': f'Eski keys {i}', 'questions': [{'scenario': 's', 'answer': 'a'}]},
+            )
+            PreparedContent.objects.filter(pk=obj.pk).update(
+                created_at=timezone.now() - timedelta(hours=2)
+            )
+
+        page1 = self.client.get('/api/v1/content-catalog/?page=1&page_size=2')
+        self.assertEqual(page1.status_code, 200)
+        body = page1.json()
+        self.assertEqual(body['count'], 3)
+        self.assertEqual(body['page'], 1)
+        self.assertEqual(body['page_size'], 2)
+        self.assertEqual(len(body['results']), 2)
+
+        page2 = self.client.get('/api/v1/content-catalog/?page=2&page_size=2')
+        self.assertEqual(len(page2.json()['results']), 1)
+
+    def test_education_ai_rate_limit(self):
+        from rest_framework.request import Request
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from core.education_ai_views import EducationAiCompletionView
+        from core.throttling import EducationAiUserThrottle
+
+        user = User.objects.create_user(username='998901112255', password='StrongPass123')
+        factory = APIRequestFactory()
+        wsgi_request = factory.post('/api/v1/education-ai/completion/')
+        force_authenticate(wsgi_request, user=user)
+        request = Request(wsgi_request)
+        view = EducationAiCompletionView()
+
+        throttle = EducationAiUserThrottle()
+        throttle.rate = '2/minute'
+        throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
+        cache.clear()
+
+        self.assertTrue(throttle.allow_request(request, view))
+        self.assertTrue(throttle.allow_request(request, view))
+        self.assertFalse(throttle.allow_request(request, view))
+
+    @override_settings(ALLOW_OPEN_REGISTRATION=False)
+    def test_open_registration_disabled(self):
+        resp = self.client.post(
+            '/api/v1/auth/local-login/',
+            {
+                'phone_digits': '998901112266',
+                'password': 'StrongPass123',
+                'role': 'hodim',
+                'register': True,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(User.objects.filter(username='998901112266').exists())
+
+    def test_admin_endpoint_requires_db_admin_group(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        Group.objects.get_or_create(name='hodim')
+        user = User.objects.create_user(username='998901113333', password='StrongPass123')
+        hodim_group, _ = Group.objects.get_or_create(name='hodim')
+        user.groups.add(hodim_group)
+        refresh = RefreshToken.for_user(user)
+        refresh['role'] = 'admin'
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+        resp = self.client.get('/api/v1/admin/clinical-groups/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_live_test_duplicate_participant_is_idempotent(self):
+        access = self._register_hodim('998901112244')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        q = {
+            'question': 'Q?',
+            'options': ['A', 'B', 'C', 'D', 'E'],
+            'correctOptionIndex': 0,
+            'explanation': 'x',
+        }
+        up = self.client.post(
+            '/api/v1/live-tests/',
+            {'topic': 'Dup test', 'questions': [q]},
+            format='json',
+        )
+        session_key = up.json()['session_key']
+        student_tok = _student_access_token('STU_DUP_1')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {student_tok}')
+        payload = {
+            'participant_key': 'student-abc',
+            'first_name': 'Ali',
+            'last_name': 'Valiyev',
+            'answers': [0],
+        }
+        first = self.client.post(
+            f'/api/v1/live-tests/{session_key}/submissions/',
+            payload,
+            format='json',
+        )
+        self.assertEqual(first.status_code, 201)
+        second = self.client.post(
+            f'/api/v1/live-tests/{session_key}/submissions/',
+            payload,
+            format='json',
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertTrue(second.json().get('already_submitted'))
+
+
+@override_settings(DEBUG=False, SECURE_SSL_REDIRECT=False)
+class StaffCourseAssignmentPolicyTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        Group.objects.get_or_create(name='hodim')
+        Group.objects.get_or_create(name='admin')
+        self.hodim = User.objects.create_user(
+            username='998901112233',
+            password='TestHodim123',
+            first_name='Test',
+            last_name='Hodim',
+        )
+        self.hodim.groups.add(Group.objects.get(name='hodim'))
+        from .models import CourseSyllabus, StaffCourseSelection
+
+        self.syllabus = CourseSyllabus.objects.create(
+            subject_name='Onkologiya',
+            subject_code='onkologiya',
+            variants=[
+                {
+                    'label': 'XT',
+                    'file_name': 'Onkologiya(XT).pdf',
+                    'topics': [{'id': 'M1', 'title': 'Mavzu 1', 'type': 'lecture'}],
+                }
+            ],
+            topics=[{'id': 'M1', 'title': 'Mavzu 1', 'type': 'lecture'}],
+        )
+        StaffCourseSelection.objects.create(
+            owner_key=self.hodim.username,
+            syllabus=self.syllabus,
+            variant_label='XT',
+        )
+
+    def _hodim_token(self) -> str:
+        resp = self.client.post(
+            '/api/v1/auth/local-login/',
+            {'phone_digits': '998901112233', 'password': 'TestHodim123'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()['access']
+
+    def test_hodim_cannot_self_enroll_course(self) -> None:
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self._hodim_token()}')
+        resp = self.client.post(
+            '/api/v1/course-syllabuses/my/',
+            {'syllabus_id': self.syllabus.id},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_hodim_cannot_remove_assigned_course(self) -> None:
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self._hodim_token()}')
+        resp = self.client.delete(f'/api/v1/course-syllabuses/my/{self.syllabus.id}/')
+        self.assertEqual(resp.status_code, 403)
+        from .models import StaffCourseSelection
+
+        self.assertTrue(
+            StaffCourseSelection.objects.filter(
+                owner_key=self.hodim.username,
+                syllabus=self.syllabus,
+            ).exists()
+        )
+
+
+@override_settings(DEBUG=False, SECURE_SSL_REDIRECT=False)
+class EnsureDemoRoleUsersCommandTests(TestCase):
+    def test_creates_demo_users_when_enabled(self) -> None:
+        import os
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        prev = os.environ.get("DJANGO_ENSURE_DEMO_USERS")
+        os.environ["DJANGO_ENSURE_DEMO_USERS"] = "True"
+        try:
+            out = StringIO()
+            call_command("ensure_demo_role_users", stdout=out)
+            self.assertIn("demo_admin", out.getvalue())
+        finally:
+            if prev is None:
+                os.environ.pop("DJANGO_ENSURE_DEMO_USERS", None)
+            else:
+                os.environ["DJANGO_ENSURE_DEMO_USERS"] = prev
+
+        admin = User.objects.get(username="998901110001")
+        self.assertTrue(admin.check_password("AdminDemo123"))
+        self.assertTrue(admin.groups.filter(name="admin").exists())
+
+        hodim = User.objects.get(username="998901112233")
+        self.assertTrue(hodim.check_password("TestHodim123"))
+        self.assertTrue(hodim.groups.filter(name="hodim").exists())
+
+    def test_skipped_when_disabled_in_prod(self) -> None:
+        import os
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        prev = os.environ.get("DJANGO_ENSURE_DEMO_USERS")
+        os.environ["DJANGO_ENSURE_DEMO_USERS"] = "False"
+        try:
+            out = StringIO()
+            call_command("ensure_demo_role_users", stdout=out)
+            self.assertIn("skipped", out.getvalue().lower())
+        finally:
+            if prev is None:
+                os.environ.pop("DJANGO_ENSURE_DEMO_USERS", None)
+            else:
+                os.environ["DJANGO_ENSURE_DEMO_USERS"] = prev
+
+        self.assertFalse(User.objects.filter(username="998901110001").exists())

@@ -1,8 +1,8 @@
 import {
   establishLocalSessionFromProfile,
   getCurrentLocalUser,
-  loginLocalStaff,
   normalizePhoneDigits,
+  normalizeStaffLogin,
   normalizeUserRole,
   phoneDigitsToEmail,
   registerLocalStaff,
@@ -11,18 +11,27 @@ import {
   type LocalStaffUser,
   type UserRole,
 } from './localStaffAuth';
-import { HttpError, httpJson } from '../api/httpClient';
+import { HttpError, httpJson, setHttpTokenRefresher } from '../api/httpClient';
 import { normalizePhotoUrlForCompare } from './profilePhotoApi';
 
 type BackendTokenBundle = {
   access: string;
   refresh: string;
-  role: 'admin' | 'hodim' | 'startuper';
+  role: UserRole;
   username: string;
   first_name?: string;
   last_name?: string;
   photo_url?: string;
+  student_id?: string;
+  group_name?: string;
 };
+
+/** Server hali `startuper` qaytarsa — mahalliy sessiyada hodim. */
+function normalizeBackendRole(role: string | undefined | null): UserRole {
+  if (role === 'admin' || role === 'hodim' || role === 'student') return role;
+  if (role === 'startuper') return 'hodim';
+  return 'hodim';
+}
 
 type CachedBundle = BackendTokenBundle & {
   accessExpMs: number;
@@ -30,6 +39,35 @@ type CachedBundle = BackendTokenBundle & {
 };
 
 const TOKEN_KEY = 'salomatlik-backend-jwt-v1';
+
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+setHttpTokenRefresher(async () => {
+  const cached = readCached();
+  if (!cached?.refresh) return null;
+  const refreshed = await refreshAccessToken(cached);
+  return refreshed?.access ?? null;
+});
+
+function notifyUnauthorized(): void {
+  clearBackendAuthTokens();
+  unauthorizedHandler?.();
+}
+
+export type AuthMeResponse = {
+  id?: number;
+  username: string;
+  role: BackendTokenBundle['role'];
+  first_name?: string;
+  last_name?: string;
+  photo_url?: string;
+  student_id?: string;
+  group_name?: string;
+};
 
 function apiBaseUrl(): string {
   const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
@@ -51,16 +89,19 @@ function readCached(): CachedBundle | null {
   try {
     const raw = localStorage.getItem(TOKEN_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as CachedBundle;
+    const parsed = JSON.parse(raw) as CachedBundle;
+    return { ...parsed, role: normalizeBackendRole(parsed.role) };
   } catch {
     return null;
   }
 }
 
 function writeCached(bundle: BackendTokenBundle): CachedBundle {
-  syncCurrentUserRoleFromServer(bundle.role);
+  const role = normalizeBackendRole(bundle.role);
+  syncCurrentUserRoleFromServer(role);
   const next: CachedBundle = {
     ...bundle,
+    role,
     accessExpMs: decodeJwtExpMs(bundle.access),
     refreshExpMs: decodeJwtExpMs(bundle.refresh),
   };
@@ -78,12 +119,14 @@ export function writeBackendTokensFromPair(bundle: {
   refresh: string;
   role: BackendTokenBundle['role'];
   username: string;
+  student_id?: string;
 }): void {
   writeCached({
     access: bundle.access,
     refresh: bundle.refresh,
     role: bundle.role,
     username: bundle.username,
+    student_id: bundle.student_id,
   });
 }
 
@@ -111,6 +154,61 @@ export async function performBackendLocalLogin(input: {
   });
 }
 
+/** OnlineTest ID+parol → iMentor student JWT */
+export async function performOnlineTestStudentLogin(input: {
+  id: string;
+  password: string;
+}): Promise<BackendTokenBundle> {
+  return httpJson<BackendTokenBundle>(`${apiBaseUrl()}/v1/auth/online-test-login/`, {
+    method: 'POST',
+    body: { id: input.id.trim(), password: input.password },
+  });
+}
+
+export async function loginStudentWithOnlineTest(
+  studentId: string,
+  password: string,
+): Promise<LocalStaffUser> {
+  const sid = studentId.trim();
+  if (!sid || !password) throw new Error('wrong-password');
+  try {
+    const bundle = await performOnlineTestStudentLogin({ id: sid, password });
+    if (bundle.role !== 'student') throw new Error('wrong-password');
+    writeCached(bundle);
+    const now = Date.now();
+    const firstName = bundle.first_name || '';
+    const lastName = bundle.last_name || '';
+    const displayName = `${firstName} ${lastName}`.trim() || sid;
+    return establishLocalSessionFromProfile({
+      uid: `ot_${bundle.student_id || sid}`,
+      displayName,
+      firstName,
+      lastName,
+      phoneDisplay: sid,
+      phoneDigits: sid,
+      faculty: '',
+      department: '',
+      direction: '',
+      email: `${sid}@onlinetest.local`,
+      password: '',
+      role: 'student',
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now,
+      onlineTestStudentId: bundle.student_id || sid,
+      studyGroup: bundle.group_name || '',
+      participantKind: 'student',
+    });
+  } catch (err) {
+    if (err instanceof HttpError) {
+      if (err.status === 401) throw new Error('wrong-password');
+      if (err.status === 403) throw new Error('forbidden');
+      throw new Error('login-error');
+    }
+    throw err;
+  }
+}
+
 function findStoredUserByPhone(digits: string): LocalStaffUser | null {
   try {
     const raw = localStorage.getItem('salomatlik-local-staff-users-v1');
@@ -129,7 +227,9 @@ function buildLocalUserFromBackendLogin(
   bundle: BackendTokenBundle,
   existing?: LocalStaffUser | null,
 ): LocalStaffUser {
-  const digits = normalizePhoneDigits(phoneInput);
+  // Xodim ID bilan kirilganda ham shu qiymat `phoneDigits` maydonida saqlanadi
+  // (u serverdagi `username` bilan bir xil bo'lishi shart).
+  const digits = normalizeStaffLogin(phoneInput);
   const now = Date.now();
   const firstName = existing?.firstName || bundle.first_name || '';
   const lastName = existing?.lastName || bundle.last_name || '';
@@ -146,8 +246,8 @@ function buildLocalUserFromBackendLogin(
     department: existing?.department ?? '',
     direction: existing?.direction ?? '',
     email: phoneDigitsToEmail(digits),
-    password,
-    role: bundle.role,
+    password: '',
+    role: normalizeBackendRole(bundle.role),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     lastActiveAt: now,
@@ -164,33 +264,6 @@ function buildLocalUserFromBackendLogin(
   };
 }
 
-async function localLoginAndGetTokens(): Promise<CachedBundle | null> {
-  const user = getCurrentLocalUser();
-  if (!user?.phoneDigits) return null;
-
-  const password = user.password;
-  if (!password) {
-    return readCached();
-  }
-
-  const resp = await performBackendLocalLogin({
-    phone_digits: user.phoneDigits,
-    password,
-    first_name: user.firstName,
-    last_name: user.lastName,
-    display_name: user.displayName,
-  });
-  const cached = writeCached(resp);
-  const serverPhoto = resp.photo_url?.trim() || null;
-  if (
-    serverPhoto &&
-    normalizePhotoUrlForCompare(serverPhoto) !== normalizePhotoUrlForCompare(user.photoURL)
-  ) {
-    updateCurrentLocalUser({ photoURL: serverPhoto });
-  }
-  return cached;
-}
-
 /**
  * Server — asosiy manba. Mahalliy hisob profil keshi.
  * Boshqa qurilmada (telefon) kirish va desync holatlarini hal qiladi.
@@ -199,22 +272,15 @@ export async function loginStaffWithBackendFallback(
   phoneInput: string,
   password: string,
 ): Promise<LocalStaffUser> {
-  const digits = normalizePhoneDigits(phoneInput);
-  let localMatched: LocalStaffUser | null = null;
-  try {
-    localMatched = loginLocalStaff(phoneInput, password);
-  } catch (err) {
-    const code = err instanceof Error ? err.message : '';
-    if (code !== 'user-not-found' && code !== 'wrong-password') throw err;
-  }
-
+  // Telefon raqami YOKI Xodim ID — ikkalasi ham serverda `username`.
+  const digits = normalizeStaffLogin(phoneInput);
   try {
     const bundle = await performBackendLocalLogin({
       phone_digits: digits,
       password,
     });
     writeCached(bundle);
-    const existing = localMatched ?? findStoredUserByPhone(digits);
+    const existing = findStoredUserByPhone(digits);
     return establishLocalSessionFromProfile(
       buildLocalUserFromBackendLogin(phoneInput, password, bundle, existing),
     );
@@ -223,7 +289,6 @@ export async function loginStaffWithBackendFallback(
       if (err.status === 401) throw new Error('wrong-password');
       if (err.status === 409) throw new Error('already-exists');
     }
-    if (localMatched) return localMatched;
     throw err;
   }
 }
@@ -267,7 +332,7 @@ export async function registerStaffWithBackend(input: {
   }
 }
 
-/** Admin xodim yaratganda/yangilaganda server bazasiga yozadi (JWT saqlanmaydi). */
+/** Admin xodim yaratganda/yangilaganda FastAPI bazasiga yozadi. */
 export async function provisionBackendStaffAccount(input: {
   phone_digits: string;
   password: string;
@@ -275,30 +340,20 @@ export async function provisionBackendStaffAccount(input: {
   first_name?: string;
   last_name?: string;
 }): Promise<void> {
-  const token = await getBackendAccessToken();
-  if (!token) throw new Error('no-admin-token');
-  await httpJson(`${apiBaseUrl()}/v1/auth/admin-provision-staff/`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: {
-      phone_digits: input.phone_digits,
-      password: input.password,
-      role: input.role,
-      first_name: input.first_name ?? '',
-      last_name: input.last_name ?? '',
-    },
+  const { upsertStaffMember } = await import('./staffDirectoryApi');
+  await upsertStaffMember({
+    phone_digits: input.phone_digits,
+    password: input.password,
+    role: input.role,
+    first_name: input.first_name ?? '',
+    last_name: input.last_name ?? '',
   });
 }
 
-/** Admin xodimni serverdan o‘chiradi. */
+/** Admin xodimni FastAPI orqali o‘chiradi. */
 export async function deprovisionBackendStaffAccount(phone_digits: string): Promise<void> {
-  const token = await getBackendAccessToken();
-  if (!token) throw new Error('no-admin-token');
-  await httpJson(`${apiBaseUrl()}/v1/auth/admin-deprovision-staff/`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: { phone_digits },
-  });
+  const { removeStaffMember } = await import('./staffDirectoryApi');
+  await removeStaffMember(phone_digits);
 }
 
 /** Profil paroli o‘zgarganda serverni yangilash. */
@@ -318,11 +373,28 @@ export async function syncCurrentUserPasswordToBackend(
   });
 }
 
-async function refreshAccessToken(cached: CachedBundle): Promise<CachedBundle | null> {
+/** Bir vaqtda ketayotgan refresh so'rovlari bittaga birlashtiriladi.
+ * Sahifa ochilganda 5–10 ta so'rov barobar 401 olishi mumkin — har biri
+ * alohida refresh yuborsa, serverga keraksiz zarba va token poygasi bo'ladi. */
+let inFlightRefresh: Promise<CachedBundle | null> | null = null;
+
+function refreshAccessToken(cached: CachedBundle): Promise<CachedBundle | null> {
+  if (!inFlightRefresh) {
+    inFlightRefresh = doRefreshAccessToken(cached).finally(() => {
+      inFlightRefresh = null;
+    });
+  }
+  return inFlightRefresh;
+}
+
+async function doRefreshAccessToken(cached: CachedBundle): Promise<CachedBundle | null> {
   if (!cached.refresh) return null;
   const now = Date.now();
   const leewayMs = 30_000;
-  if (cached.refreshExpMs > 0 && cached.refreshExpMs - leewayMs <= now) return null;
+  if (cached.refreshExpMs > 0 && cached.refreshExpMs - leewayMs <= now) {
+    notifyUnauthorized();
+    return null;
+  }
   try {
     const resp = await httpJson<{ access: string; refresh?: string }>(
       `${apiBaseUrl()}/v1/auth/token/refresh/`,
@@ -332,36 +404,103 @@ async function refreshAccessToken(cached: CachedBundle): Promise<CachedBundle | 
         timeoutMs: 20000,
       },
     );
-    if (!resp.access) return null;
+    if (!resp.access) {
+      notifyUnauthorized();
+      return null;
+    }
     return writeCached({
       access: resp.access,
       refresh: resp.refresh || cached.refresh,
       role: cached.role,
       username: cached.username,
     });
-  } catch {
+  } catch (err) {
+    // Faqat HAQIQIY autentifikatsiya xatosida sessiyani yopamiz. Tarmoq
+    // uzilishi, timeout yoki server 5xx (masalan, bir vaqtda ko'p odam
+    // kirganda 502) da foydalanuvchini tizimdan chiqarib yuborish — token
+    // hali yaroqli bo'la turib ish yo'qolishiga olib keladi.
+    const status = err instanceof HttpError ? err.status : 0;
+    if (status === 401 || status === 403) {
+      notifyUnauthorized();
+    }
     return null;
   }
+}
+
+export async function fetchAuthMe(): Promise<AuthMeResponse | null> {
+  const token = await getBackendAccessToken();
+  if (!token) return null;
+  try {
+    return await httpJson<AuthMeResponse>(`${apiBaseUrl()}/v1/auth/me/`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 15000,
+    });
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 401) {
+      notifyUnauthorized();
+      return null;
+    }
+    throw e;
+  }
+}
+
+/** Serverdagi rolni mahalliy sessiyaga sinxronlash (asosiy ishonch manbai). */
+export async function syncSessionRoleFromServer(): Promise<UserRole | null> {
+  const me = await fetchAuthMe();
+  if (!me?.role) return null;
+  const role = normalizeBackendRole(me.role);
+  syncCurrentUserRoleFromServer(role);
+  const user = getCurrentLocalUser();
+  if (user) {
+    const patch: Partial<LocalStaffUser> = { role };
+    if (me.first_name) patch.firstName = me.first_name;
+    if (me.last_name) patch.lastName = me.last_name;
+    if (me.photo_url !== undefined) patch.photoURL = me.photo_url?.trim() || null;
+    if (me.student_id) patch.onlineTestStudentId = me.student_id;
+    updateCurrentLocalUser(patch);
+  }
+  const cached = readCached();
+  if (cached) {
+    writeCached({
+      ...cached,
+      role,
+      username: me.username,
+      first_name: me.first_name,
+      last_name: me.last_name,
+      photo_url: me.photo_url,
+      student_id: me.student_id,
+    });
+  }
+  return role;
 }
 
 export async function getBackendAccessToken(): Promise<string | null> {
   const now = Date.now();
   const leewayMs = 30_000;
-  let cached = readCached();
+  const cached = readCached();
+  if (!cached) return null;
+
   const localUser = getCurrentLocalUser();
-  if (localUser && cached && normalizeUserRole(localUser) !== cached.role) {
-    clearBackendAuthTokens();
-    cached = null;
+  if (localUser && normalizeUserRole(localUser) !== cached.role) {
+    notifyUnauthorized();
+    return null;
   }
-  if (cached?.access && cached.accessExpMs - leewayMs > now) {
+  if (cached.access && cached.accessExpMs - leewayMs > now) {
     return cached.access;
   }
-  if (cached?.refresh) {
+  if (cached.refresh) {
     const refreshed = await refreshAccessToken(cached);
-    if (refreshed?.access) return refreshed.access;
+    if (refreshed?.access && refreshed.accessExpMs - Date.now() > 0) {
+      return refreshed.access;
+    }
+    // Refresh o'tmadi. Agar sabab tarmoq/server bo'lsa, `refreshAccessToken`
+    // sessiyani yopmagan — bu yerda ham yopmaymiz, chaqiruvchi shunchaki
+    // xatoni ko'rsatadi va foydalanuvchi qayta urinadi. Sessiya faqat
+    // refresh tokeni haqiqatan tugagan/rad etilgan holatda yopiladi.
+    return null;
   }
-  const renewed = await localLoginAndGetTokens();
-  return renewed?.access ?? cached?.access ?? null;
+  notifyUnauthorized();
+  return null;
 }
 
 /** AI va boshqa JWT API lar uchun — token yo‘q bo‘lsa aniq xato */

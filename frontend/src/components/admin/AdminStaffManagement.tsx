@@ -1,28 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Users, Plus, Pencil, Trash2, Loader2, AlertCircle, Shield, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { normalizeStaffLogin, type UserRole } from '../../utils/localStaffAuth';
 import {
-  listAllStaffUsers,
-  adminCreateStaffUser,
-  adminUpdateStaffUser,
-  adminDeleteStaffUser,
-  normalizeUserRole,
-  subscribeLocalAuth,
-  type LocalStaffUser,
-  type UserRole,
-  normalizePhoneDigits,
-} from '../../utils/localStaffAuth';
-import {
-  deprovisionBackendStaffAccount,
-  provisionBackendStaffAccount,
-} from '../../utils/backendAuth';
+  fetchStaffDirectory,
+  removeStaffMember,
+  upsertStaffMember,
+  type StaffDirectoryEntry,
+} from '../../utils/staffDirectoryApi';
+import { fetchAdminSyllabusCatalogStats } from '../../utils/syllabusApi';
+import { fetchPublicKafedralar } from '../../utils/academicCatalogApi';
+import { HttpError } from '../../api/httpClient';
 import { roleLabel } from '../../i18n/translations';
 import { useUiText } from '../../i18n/useUiText';
 
-function formatLastActive(ts: number | undefined): string {
-  if (ts == null || Number.isNaN(ts)) return '—';
+type DeptOption = { id: number | null; name: string; code: string };
+
+/** Select `value` — sillabus kafedralarida id bor, akademik katalogdan kelganlarida faqat nom. */
+function deptOptionValue(d: DeptOption): string {
+  return d.id != null ? String(d.id) : `name:${d.name}`;
+}
+
+function formatLastActive(iso: string | null | undefined): string {
+  if (!iso) return '—';
   try {
-    return new Date(ts).toLocaleString('uz-UZ', {
+    return new Date(iso).toLocaleString('uz-UZ', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -39,71 +41,99 @@ const emptyForm = {
   password: '',
   firstName: '',
   lastName: '',
-  faculty: '',
   department: '',
-  direction: '',
+  departmentId: null as number | null,
   role: 'hodim' as UserRole,
-  participantKind: 'student' as 'student' | 'employee',
-  studyGroup: '',
-  jobTitle: '',
 };
 
-type SortKey = 'displayName' | 'phoneDisplay' | 'role' | 'faculty' | 'lastActiveAt';
+type SortKey = 'displayName' | 'phoneDisplay' | 'role' | 'department' | 'lastActiveAt';
 type SortDirection = 'asc' | 'desc';
+
+function loadErrorMessage(err: unknown, t: ReturnType<typeof useUiText>['t']): string {
+  if (err instanceof HttpError) {
+    if (err.status === 403) return t('admin.error.adminRequired');
+    if (err.status === 401) return t('admin.error.reloginRequired');
+  }
+  return t('admin.error.loadFailed');
+}
 
 export default function AdminStaffManagement() {
   const { t, language } = useUiText();
-  const [rows, setRows] = useState<LocalStaffUser[]>([]);
+  const [rows, setRows] = useState<StaffDirectoryEntry[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('lastActiveAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState<LocalStaffUser | null>(null);
+  const [editing, setEditing] = useState<StaffDirectoryEntry | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [showAdd, setShowAdd] = useState(false);
+  const [departments, setDepartments] = useState<DeptOption[]>([]);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setRows(listAllStaffUsers());
-    } catch {
-      setError(t('admin.error.loadFailed'));
+      const all = await fetchStaffDirectory();
+      // Faqat xodimlar: admin / o'qituvchi / klinika_admin (talaba emas).
+      setRows(
+        all.filter((u) => ['admin', 'hodim', 'klinika_admin'].includes(String(u.role || ''))),
+      );
+    } catch (err) {
+      setRows([]);
+      setError(loadErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
   }, [t]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useEffect(() => {
-    const unsub = subscribeLocalAuth(() => {
-      try {
-        setRows(listAllStaffUsers());
-      } catch {
-        /* admin emas — ro‘yxatni yangilash shart emas */
-      }
-    });
-    return () => unsub();
+    // Sillabusdagi kafedralar + akademik katalogdagi barcha kafedralar birlashtiriladi,
+    // shunda hali sillabusi yo'q kafedra ham xodim qo'shishda tanlanadi.
+    void Promise.allSettled([fetchAdminSyllabusCatalogStats(), fetchPublicKafedralar()]).then(
+      ([statsRes, kafedraRes]) => {
+        const merged: DeptOption[] = [];
+        const seen = new Set<string>();
+        const push = (opt: DeptOption) => {
+          const key = opt.name.trim().toLocaleLowerCase();
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          merged.push(opt);
+        };
+        if (statsRes.status === 'fulfilled') {
+          for (const d of statsRes.value?.by_department || []) {
+            push({ id: d.id, name: d.name, code: d.code || d.name });
+          }
+        }
+        if (kafedraRes.status === 'fulfilled') {
+          for (const k of kafedraRes.value) {
+            push({ id: null, name: k.name, code: k.code || k.name });
+          }
+        }
+        merged.sort((a, b) => a.name.localeCompare(b.name));
+        setDepartments(merged);
+      },
+    );
   }, []);
 
-  const startEdit = (u: LocalStaffUser) => {
+  const startEdit = (u: StaffDirectoryEntry) => {
     setEditing(u);
+    const deptId =
+      u.department_id ??
+      departments.find((d) => d.name === u.department)?.id ??
+      null;
     setForm({
-      phoneDisplay: u.phoneDisplay,
+      phoneDisplay: u.phone_display,
       password: '',
-      firstName: u.firstName,
-      lastName: u.lastName,
-      faculty: u.faculty,
+      firstName: u.first_name,
+      lastName: u.last_name,
       department: u.department,
-      direction: u.direction,
-      role: normalizeUserRole(u),
-      participantKind: u.participantKind ?? 'student',
-      studyGroup: u.studyGroup ?? '',
-      jobTitle: u.jobTitle ?? '',
+      departmentId: deptId,
+      role: (u.role || 'hodim') as UserRole,
     });
     setShowAdd(false);
   };
@@ -117,46 +147,32 @@ export default function AdminStaffManagement() {
         setError(t('admin.error.passwordMin'));
         return;
       }
-      if (form.role === 'startuper') {
-        if (form.participantKind === 'student' && !form.studyGroup.trim()) {
-          setError(t('admin.error.startuperGroupRequired'));
-          return;
-        }
-        if (form.participantKind === 'employee' && !form.jobTitle.trim()) {
-          setError(t('admin.error.startuperJobRequired'));
-          return;
-        }
-      }
-      const phoneDigits = normalizePhoneDigits(form.phoneDisplay.trim());
-      await provisionBackendStaffAccount({
+      // Telefon raqami yoki Xodim ID — ikkalasi ham username sifatida saqlanadi.
+      const phoneDigits = normalizeStaffLogin(form.phoneDisplay.trim());
+      await upsertStaffMember({
         phone_digits: phoneDigits,
         password: form.password,
-        role: form.role,
+        role: 'hodim',
         first_name: form.firstName.trim(),
         last_name: form.lastName.trim(),
-      });
-      adminCreateStaffUser({
-        phoneDisplay: form.phoneDisplay.trim(),
-        password: form.password,
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        faculty: form.faculty.trim(),
+        faculty: '',
         department: form.department.trim(),
-        direction: form.direction.trim(),
-        role: form.role,
-        participantKind: form.role === 'startuper' ? form.participantKind : undefined,
-        studyGroup: form.role === 'startuper' && form.participantKind === 'student' ? form.studyGroup.trim() : undefined,
-        jobTitle: form.role === 'startuper' && form.participantKind === 'employee' ? form.jobTitle.trim() : undefined,
+        department_id: form.departmentId,
+        direction: '',
       });
       setForm(emptyForm);
       setShowAdd(false);
-      load();
+      await load();
     } catch (err: unknown) {
-      const c = err instanceof Error ? err.message : '';
-      if (c === 'already-exists') setError(t('admin.error.phoneAlreadyExists'));
-      else if (c === 'forbidden') setError(t('admin.error.forbidden'));
-      else if (c === 'no-admin-token') setError(t('admin.error.noAdminToken'));
-      else setError(t('admin.error.createFailed'));
+      if (err instanceof HttpError && err.status === 400) {
+        setError(t('admin.error.phoneAlreadyExists'));
+      } else if (err instanceof HttpError && err.status === 403) {
+        setError(t('admin.error.forbidden'));
+      } else if (err instanceof Error && err.message === 'no-admin-token') {
+        setError(t('admin.error.noAdminToken'));
+      } else {
+        setError(t('admin.error.createFailed'));
+      }
     } finally {
       setSaving(false);
     }
@@ -168,72 +184,62 @@ export default function AdminStaffManagement() {
     setSaving(true);
     setError(null);
     try {
-      if (form.role === 'startuper') {
-        if (form.participantKind === 'student' && !form.studyGroup.trim()) {
-          setError(t('admin.error.startuperGroupRequired'));
-          return;
-        }
-        if (form.participantKind === 'employee' && !form.jobTitle.trim()) {
-          setError(t('admin.error.startuperJobRequired'));
-          return;
-        }
-      }
-      const patch: Parameters<typeof adminUpdateStaffUser>[1] = {
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        displayName: `${form.firstName} ${form.lastName}`.trim(),
-        phoneDisplay: form.phoneDisplay.trim(),
-        faculty: form.faculty.trim(),
-        department: form.department.trim(),
-        direction: form.direction.trim(),
+      await upsertStaffMember({
+        phone_digits: editing.phone_digits,
+        password: form.password.trim().length >= 6 ? form.password.trim() : '',
         role: form.role,
-      };
-      if (form.role === 'startuper') {
-        patch.participantKind = form.participantKind;
-        patch.studyGroup = form.participantKind === 'student' ? form.studyGroup.trim() : undefined;
-        patch.jobTitle = form.participantKind === 'employee' ? form.jobTitle.trim() : undefined;
-      }
-      if (form.password.trim().length >= 6) {
-        patch.password = form.password;
-      }
-      const syncPassword = form.password.trim().length >= 6 ? form.password : editing.password;
-      if (syncPassword) {
-        await provisionBackendStaffAccount({
-          phone_digits: normalizePhoneDigits(form.phoneDisplay.trim()),
-          password: syncPassword,
-          role: form.role,
-          first_name: form.firstName.trim(),
-          last_name: form.lastName.trim(),
-        });
-      }
-      adminUpdateStaffUser(editing.uid, patch);
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+        faculty: editing.faculty || '',
+        department: form.department.trim(),
+        department_id: form.departmentId,
+        direction: editing.direction || '',
+      });
       setEditing(null);
       setForm(emptyForm);
-      load();
+      await load();
     } catch (err: unknown) {
-      const c = err instanceof Error ? err.message : '';
-      if (c === 'last-admin') setError(t('admin.error.lastAdminRole'));
-      else if (c === 'phone-exists') setError(t('admin.error.phoneTaken'));
-      else setError(t('admin.error.updateFailed'));
+      if (err instanceof HttpError && err.status === 403) {
+        setError(t('admin.error.forbidden'));
+      } else if (err instanceof Error && err.message === 'no-admin-token') {
+        setError(t('admin.error.noAdminToken'));
+      } else if (err instanceof HttpError && err.status === 400) {
+        const detail =
+          err.body && typeof err.body === 'object' && 'detail' in err.body
+            ? String((err.body as { detail: unknown }).detail)
+            : '';
+        setError(detail || t('admin.error.updateFailed'));
+      } else {
+        setError(t('admin.error.updateFailed'));
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (u: LocalStaffUser) => {
-    if (!window.confirm(t('admin.error.confirmDeleteUser', { name: u.displayName }))) return;
+  const handleDelete = async (u: StaffDirectoryEntry) => {
+    if (!window.confirm(t('admin.error.confirmDeleteUser', { name: u.display_name }))) return;
     setError(null);
     setSaving(true);
     try {
-      await deprovisionBackendStaffAccount(u.phoneDigits);
-      adminDeleteStaffUser(u.uid);
-      load();
+      await removeStaffMember(u.phone_digits);
+      await load();
     } catch (err: unknown) {
-      const c = err instanceof Error ? err.message : '';
-      if (c === 'cannot-delete-self') setError(t('admin.error.cannotDeleteSelf'));
-      else if (c === 'last-admin') setError(t('admin.error.lastAdminDelete'));
-      else if (c === 'no-admin-token') setError(t('admin.error.noAdminToken'));
-      else setError(t('admin.error.deleteFailed'));
+      if (err instanceof HttpError && err.status === 400) {
+        setError(t('admin.error.cannotDeleteSelf'));
+      } else if (err instanceof HttpError && err.status === 403) {
+        setError(t('admin.error.lastAdminDelete'));
+      } else if (err instanceof HttpError && err.status === 409) {
+        const detail =
+          err.body && typeof err.body === 'object' && 'detail' in err.body
+            ? String((err.body as { detail: unknown }).detail)
+            : '';
+        setError(detail || t('admin.error.deleteFailed'));
+      } else if (err instanceof Error && err.message === 'no-admin-token') {
+        setError(t('admin.error.noAdminToken'));
+      } else {
+        setError(t('admin.error.deleteFailed'));
+      }
     } finally {
       setSaving(false);
     }
@@ -247,24 +253,24 @@ export default function AdminStaffManagement() {
 
       switch (sortKey) {
         case 'displayName':
-          left = (a.displayName || '').toLocaleLowerCase();
-          right = (b.displayName || '').toLocaleLowerCase();
+          left = (a.display_name || '').toLocaleLowerCase();
+          right = (b.display_name || '').toLocaleLowerCase();
           break;
         case 'phoneDisplay':
-          left = (a.phoneDisplay || '').toLocaleLowerCase();
-          right = (b.phoneDisplay || '').toLocaleLowerCase();
+          left = (a.phone_display || '').toLocaleLowerCase();
+          right = (b.phone_display || '').toLocaleLowerCase();
           break;
         case 'role':
-          left = normalizeUserRole(a);
-          right = normalizeUserRole(b);
+          left = a.role;
+          right = b.role;
           break;
-        case 'faculty':
-          left = (a.faculty || '').toLocaleLowerCase();
-          right = (b.faculty || '').toLocaleLowerCase();
+        case 'department':
+          left = (a.department || '').toLocaleLowerCase();
+          right = (b.department || '').toLocaleLowerCase();
           break;
         case 'lastActiveAt':
-          left = a.lastActiveAt ?? 0;
-          right = b.lastActiveAt ?? 0;
+          left = a.last_login ? new Date(a.last_login).getTime() : 0;
+          right = b.last_login ? new Date(b.last_login).getTime() : 0;
           break;
         default:
           break;
@@ -341,7 +347,7 @@ export default function AdminStaffManagement() {
                 <th className="px-4 py-3">{sortLabel('displayName', t('admin.fullName'))}</th>
                 <th className="px-4 py-3">{sortLabel('phoneDisplay', t('admin.phone'))}</th>
                 <th className="px-4 py-3">{sortLabel('role', t('admin.role'))}</th>
-                <th className="px-4 py-3">{sortLabel('faculty', t('admin.faculty'))}</th>
+                <th className="px-4 py-3">{sortLabel('department', t('admin.department'))}</th>
                 <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">{sortLabel('lastActiveAt', t('admin.lastActivity'))}</th>
                 <th className="px-4 py-3 w-28"></th>
               </tr>
@@ -356,18 +362,18 @@ export default function AdminStaffManagement() {
                 </tr>
               ) : (
                 sortedRows.map((u) => (
-                  <tr key={u.uid} className="hover:bg-black/[0.02]">
-                    <td className="px-4 py-2.5 font-medium text-black/90">{u.displayName}</td>
-                    <td className="px-4 py-2.5 font-mono text-[12px]">{u.phoneDisplay}</td>
+                  <tr key={u.phone_digits} className="hover:bg-black/[0.02]">
+                    <td className="px-4 py-2.5 font-medium text-black/90">{u.display_name}</td>
+                    <td className="px-4 py-2.5 font-mono text-[12px]">{u.phone_display}</td>
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-black/5 text-[11px] font-semibold">
-                        {normalizeUserRole(u) === 'admin' && <Shield size={12} />}
-                        {roleLabel(language, normalizeUserRole(u))}
+                        {u.role === 'admin' && <Shield size={12} />}
+                        {roleLabel(language, u.role || 'hodim')}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-black/65 max-w-[180px] truncate">{u.faculty}</td>
+                    <td className="px-4 py-2.5 text-black/65 max-w-[180px] truncate">{u.department}</td>
                     <td className="px-4 py-2.5 text-black/55 tabular-nums text-[12px] whitespace-nowrap">
-                      {formatLastActive(u.lastActiveAt)}
+                      {formatLastActive(u.last_login)}
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex gap-1">
@@ -381,7 +387,7 @@ export default function AdminStaffManagement() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(u)}
+                          onClick={() => void handleDelete(u)}
                           className="p-2 rounded-lg hover:bg-rose-500/10 text-rose-600"
                           title={t('admin.delete')}
                         >
@@ -410,10 +416,12 @@ export default function AdminStaffManagement() {
               <label className="space-y-1 sm:col-span-2">
                 <span className="text-[11px] font-semibold text-black/50">{t('admin.phone')}</span>
                 <input
-                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px] disabled:bg-black/[0.03] disabled:text-black/70"
                   value={form.phoneDisplay}
                   onChange={(e) => setForm((f) => ({ ...f, phoneDisplay: e.target.value }))}
                   required
+                  disabled={Boolean(editing)}
+                  readOnly={Boolean(editing)}
                 />
               </label>
               <label className="space-y-1 sm:col-span-2">
@@ -448,80 +456,74 @@ export default function AdminStaffManagement() {
                 />
               </label>
               <label className="space-y-1 sm:col-span-2">
-                <span className="text-[11px] font-semibold text-black/50">{t('admin.faculty')}</span>
-                <input
-                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                  value={form.faculty}
-                  onChange={(e) => setForm((f) => ({ ...f, faculty: e.target.value }))}
-                />
-              </label>
-              <label className="space-y-1">
                 <span className="text-[11px] font-semibold text-black/50">{t('admin.department')}</span>
-                <input
-                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                  value={form.department}
-                  onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-black/50">{t('admin.direction')}</span>
-                <input
-                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                  value={form.direction}
-                  onChange={(e) => setForm((f) => ({ ...f, direction: e.target.value }))}
-                />
+                {departments.length > 0 ? (
+                  <select
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                    value={
+                      form.departmentId != null
+                        ? String(form.departmentId)
+                        : form.department
+                          ? `name:${form.department}`
+                          : ''
+                    }
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const dept = departments.find((d) => deptOptionValue(d) === raw) || null;
+                      setForm((f) => ({
+                        ...f,
+                        departmentId: dept?.id ?? null,
+                        department: dept?.name || '',
+                      }));
+                    }}
+                  >
+                    <option value="">{t('admin.notSelected')}</option>
+                    {form.departmentId == null &&
+                    form.department &&
+                    !departments.some((d) => d.name === form.department) ? (
+                      <option value={`name:${form.department}`}>{form.department}</option>
+                    ) : null}
+                    {departments.map((d) => (
+                      <option key={deptOptionValue(d)} value={deptOptionValue(d)}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                    value={form.department}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        department: e.target.value,
+                        departmentId: null,
+                      }))
+                    }
+                  />
+                )}
+                <span className="block text-[11px] text-black/45">{t('admin.departmentFansHint')}</span>
               </label>
               <label className="space-y-1 sm:col-span-2">
                 <span className="text-[11px] font-semibold text-black/50">{t('admin.role')}</span>
-                <select
-                  className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                  value={form.role}
-                  onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}
-                >
-                  <option value="hodim">{roleLabel(language, 'hodim')}</option>
-                  <option value="admin">{roleLabel(language, 'admin')}</option>
-                  <option value="startuper">{roleLabel(language, 'startuper')}</option>
-                </select>
+                {editing ? (
+                  <select
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
+                    value={form.role}
+                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as UserRole }))}
+                  >
+                    <option value="hodim">{roleLabel(language, 'hodim')}</option>
+                    <option value="admin">{roleLabel(language, 'admin')}</option>
+                  </select>
+                ) : (
+                  <input
+                    className="w-full rounded-xl border border-black/10 bg-black/[0.03] px-3 py-2 text-[14px] text-black/80"
+                    value={roleLabel(language, 'hodim')}
+                    readOnly
+                    tabIndex={-1}
+                  />
+                )}
               </label>
-              {form.role === 'startuper' && (
-                <>
-                  <label className="space-y-1 sm:col-span-2">
-                    <span className="text-[11px] font-semibold text-black/50">{t('admin.participantKind')}</span>
-                    <select
-                      className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                      value={form.participantKind}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          participantKind: e.target.value as 'student' | 'employee',
-                        }))
-                      }
-                    >
-                      <option value="student">{t('admin.student')}</option>
-                      <option value="employee">{t('admin.employee')}</option>
-                    </select>
-                  </label>
-                  {form.participantKind === 'student' ? (
-                    <label className="space-y-1 sm:col-span-2">
-                      <span className="text-[11px] font-semibold text-black/50">{t('admin.studyGroup')}</span>
-                      <input
-                        className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                        value={form.studyGroup}
-                        onChange={(e) => setForm((f) => ({ ...f, studyGroup: e.target.value }))}
-                      />
-                    </label>
-                  ) : (
-                    <label className="space-y-1 sm:col-span-2">
-                      <span className="text-[11px] font-semibold text-black/50">{t('admin.jobTitle')}</span>
-                      <input
-                        className="w-full rounded-xl border border-black/10 px-3 py-2 text-[14px]"
-                        value={form.jobTitle}
-                        onChange={(e) => setForm((f) => ({ ...f, jobTitle: e.target.value }))}
-                      />
-                    </label>
-                  )}
-                </>
-              )}
               <div className="sm:col-span-2 flex gap-2 pt-2">
                 <button
                   type="submit"

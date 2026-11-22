@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import { buildPreparedContentMeta } from '../utils/preparedContentMeta';
+import { pushAppNotification } from '../utils/notifications';
 import {
   FileText,
   Sparkles,
@@ -9,24 +11,52 @@ import {
   Copy,
   CheckCircle2,
   BookOpen,
+  RefreshCw,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { aiService, LectureNote } from '../services/aiService';
-import { GlobalTopicContext, GlobalLectureContext, AppLanguageContext } from '../App';
-import { useUiText } from '../i18n/useUiText';
 import Markdown from 'react-markdown';
+import { aiService, LectureNote } from '../services/aiService';
 import {
-  listAllPreparedForKind,
-  loadLatestPreparedContent,
-  loadPreparedById,
+  GlobalTopicContext,
+  GlobalLectureContext,
+  AppLanguageContext,
+  AppNavigationContext,
+} from '../App';
+import { useUiText } from '../i18n/useUiText';
+import { isTopicContextComplete } from '../utils/syllabusTopicContext';
+import {
+  listPreparedForTopicSynced,
+  loadPreparedByIdSynced,
   savePreparedContent,
+  updatePreparedContentPayload,
+  deletePreparedContent,
   type PreparedContentSummary,
 } from '../utils/preparedContentStore';
+import { useLocalizedTopic } from '../i18n/useLocalizedTopic';
+import { copyTextToClipboard } from '../utils/copyText';
+import StaffPageLayout from './staff/StaffPageLayout';
+import SavedWorkBanner from './staff/SavedWorkBanner';
+import SavedWorkList from './staff/SavedWorkList';
+import StaffTopicHeader from './staff/StaffTopicHeader';
+import StaffEmptyState from './staff/StaffEmptyState';
+import StaffErrorAlert from './staff/StaffErrorAlert';
+import StaffLoading from './staff/StaffLoading';
+import StaffPanel from './staff/StaffPanel';
+import {
+  staffBtnGhost,
+  staffBtnPrimary,
+  staffBtnSecondary,
+  staffInput,
+  staffLabel,
+  staffProse,
+  STAFF_HEADING,
+} from './staff/staffUi';
 
 export default function LectureNotes() {
   const globalTopic = useContext(GlobalTopicContext);
   const globalLecture = useContext(GlobalLectureContext);
   const { language } = useContext(AppLanguageContext);
+  const { openSyllabus } = useContext(AppNavigationContext);
   const { t, locale } = useUiText();
   const topicTypeLabel = (type: 'lecture' | 'practical') =>
     type === 'lecture' ? t('lecture.typeLecture') : t('lecture.typePractical');
@@ -36,19 +66,35 @@ export default function LectureNotes() {
   );
 
   const [loading, setLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
   const [lectureSession, setLectureSession] = useState<LectureNote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState('');
-
   const [savedLectures, setSavedLectures] = useState<PreparedContentSummary[]>([]);
+  /** Ekrandagi ma'ruza Bazadagi qaysi yozuv — tahrir shu yozuvni yangilaydi. */
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  /** Saqlash yiqilganda — "Qayta saqlash" uchun kutayotgan ish. */
+  const [pendingSave, setPendingSave] = useState<{ topic: string; data: LectureNote } | null>(null);
+  const [retryingSave, setRetryingSave] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [copied, setCopied] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
+  const setLectureContent = globalLecture.setContent;
 
+  const topicFromSyllabus = Boolean(globalTopic && isTopicContextComplete(globalTopic));
+  // Sarlavha interfeys tilida ko'rsatiladi (kontekstda asl matn turadi).
+  const staffTopic = useLocalizedTopic(topicFromSyllabus && globalTopic ? globalTopic : null);
+
+  // Baza faqat TANLANGAN MAVZU bo'yicha (4 bo'limda bir xil qoida).
   const refreshHistory = useCallback(() => {
-    setSavedLectures(listAllPreparedForKind('lecture'));
-  }, []);
+    const lookup = globalTopic ?? topic;
+    if (!topic.trim() && !globalTopic) {
+      setSavedLectures([]);
+      return;
+    }
+    void listPreparedForTopicSynced('lecture', lookup).then(setSavedLectures);
+  }, [topic, globalTopic]);
 
   useEffect(() => {
     if (globalTopic) {
@@ -57,59 +103,99 @@ export default function LectureNotes() {
     }
   }, [globalTopic]);
 
+  // Bazadan ma'ruza ochilganda `topic` ham o'sha yozuvnikiga o'zgaradi — quyidagi
+  // "mavzu almashdi → ekranni tozala" effekti aynan shu payt ishga tushib,
+  // endigina ochilgan ma'ruzani darhol yopib qo'yardi. Shu bitta tozalash
+  // o'tkazib yuboriladi.
+  const skipNextTopicResetRef = useRef(false);
+
   useEffect(() => {
     if (!topic.trim()) {
+      skipNextTopicResetRef.current = false;
       setLectureSession(null);
       setEditedContent('');
-      globalLecture.setContent('');
+      setLectureContent('');
       return;
     }
+    if (skipNextTopicResetRef.current) {
+      skipNextTopicResetRef.current = false;
+      return;
+    }
+    // Sahifa TOZA ochiladi: avval yaratilgan material avtomatik ochilmaydi.
+    // Shu mavzuda saqlangani bo'lsa, tepadagi SavedWorkBanner orqali Bazadan
+    // ochiladi (4 bo'limda bir xil xatti-harakat).
     setLectureSession(null);
     setEditedContent('');
-    globalLecture.setContent('');
-    let mounted = true;
-    (async () => {
-      const prepared = await loadLatestPreparedContent<LectureNote>('lecture', topic);
-      if (!mounted) return;
-      if (!prepared) return;
-      setLectureSession(prepared);
-      setEditedContent(prepared.content || '');
-      globalLecture.setContent(prepared.content || '');
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [topic, globalLecture]);
+    setLectureContent('');
+    // globalLecture obyekti har renderda yangi — faqat topic/setContent.
+  }, [topic, setLectureContent]);
 
   useEffect(() => {
     refreshHistory();
   }, [refreshHistory]);
 
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGenerate = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!topic.trim()) return;
-
     setLoading(true);
     setError(null);
+    setStreamingContent('');
     try {
-      const data = await aiService.generateLectureNotes(topic, description, language);
-
+      const contentLanguage = language;
+      const data = await aiService.generateLectureNotes(
+        topic,
+        description,
+        contentLanguage,
+        globalTopic?.subjectCode,
+        (textSoFar) => setStreamingContent(textSoFar),
+      );
       setLectureSession(data);
       setEditedContent(data.content);
-      globalLecture.setContent(data.content);
-      await savePreparedContent('lecture', topic, data);
-      refreshHistory();
+      setLectureContent(data.content);
+      // Kalit sifatida SARLAVHA emas, tuzilmali topicNorm ishlatiladi
+      // (sillabus::yo'nalish::mavzu kodi) — aks holda mavzu nomi tarjima
+      // qilinganda saqlangan ma'ruza topilmay qolardi.
+      // Ma'ruza allaqachon ekranda (setLectureSession yuqorida) — saqlash
+      // yiqilsa "generatsiya xatosi" deb ko'rsatmaymiz, aks holda
+      // foydalanuvchi tayyor matnni yo'qotdim deb o'ylaydi.
+      try {
+        const savedId = await savePreparedContent(
+          'lecture',
+          topic,
+          data,
+          buildPreparedContentMeta(globalTopic),
+        );
+        setActiveVersionId(savedId);
+        pushAppNotification({
+          title: t('common.doneTitle'),
+          body: t('lecture.readyToast'),
+          titleKey: 'common.doneTitle',
+          bodyKey: 'lecture.readyToast',
+          level: 'success',
+        });
+        refreshHistory();
+      } catch (saveErr) {
+        console.error('Lecture save failed', saveErr);
+        // Ish ekranda turibdi — foydalanuvchi bir bosishda qayta saqlay olsin.
+        setPendingSave({ topic, data });
+        setError(t('common.saveFailedKeepWork'));
+      }
     } catch (err) {
       console.error('Lecture generation error:', err);
       setError(t('lecture.errorGenerate'));
     } finally {
       setLoading(false);
+      setStreamingContent('');
     }
   };
 
-  const loadPastSession = (summary: PreparedContentSummary) => {
-    const session = loadPreparedById<LectureNote>('lecture', summary.id);
+  const loadPastSession = async (summary: PreparedContentSummary) => {
+    const session = await loadPreparedByIdSynced<LectureNote>('lecture', summary.id);
     if (!session) return;
+    // Mavzu haqiqatan almashsagina tozalash effektini o'tkazib yuboramiz —
+    // aks holda bayroq osilib qolib, keyingi haqiqiy mavzu almashuvini yeb qo'yardi.
+    if (session.topic !== topic) skipNextTopicResetRef.current = true;
+    setActiveVersionId(summary.id);
     setLectureSession(session);
     setTopic(session.topic);
     setEditedContent(session.content);
@@ -117,265 +203,319 @@ export default function LectureNotes() {
     setShowHistory(false);
   };
 
-  const handleCopy = async () => {
-    if (!lectureSession) return;
-    try {
-      await navigator.clipboard.writeText(lectureSession.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Copy failed', err);
-    }
+  /** Yiqilgan saqlashni qayta urinish — tayyor matn yo'qolmasin. */
+  const handleRetrySave = () => {
+    if (!pendingSave) return;
+    void (async () => {
+      setRetryingSave(true);
+      try {
+        const savedId = await savePreparedContent(
+          'lecture',
+          pendingSave.topic,
+          pendingSave.data,
+          buildPreparedContentMeta(globalTopic),
+        );
+        setActiveVersionId(savedId);
+        setPendingSave(null);
+        setError(null);
+        refreshHistory();
+      } catch (err) {
+        console.error('Lecture retry save failed', err);
+        setError(t('common.saveFailedKeepWork'));
+      } finally {
+        setRetryingSave(false);
+      }
+    })();
   };
 
-  const handlePrint = () => {
-    window.print();
+  /** Bazadagi saqlangan ma'ruzani butunlay o'chirish. */
+  const handleDeleteSaved = (id: string) => {
+    if (!window.confirm(t('toolbar.deleteConfirm'))) return;
+    void (async () => {
+      try {
+        await deletePreparedContent('lecture', id);
+        if (activeVersionId === id) {
+          setActiveVersionId(null);
+          setLectureSession(null);
+          setEditedContent('');
+          setLectureContent('');
+        }
+        refreshHistory();
+      } catch (err) {
+        console.error('Delete lecture failed', err);
+        setError(t('toolbar.deleteFailed'));
+      }
+    })();
+  };
+
+  const handleCopy = async () => {
+    if (!lectureSession) return;
+    const ok = await copyTextToClipboard(lectureSession.content);
+    if (!ok) {
+      // Ilgari xato faqat console'ga chiqardi — foydalanuvchi tugma
+      // ishlamayotganini bilmasdi.
+      setError(t('common.copyFailed'));
+      return;
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (showHistory) {
     return (
-      <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
-        <div className="w-full flex items-center justify-between mb-8">
-          <button
-            onClick={() => setShowHistory(false)}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 transition-colors"
-          >
-            <ArrowLeft size={20} />
+      <StaffPageLayout>
+        <div className="flex items-center justify-between gap-3">
+          <button type="button" onClick={() => setShowHistory(false)} className={staffBtnGhost}>
+            <ArrowLeft size={18} />
             {t('lecture.back')}
           </button>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <History className="text-blue-500" />
+          <h2 className={`text-lg font-bold flex items-center gap-2 ${STAFF_HEADING}`}>
+            <History size={20} />
             {t('lecture.database')}
           </h2>
         </div>
+        <SavedWorkList
+          items={savedLectures}
+          activeId={activeVersionId}
+          onSelect={(id) => {
+            const item = savedLectures.find((x) => x.id === id);
+            if (item) void loadPastSession(item);
+          }}
+          onDelete={handleDeleteSaved}
+          emptyText={t('lecture.noSaved')}
+        />
+      </StaffPageLayout>
+    );
+  }
 
-        {savedLectures.length === 0 ? (
-          <div className="bg-white p-10 rounded-3xl shadow-sm border border-gray-100 text-center w-full">
-            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
-              <FileText size={40} />
-            </div>
-            <p className="text-gray-500 font-medium">{t('lecture.noSaved')}</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 w-full lg:grid-cols-2 xl:grid-cols-3">
-            {savedLectures.map((lecture) => (
-              <button
-                key={lecture.id}
-                onClick={() => loadPastSession(lecture)}
-                className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between hover:border-blue-300 hover:shadow-md transition-all text-left"
-              >
-                <div>
-                  <h3 className="font-bold text-gray-800 text-lg mb-1">{lecture.topic}</h3>
-                  <div className="flex items-center gap-4 text-sm font-medium text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <BookOpen size={14} /> {t('lecture.badge')}
-                    </span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                    <span>
-                      {lecture.createdAt
-                        ? new Date(lecture.createdAt).toLocaleDateString(locale)
-                        : t('common.recently')}
-                    </span>
-                  </div>
-                </div>
-                <ArrowLeft className="text-gray-400 rotate-180" />
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+  if (!topicFromSyllabus && !topic.trim()) {
+    return (
+      <StaffPageLayout>
+        <StaffEmptyState
+          icon={BookOpen}
+          title={t('presentation.noTopic')}
+          hint={t('presentation.noTopicHint')}
+          actionLabel={t('common.goToSyllabus')}
+          onAction={openSyllabus}
+        />
+      </StaffPageLayout>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-[#f2f2f7] p-3 sm:p-5 lg:p-6 overflow-y-auto">
-      <div className="w-full space-y-8 pb-32">
-        <div className="text-center space-y-4 pt-4">
-          <div className="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-1.5 rounded-full font-semibold text-sm mb-4">
-            <FileText size={16} />
-            {t('lecture.generateBadge')}
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">
-            {t('lecture.heroTitle')} <br className="hidden sm:block" />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">
-              {t('lecture.heroHighlight')}
-            </span>
-          </h1>
-          <p className="text-gray-500 text-lg max-w-2xl mx-auto font-medium">
-            {t('lecture.heroSubtitleLong')}
-          </p>
-        </div>
-
-        <motion.div
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="bg-white p-4 flex flex-col shadow-xl rounded-2xl border border-gray-100 gap-4 w-full"
+    <StaffPageLayout>
+      <StaffTopicHeader
+        moduleLabel={t('lecture.generateBadge')}
+        topic={staffTopic}
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              refreshHistory();
+              setShowHistory(true);
+            }}
+            className={staffBtnGhost}
+          >
+            <History size={16} />
+            {t('lecture.databaseShort')}
+          </button>
+        }
+      >
+        {!topicFromSyllabus && (
+          <input
+            type="text"
+            className={staffInput}
+            placeholder={t('lecture.topicPlaceholderShort')}
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+          />
+        )}
+        <label className="block space-y-1.5">
+          <span className={staffLabel}>{t('lecture.contextLabel')}</span>
+          <input
+            type="text"
+            className={staffInput}
+            placeholder={t('lecture.descriptionPlaceholder')}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={loading || !topic.trim()}
+          className={staffBtnPrimary}
         >
-          <div className="space-y-3">
-            <input
-              type="text"
-              className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
-              placeholder={t('lecture.topicPlaceholderShort')}
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            />
-            <input
-              type="text"
-              className="px-5 py-4 w-full outline-none text-gray-800 font-medium placeholder:text-gray-400 bg-gray-50 rounded-xl border border-gray-200 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-50 transition-all"
-              placeholder={t('lecture.descriptionPlaceholder')}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 mt-2">
+          {loading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+          {t('lecture.generateButton')}
+        </button>
+      </StaffTopicHeader>
+
+      {!lectureSession && !loading && (
+        <SavedWorkBanner count={savedLectures.length} />
+      )}
+
+      {error && (
+        <StaffErrorAlert
+          message={error}
+          actionLabel={pendingSave ? t('common.retrySave') : undefined}
+          onAction={pendingSave ? handleRetrySave : undefined}
+          actionBusy={retryingSave}
+        />
+      )}
+      {loading && !streamingContent && (
+        <StaffLoading label={t('lecture.generating')} hint={t('lecture.generatingHint')} />
+      )}
+
+      {loading && streamingContent && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          <StaffPanel className="p-4 sm:p-5 flex items-center gap-2 text-sky-700">
+            <Loader2 size={16} className="animate-spin shrink-0" />
+            <p className="text-[13px] font-semibold">{t('lecture.generating')}</p>
+          </StaffPanel>
+          <StaffPanel className="p-6 sm:p-8 lg:p-10" large>
+            {/* Streaming paytida oddiy matn (Markdown EMAS) — har harfda butun
+                matnni qayta parse qilish sekinlashtiradi va "muzlab qolganday"
+                ko'rinadi. To'liq formatlash faqat generatsiya tugagach. */}
+            <pre className="whitespace-pre-wrap font-sans text-[15px] leading-relaxed text-black/80">
+              {streamingContent}
+              <span className="inline-block w-2 h-4 bg-sky-500 ml-0.5 animate-pulse align-middle" />
+            </pre>
+          </StaffPanel>
+        </motion.div>
+      )}
+
+      {lectureSession && !loading && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+          <StaffPanel className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Sarlavha interfeys tilida — sessiyada asl (o'zbekcha) matn turadi. */}
+            <p className={`text-[16px] font-bold line-clamp-2 ${STAFF_HEADING}`}>
+              {staffTopic && staffTopic.title && lectureSession.topic === globalTopic?.title
+                ? staffTopic.title
+                : lectureSession.topic}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setIsEditing(!isEditing)} className={staffBtnGhost}>
+                <FileText size={15} />
+                {isEditing ? t('lecture.view') : t('lecture.edit')}
+              </button>
+              {/* Yangi variant — avval faqat "yangi yaratish" bor edi va u
+                  ekranni tozalab, mavzuni qaytadan kiritishni talab qilardi. */}
+              <button
+                type="button"
+                onClick={() => void handleGenerate()}
+                disabled={loading}
+                className={`${staffBtnGhost} disabled:opacity-50`}
+              >
+                <RefreshCw size={15} />
+                {t('lecture.regenerate')}
+              </button>
+              <button type="button" onClick={handleCopy} className={staffBtnGhost}>
+                {copied ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+                {copied ? t('lecture.copied') : t('lecture.copy')}
+              </button>
+              {/* Chop etish faqat KO'RISH rejimida ishlaydi (chop CSS `.staff-prose`
+                  ni ko'rsatadi). Tahrir rejimida bosilsa bo'sh sahifa chiqardi —
+                  shuning uchun avval ko'rish rejimiga qaytariladi. */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (isEditing) {
+                    setIsEditing(false);
+                    window.setTimeout(() => window.print(), 100);
+                    return;
+                  }
+                  window.print();
+                }}
+                className={staffBtnPrimary}
+              >
+                <Download size={15} />
+                {t('lecture.print')}
+              </button>
+            </div>
+          </StaffPanel>
+
+          <StaffPanel className="p-6 sm:p-8 lg:p-10" large>
+            {isEditing ? (
+              <div className="space-y-4">
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEditedContent(v);
+                    globalLecture.setContent(v);
+                  }}
+                  className={`${staffInput} min-h-[480px] font-sans leading-relaxed`}
+                />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = { ...lectureSession, content: editedContent };
+                      setLectureSession(next);
+                      globalLecture.setContent(editedContent);
+                      try {
+                        // MUHIM: meta (topicNorm) uzatilishi shart — busiz yozuv
+                        // sillabus kaliti bilan emas, oddiy sarlavha bilan
+                        // saqlanadi va Taqdimot bo'limi ma'ruzani topa olmay
+                        // "ma'ruza matni yo'q" deb qolardi.
+                        const meta = buildPreparedContentMeta(globalTopic);
+                        const patched = activeVersionId
+                          ? await updatePreparedContentPayload(activeVersionId, next)
+                          : false;
+                        if (!patched) {
+                          const newId = await savePreparedContent(
+                            'lecture',
+                            lectureSession.topic,
+                            next,
+                            meta,
+                          );
+                          setActiveVersionId(newId);
+                        }
+                        refreshHistory();
+                        setIsEditing(false);
+                      } catch (err) {
+                        console.error('Lecture edit save failed', err);
+                        setError(t('common.saveFailedKeepWork'));
+                      }
+                    }}
+                    className={staffBtnPrimary}
+                  >
+                    {t('lecture.saveChanges')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <article ref={printRef} className={staffProse}>
+                <Markdown>{lectureSession.content}</Markdown>
+              </article>
+            )}
+          </StaffPanel>
+
+          <style>{`
+            @media print {
+              body * { visibility: hidden; }
+              .staff-prose, .staff-prose * { visibility: visible; }
+              .staff-prose { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+            }
+          `}</style>
+
+          <div className="flex justify-center">
             <button
-              onClick={handleGenerate}
-              disabled={loading || !topic.trim()}
-              className="flex-1 bg-gray-900 text-white px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-800 transition-all disabled:opacity-50"
-            >
-              {loading ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
-              {t('lecture.generateButton')}
-            </button>
-            <button
+              type="button"
               onClick={() => {
-                refreshHistory();
-                setShowHistory(true);
+                setLectureSession(null);
+                setEditedContent('');
+                setActiveVersionId(null);
+                setError(null);
               }}
-              className="bg-emerald-50 text-emerald-600 px-6 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-emerald-100 transition-all border border-emerald-100"
+              className={staffBtnSecondary}
             >
-              <History size={20} />
-              {t('lecture.databaseShort')}
+              {t('lecture.createNew')}
             </button>
           </div>
         </motion.div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl w-full text-center font-medium">
-            {error}
-          </div>
-        )}
-
-        {loading && (
-          <div className="py-20 flex flex-col items-center justify-center">
-            <div className="relative w-20 h-20 mb-6">
-              <div className="absolute inset-0 border-4 border-emerald-100 rounded-full"></div>
-              <div className="absolute inset-0 border-4 border-emerald-600 rounded-full border-t-transparent animate-spin"></div>
-              <FileText size={28} className="absolute inset-0 m-auto text-emerald-600 animate-pulse" />
-            </div>
-            <p className="text-gray-500 font-medium animate-pulse text-lg">
-              {t('lecture.generating')}
-            </p>
-            <p className="text-gray-400 text-sm mt-2 max-w-md text-center">
-              {t('lecture.generatingHint')}
-            </p>
-          </div>
-        )}
-
-        {lectureSession && !loading && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <h2 className="text-2xl font-bold text-gray-800 flex-1">{lectureSession.topic}</h2>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setIsEditing(!isEditing)}
-                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-colors ${
-                    isEditing
-                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <FileText size={18} />
-                  <span>{isEditing ? t('lecture.view') : t('lecture.edit')}</span>
-                </button>
-                <button
-                  onClick={handleCopy}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors disabled:opacity-50"
-                  title={t('lecture.copyTitle')}
-                >
-                  {copied ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
-                  <span>{copied ? t('lecture.copied') : t('lecture.copy')}</span>
-                </button>
-                <button
-                  onClick={handlePrint}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-semibold transition-colors disabled:opacity-50"
-                  title={t('lecture.printTitle')}
-                >
-                  <Download size={18} />
-                  <span>{t('lecture.print')}</span>
-                </button>
-              </div>
-            </div>
-
-            <div ref={printRef} className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border border-gray-100">
-              {isEditing ? (
-                <div className="flex flex-col gap-4">
-                  <textarea
-                    value={editedContent}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setEditedContent(v);
-                      globalLecture.setContent(v);
-                    }}
-                    className="w-full h-[600px] p-6 text-gray-800 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:ring-4 focus:ring-emerald-50 focus:border-emerald-300 transition-all font-mono text-sm leading-relaxed"
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      onClick={async () => {
-                        setLectureSession({ ...lectureSession, content: editedContent });
-                        globalLecture.setContent(editedContent);
-                        await savePreparedContent('lecture', lectureSession.topic, {
-                          ...lectureSession,
-                          content: editedContent,
-                        });
-                        refreshHistory();
-                        setIsEditing(false);
-                      }}
-                      className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
-                    >
-                      {t('lecture.saveChanges')}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="prose prose-emerald prose-lg max-w-none text-gray-800 prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-10 prose-h2:mb-4 prose-h3:text-xl prose-a:text-emerald-600 hover:prose-a:text-emerald-500 prose-img:rounded-xl">
-                  <Markdown>{lectureSession.content}</Markdown>
-                </div>
-              )}
-            </div>
-
-            <style>{`
-              @media print {
-                body * {
-                  visibility: hidden;
-                }
-                .prose, .prose * {
-                  visibility: visible;
-                }
-                .prose {
-                  position: absolute;
-                  left: 0;
-                  top: 0;
-                  width: 100%;
-                  padding: 20px;
-                }
-              }
-            `}</style>
-
-            <div className="flex justify-center pt-2">
-              <button
-                onClick={() => {
-                  setLectureSession(null);
-                  setEditedContent('');
-                  setError(null);
-                }}
-                className="px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-500 transition-colors"
-              >
-                {t('lecture.createNew')}
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </div>
-    </div>
+      )}
+    </StaffPageLayout>
   );
 }

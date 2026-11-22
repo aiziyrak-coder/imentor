@@ -22,12 +22,15 @@ import {
   ClipboardList,
   FileText,
   Users,
-  Rocket,
-  FolderOpen,
   MapPin,
   Building2,
   Files,
   Library,
+  BookMarked,
+  GraduationCap,
+  Youtube,
+  Monitor,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -40,16 +43,19 @@ import {
   type LocalStaffUser,
   type UserRole,
 } from './utils/localStaffAuth';
-import { clearBackendAuthTokens, getBackendAccessToken, syncStaffPhotoFromServer } from './utils/backendAuth';
+import { clearBackendAuthTokens, getBackendAccessToken, setUnauthorizedHandler, syncSessionRoleFromServer, syncStaffPhotoFromServer } from './utils/backendAuth';
+import { clearSyllabusRowCache } from './utils/syllabusRowCache';
 import { resolveProfilePhotoUrl } from './utils/profilePhotoApi';
 import {
   type AppLanguage,
+  getAppLanguage,
   localeForLanguage,
   setAppLanguage as persistAppLanguage,
   languageLabel,
 } from './i18n/language';
-import { navLabel, navMobileLabel, roleLabel, translate } from './i18n/translations';
+import { navLabel, navMobileLabel, roleLabel, translate, type UiTextKey } from './i18n/translations';
 import { type AppNotificationEventDetail } from './utils/notifications';
+import AppToastHost from './components/AppToastHost';
 import { isPublicStudentTestUrl } from './utils/liveTestApi';
 
 // Components
@@ -66,21 +72,27 @@ import PresentationBuilder from './components/PresentationBuilder';
 import CaseStudies from './components/CaseStudies';
 import UserProfile from './components/UserProfile';
 import SyllabusView from './components/SyllabusView';
+import StaffTeachingSubjectsPicker from './components/staff/StaffTeachingSubjectsPicker';
+import { fetchMyCourseSelections } from './utils/syllabusApi';
 import TestQuestions from './components/TestQuestions';
+import StudentMyTests from './components/StudentMyTests';
 import LectureNotes from './components/LectureNotes';
+import TopicVideos from './components/TopicVideos';
+import HandoutMaterials from './components/HandoutMaterials';
 import AdminDashboardHome from './components/admin/AdminDashboardHome';
 import AdminStaffManagement from './components/admin/AdminStaffManagement';
 import AdminCasesLibrary from './components/admin/AdminCasesLibrary';
 import AdminTestsLibrary from './components/admin/AdminTestsLibrary';
-import AdminStartupInbox from './components/admin/AdminStartupInbox';
+import AdminLiveTestResultsPage from './components/admin/AdminLiveTestResultsPage';
 import AdminStaffLocationConsole from './components/admin/AdminStaffLocationConsole';
+import AdminLiveTeachingBoard from './components/admin/AdminLiveTeachingBoard';
 import AdminCampusBuildingsPage from './components/admin/AdminCampusBuildingsPage';
 import AdminSyllabusCatalog from './components/admin/AdminSyllabusCatalog';
-import StartupWorkspace from './components/startup/StartupWorkspace';
-import StartupDossierSubmit from './components/startup/StartupDossierSubmit';
+import AdminCourseAssignments from './components/admin/AdminCourseAssignments';
+import AdminTopicVideos from './components/admin/AdminTopicVideos';
+import AdminTopicHandouts from './components/admin/AdminTopicHandouts';
+import AdminBooksLibrary from './components/admin/AdminBooksLibrary';
 import HodimGpsPromptBar from './components/staff/HodimGpsPromptBar';
-import HandoutTopicBanner from './components/staff/HandoutTopicBanner';
-import HandoutMaterials from './components/HandoutMaterials';
 import PublicLandingPage from './components/public/PublicLandingPage';
 import { useStaffLocationTracking } from './hooks/useStaffLocationTracking';
 import type { SyllabusTopic } from './services/aiService';
@@ -97,21 +109,26 @@ type View =
   | 'admin-dashboard'
   | 'admin-staff'
   | 'admin-staff-location'
+  | 'admin-live-teaching'
   | 'admin-campus-buildings'
   | 'admin-cases'
   | 'admin-tests'
-  | 'admin-startups'
+  | 'admin-live-test-results'
   | 'admin-syllabuses'
+  | 'admin-course-assignments'
+  | 'admin-videos'
+  | 'admin-handouts'
+  | 'admin-books'
   | 'syllabus'
   | 'profile'
   | 'presentation'
+  | 'videos'
+  | 'handouts'
   | 'cases'
   | 'tests'
   | 'lectures'
-  | 'handouts'
   | 'content-catalog'
-  | 'startup'
-  | 'startup-dossier';
+  | 'my-tests';
 
 type NavItemDef = { id: View; label: string; icon: LucideIcon };
 
@@ -119,44 +136,59 @@ const NAV_ICONS: Record<View, LucideIcon> = {
   'admin-dashboard': LayoutDashboard,
   'admin-staff': Users,
   'admin-staff-location': MapPin,
+  'admin-live-teaching': Monitor,
   'admin-campus-buildings': Building2,
   'admin-cases': BriefcaseMedical,
   'admin-tests': ClipboardList,
-  'admin-startups': Rocket,
+  'admin-live-test-results': Users,
   'admin-syllabuses': BookOpen,
+  'admin-course-assignments': GraduationCap,
+  'admin-videos': Youtube,
+  'admin-handouts': Files,
+  'admin-books': BookMarked,
   syllabus: BookOpen,
   lectures: FileText,
   presentation: Presentation,
+  videos: Youtube,
   handouts: Files,
   'content-catalog': Library,
   cases: BriefcaseMedical,
   tests: ClipboardList,
   profile: UserCircle,
-  startup: Rocket,
-  'startup-dossier': FolderOpen,
+  'my-tests': ClipboardList,
 };
 
-const HODIM_NAV_IDS: View[] = ['syllabus', 'lectures', 'presentation', 'handouts', 'cases', 'tests', 'profile'];
+const HODIM_NAV_IDS: View[] = [
+  'syllabus',
+  'lectures',
+  'presentation',
+  'videos',
+  'handouts',
+  'cases',
+  'tests',
+  'profile',
+];
 const ADMIN_NAV_IDS: View[] = [
   'admin-dashboard',
   'admin-staff',
   'admin-staff-location',
+  'admin-live-teaching',
   'admin-campus-buildings',
-  'admin-startups',
   'admin-syllabuses',
+  'admin-course-assignments',
+  'admin-videos',
+  'admin-handouts',
+  'admin-books',
   'admin-cases',
   'admin-tests',
+  'admin-live-test-results',
   'profile',
 ];
-const STARTUPER_NAV_IDS: View[] = ['startup', 'startup-dossier', 'profile'];
+const STUDENT_NAV_IDS: View[] = ['my-tests', 'profile'];
 
 function navItemsForRole(role: UserRole, lang: AppLanguage): NavItemDef[] {
   const ids =
-    role === 'admin'
-      ? ADMIN_NAV_IDS
-      : role === 'startuper'
-        ? STARTUPER_NAV_IDS
-        : HODIM_NAV_IDS;
+    role === 'admin' ? ADMIN_NAV_IDS : role === 'student' ? STUDENT_NAV_IDS : HODIM_NAV_IDS;
   return ids.map((id) => ({ id, label: navLabel(lang, id), icon: NAV_ICONS[id] }));
 }
 
@@ -188,10 +220,8 @@ function writeLectureForTopic(topicNorm: string, content: string): void {
 export const GlobalTopicContext = createContext<SyllabusTopicContext | null>(null);
 
 export const AppNavigationContext = createContext<{
-  openHandouts: () => void;
   openSyllabus: () => void;
 }>({
-  openHandouts: () => {},
   openSyllabus: () => {},
 });
 export const GlobalLectureContext = createContext<{content: string, setContent: (c: string) => void}>({content: '', setContent: () => {}});
@@ -210,9 +240,30 @@ type AppNotification = {
   createdAt: number;
   read: boolean;
   level?: 'info' | 'success' | 'warning' | 'error';
+  /** Tarjima kalitlari — bo'lsa, tarix JORIY tilda ko'rsatiladi. */
+  titleKey?: UiTextKey;
+  bodyKey?: UiTextKey;
 };
 
 const NOTIFICATIONS_STORAGE_KEY = 'imentor-notifications-v1';
+const ACTIVE_VIEW_STORAGE_KEY = 'imentor-active-view-v1';
+
+function loadPersistedActiveView(): View | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
+    return (raw as View) || null;
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveView(view: View): void {
+  try {
+    localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+  } catch {
+    /* quota */
+  }
+}
 
 function readStoredNotifications(): AppNotification[] {
   try {
@@ -227,21 +278,44 @@ function readStoredNotifications(): AppNotification[] {
 
 export default function App() {
   const { isMobile: isMobileDevice } = useDeviceProfile();
-  const [activeView, setActiveView] = useState<View>('syllabus');
+  const [activeView, setActiveViewState] = useState<View>(() => loadPersistedActiveView() ?? 'syllabus');
+  const setActiveView = useCallback((next: View | ((current: View) => View)) => {
+    setActiveViewState((current) => {
+      const resolved = typeof next === 'function' ? (next as (current: View) => View)(current) : next;
+      persistActiveView(resolved);
+      return resolved;
+    });
+  }, []);
   const [mountedViews, setMountedViews] = useState<View[]>([]);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [user, setUser] = useState<LocalStaffUser | null>(() => getCurrentLocalUser());
-  /** Kompyuterda admin/startuper uchun klassik login */
-  const [desktopStaffLogin, setDesktopStaffLogin] = useState(false);
+  /** Kompyuterda login modal holati: 'talaba' — standart (Talaba ID+parol),
+   * 'qr' — hodim uchun QR, 'admin' — faqat administrator uchun telefon+parol. */
+  const [desktopAuthView, setDesktopAuthView] = useState<'talaba' | 'qr' | 'admin'>('talaba');
+  /** null = tekshirilmoqda; false = birinchi kirish fan tanlash; true = tayyor */
+  const [teachingSubjectsReady, setTeachingSubjectsReady] = useState<boolean | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<SyllabusTopicContext | null>(() =>
     loadPersistedSelectedTopic(),
   );
   const [latestLectureContent, setLatestLectureContent] = useState('');
-  const [language, setLanguage] = useState<AppLanguage>(() => 'uz');
+  const [language, setLanguage] = useState<AppLanguage>(() => getAppLanguage());
   const [notifications, setNotifications] = useState<AppNotification[]>(readStoredNotifications);
   const [isNotificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsPanelRef = useRef<HTMLDivElement | null>(null);
   const notificationsButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      clearBackendAuthTokens();
+      clearDesktopPairedSession(user?.uid);
+      logoutLocalStaff();
+      clearSyllabusRowCache();
+      // Interfeys tili ATAYLAB tiklanmaydi: u qurilma sozlamasi (localStorage),
+      // hisobga bog'liq emas. Rus/ingliz tilida ishlaydigan o'qituvchi
+      // sessiyasi tugaganda login sahifasini o'zbekchada ko'rmasligi kerak.
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [user?.uid]);
 
   const setLectureContent = useCallback((c: string) => {
     setLatestLectureContent(c);
@@ -249,19 +323,26 @@ export default function App() {
     if (topicNorm) writeLectureForTopic(topicNorm, c);
   }, [selectedTopic]);
 
+  const lectureContextValue = useMemo(
+    () => ({ content: latestLectureContent, setContent: setLectureContent }),
+    [latestLectureContent, setLectureContent],
+  );
+
   useEffect(() => {
     const topicNorm = resolveTopicNorm(selectedTopic);
     setLatestLectureContent(topicNorm ? readLectureForTopic(topicNorm) : '');
   }, [selectedTopic]);
 
-  const addNotification = useCallback((title: string, body: string, level: AppNotification['level'] = 'info') => {
+  const addNotification = useCallback((detail: AppNotificationEventDetail) => {
     const next: AppNotification = {
       id: `ntf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      title,
-      body,
+      title: detail.title,
+      body: detail.body,
       createdAt: Date.now(),
       read: false,
-      level,
+      level: detail.level ?? 'info',
+      ...(detail.titleKey ? { titleKey: detail.titleKey } : {}),
+      ...(detail.bodyKey ? { bodyKey: detail.bodyKey } : {}),
     };
     setNotifications((prev) => [next, ...prev].slice(0, 80));
   }, []);
@@ -287,7 +368,7 @@ export default function App() {
       const custom = event as CustomEvent<AppNotificationEventDetail>;
       const detail = custom.detail;
       if (!detail?.title || !detail?.body) return;
-      addNotification(detail.title, detail.body, detail.level);
+      addNotification(detail);
     };
     window.addEventListener('app:notify', onNotify as EventListener);
     return () => window.removeEventListener('app:notify', onNotify as EventListener);
@@ -324,38 +405,26 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  /** Kirish: hodim — syllabus tili; boshqalar — o'zbek */
-  useEffect(() => {
-    if (!user) return;
-    const role = normalizeUserRole(user);
-    if (role === 'hodim') {
-      const topic = loadPersistedSelectedTopic();
-      if (topic?.instructionLanguage) {
-        setLanguage(topic.instructionLanguage);
-        persistAppLanguage(topic.instructionLanguage);
-        return;
-      }
-    }
-    setLanguage('uz');
-    persistAppLanguage('uz');
-  }, [user?.uid]);
 
   useEffect(() => {
     if (!user) return;
-    addNotification(
-      translate(language, 'shell.welcomeTitle'),
-      translate(language, 'shell.welcomeBody', {
+    addNotification({
+      title: translate(language, 'shell.welcomeTitle'),
+      // Ism ichida bo'lgani uchun kalit bilan qayta tarjima qilinmaydi.
+      body: translate(language, 'shell.welcomeBody', {
         name: user.displayName || translate(language, 'shell.staffDefaultName'),
       }),
-      'success',
-    );
+      titleKey: 'shell.welcomeTitle',
+      level: 'success',
+    });
   }, [user?.uid, user?.displayName, addNotification]);
 
-  /** Kirishdan keyin JWT ni yangilash va profil rasmini serverdan olish */
+  /** Kirishdan keyin JWT ni yangilash, server roli va profil rasmini sinxronlash */
   useEffect(() => {
     if (!user) return;
     void (async () => {
-      await getBackendAccessToken();
+      const role = await syncSessionRoleFromServer();
+      if (!role) return;
       await syncStaffPhotoFromServer();
     })();
   }, [user?.uid]);
@@ -386,8 +455,8 @@ export default function App() {
     clearBackendAuthTokens();
     clearDesktopPairedSession(user?.uid);
     logoutLocalStaff();
-    setLanguage('uz');
-    persistAppLanguage('uz');
+    clearSyllabusRowCache();
+    // Tanlangan interfeys tili saqlanib qoladi (qurilma sozlamasi).
   };
 
   const userRole = user ? normalizeUserRole(user) : null;
@@ -396,13 +465,37 @@ export default function App() {
     [userRole, language],
   );
 
+  useEffect(() => {
+    if (!user || userRole !== 'hodim') {
+      setTeachingSubjectsReady(true);
+      return;
+    }
+    let cancelled = false;
+    setTeachingSubjectsReady(null);
+    void fetchMyCourseSelections()
+      .then((rows) => {
+        if (!cancelled) setTeachingSubjectsReady(rows.length > 0);
+      })
+      .catch(() => {
+        if (!cancelled) setTeachingSubjectsReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, userRole]);
+
   /** Hodim GPS faqat HodimMobileCompanion ichida (telefon) */
   useStaffLocationTracking(false);
 
   useEffect(() => {
     if (!user || !userRole) return;
     const allowed = navItemsForRole(userRole, language).map((i) => i.id);
-    setActiveView((current) => (allowed.includes(current) ? current : allowed[0]));
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = (params.get('view') || '').trim() as View;
+    setActiveView((current) => {
+      if (viewParam && allowed.includes(viewParam)) return viewParam;
+      return allowed.includes(current) ? current : allowed[0];
+    });
   }, [user?.uid, user?.role, userRole, language]);
 
   useEffect(() => {
@@ -416,10 +509,6 @@ export default function App() {
     });
   }, [activeView, user?.uid, userRole, language]);
 
-  const openHandouts = useCallback(() => {
-    setActiveView('handouts');
-  }, []);
-
   const openSyllabus = useCallback(() => {
     setActiveView('syllabus');
   }, []);
@@ -427,27 +516,26 @@ export default function App() {
   const handleSelectTopic = (topic: SyllabusTopicContext) => {
     setSelectedTopic(topic);
     persistSelectedTopic(topic);
-    if (topic.instructionLanguage) {
-      setLanguage(topic.instructionLanguage);
-      persistAppLanguage(topic.instructionLanguage);
-    }
-    addNotification(
-      translate(language, 'shell.topicSelectedTitle'),
-      translate(language, 'shell.topicSelectedBody', {
+    addNotification({
+      title: translate(language, 'shell.topicSelectedTitle'),
+      // Mavzu nomi ichida — kalit bilan qayta tarjima qilinmaydi.
+      body: translate(language, 'shell.topicSelectedBody', {
         subject: topic.subjectName,
         id: topic.id,
         title: topic.title,
       }),
-    );
+      titleKey: 'shell.topicSelectedTitle',
+    });
   };
+
+  const handleClearTopic = useCallback(() => {
+    setSelectedTopic(null);
+    persistSelectedTopic(null);
+  }, []);
 
   const handleOpenLectures = (topic: SyllabusTopicContext) => {
     setSelectedTopic(topic);
     persistSelectedTopic(topic);
-    if (topic.instructionLanguage) {
-      setLanguage(topic.instructionLanguage);
-      persistAppLanguage(topic.instructionLanguage);
-    }
     setActiveView('lectures');
   };
 
@@ -459,50 +547,60 @@ export default function App() {
         return <AdminStaffManagement />;
       case 'admin-staff-location':
         return <AdminStaffLocationConsole />;
+      case 'admin-live-teaching':
+        return <AdminLiveTeachingBoard />;
       case 'admin-campus-buildings':
         return <AdminCampusBuildingsPage />;
       case 'admin-cases':
         return <AdminCasesLibrary />;
       case 'admin-tests':
         return <AdminTestsLibrary />;
-      case 'admin-startups':
-        return <AdminStartupInbox />;
+      case 'admin-live-test-results':
+        return <AdminLiveTestResultsPage />;
       case 'admin-syllabuses':
         return <AdminSyllabusCatalog />;
-      case 'startup':
-        return <StartupWorkspace />;
-      case 'startup-dossier':
-        return <StartupDossierSubmit />;
+      case 'admin-course-assignments':
+        return <AdminCourseAssignments />;
+      case 'admin-videos':
+        return <AdminTopicVideos />;
+      case 'admin-handouts':
+        return <AdminTopicHandouts />;
+      case 'admin-books':
+        return <AdminBooksLibrary />;
       case 'syllabus':
         return (
           <SyllabusView
             userRole={userRole}
             selectedTopic={selectedTopic}
             onSelectTopic={handleSelectTopic}
+            onClearTopic={handleClearTopic}
             onOpenLectures={handleOpenLectures}
-            onOpenHandouts={openHandouts}
           />
         );
-      case 'handouts':
-        return <HandoutMaterials />;
       case 'lectures':
         return <LectureNotes />;
       case 'profile':
         return <UserProfile />;
       case 'presentation':
         return <PresentationBuilder />;
+      case 'videos':
+        return <TopicVideos />;
+      case 'handouts':
+        return <HandoutMaterials />;
       case 'cases':
         return <CaseStudies />;
       case 'tests':
         return <TestQuestions />;
+      case 'my-tests':
+        return <StudentMyTests />;
       default:
         return (
           <SyllabusView
             userRole={userRole}
             selectedTopic={selectedTopic}
             onSelectTopic={handleSelectTopic}
+            onClearTopic={handleClearTopic}
             onOpenLectures={handleOpenLectures}
-            onOpenHandouts={openHandouts}
           />
         );
     }
@@ -561,6 +659,9 @@ export default function App() {
 
   return (
     <AppLanguageContext.Provider value={{ language, setLanguage }}>
+      {/* Global alertlar — yuqori o'ng burchak, 20 soniyada o'zi yo'qoladi.
+          Talaba QR rejimida ham ko'rinsin, shuning uchun eng tashqarida. */}
+      <AppToastHost />
       {/* Student QR: always fullscreen test only (no shell), even if staff session exists */}
       {isPublicStudentTestUrl() ? (
         <GlobalTopicContext.Provider value={null}>
@@ -572,15 +673,15 @@ export default function App() {
         </GlobalTopicContext.Provider>
       ) : (
       <GlobalTopicContext.Provider value={selectedTopic}>
-      <AppNavigationContext.Provider value={{ openHandouts, openSyllabus }}>
-      <GlobalLectureContext.Provider value={{ content: latestLectureContent, setContent: setLectureContent }}>
+      <AppNavigationContext.Provider value={{ openSyllabus }}>
+      <GlobalLectureContext.Provider value={lectureContextValue}>
       {!user || wantsPublicLibrary ? (
         <PublicLandingPage
           language={language}
           setLanguage={setLanguage}
           isMobileDevice={isMobileDevice}
-          desktopStaffLogin={desktopStaffLogin}
-          setDesktopStaffLogin={setDesktopStaffLogin}
+          desktopAuthView={desktopAuthView}
+          setDesktopAuthView={setDesktopAuthView}
         />
       ) : shouldHodimUseMobileCompanion(user, isMobileDevice) ? (
         <HodimMobileCompanion />
@@ -679,9 +780,7 @@ export default function App() {
                 <p className="hidden sm:block text-[12px] text-black/50 font-medium tracking-wide truncate">
                   {userRole === 'admin'
                     ? translate(language, 'shell.platformSubtitle.admin')
-                    : userRole === 'startuper'
-                      ? translate(language, 'shell.platformSubtitle.startuper')
-                      : translate(language, 'shell.platformSubtitle.default')}
+                    : translate(language, 'shell.platformSubtitle.default')}
                 </p>
               </div>
             </div>
@@ -733,11 +832,6 @@ export default function App() {
 
           {userRole === 'hodim' && <HodimGpsPromptBar />}
 
-          {userRole === 'hodim' &&
-            selectedTopic &&
-            activeView !== 'handouts' &&
-            activeView !== 'syllabus' && <HandoutTopicBanner />}
-
           {isNotificationsOpen && (
             <div
               ref={notificationsPanelRef}
@@ -781,8 +875,12 @@ export default function App() {
                       <div className="flex items-start gap-2">
                         {!n.read && <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
                         <div className="min-w-0">
-                          <p className="text-[12px] font-semibold text-black/80">{n.title}</p>
-                          <p className="text-[12px] text-black/60 mt-0.5 break-words">{n.body}</p>
+                          <p className="text-[12px] font-semibold text-black/80">
+                            {n.titleKey ? translate(language, n.titleKey) : n.title}
+                          </p>
+                          <p className="text-[12px] text-black/60 mt-0.5 break-words">
+                            {n.bodyKey ? translate(language, n.bodyKey) : n.body}
+                          </p>
                           <p className="text-[10px] text-black/35 mt-1">
                             {new Date(n.createdAt).toLocaleString(localeForLanguage(language))}
                           </p>
@@ -797,23 +895,53 @@ export default function App() {
 
           {/* Main View Port — extra bottom padding on phones for tab bar */}
           <div className="flex-1 overflow-y-auto scrollbar-hide rounded-2xl sm:rounded-[2rem] min-h-0 pb-[calc(5.75rem+env(safe-area-inset-bottom,0px))] md:pb-0">
-            {mountedViews.map((view) => {
-              const isActive = activeView === view;
-              return (
-                <motion.div
-                  key={view}
-                  initial={isActive ? { opacity: 0, scale: 0.98, y: 10 } : false}
-                  animate={isActive ? { opacity: 1, scale: 1, y: 0 } : false}
-                  transition={isActive ? { duration: 0.25, ease: [0.22, 1, 0.36, 1] } : undefined}
-                  className={isActive ? 'min-h-0' : 'hidden'}
-                >
-                  {renderContent(view)}
-                </motion.div>
-              );
-            })}
+            {userRole === 'hodim' && teachingSubjectsReady === null ? (
+              <div className="h-full min-h-[50vh] flex flex-col items-center justify-center gap-3 text-slate-500">
+                <Loader2 size={40} className="animate-spin text-blue-500" />
+                <p className="text-sm font-medium">{translate(language, 'teachingSubjects.loading')}</p>
+              </div>
+            ) : (
+              mountedViews.map((view) => {
+                const isActive = activeView === view;
+                return (
+                  <motion.div
+                    key={view}
+                    initial={isActive ? { opacity: 0, scale: 0.98, y: 10 } : false}
+                    animate={isActive ? { opacity: 1, scale: 1, y: 0 } : false}
+                    transition={isActive ? { duration: 0.25, ease: [0.22, 1, 0.36, 1] } : undefined}
+                    className={isActive ? 'min-h-0' : 'hidden'}
+                  >
+                    {renderContent(view)}
+                  </motion.div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
+      {userRole === 'hodim' && teachingSubjectsReady === false && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-900/45 backdrop-blur-[2px] print:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="teaching-subjects-modal-title"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full max-w-2xl max-h-[min(88dvh,720px)] overflow-y-auto rounded-[1.75rem] bg-white shadow-2xl border border-black/5 p-5 sm:p-8"
+          >
+            <StaffTeachingSubjectsPicker
+              variant="onboarding"
+              onSaved={() => {
+                setTeachingSubjectsReady(true);
+                setActiveView('syllabus');
+              }}
+            />
+          </motion.div>
+        </div>
+      )}
       <div className="hidden md:block print:hidden">{platformCredit}</div>
 
       {/* Mobile: native-style bottom tabs + compact credit strip */}

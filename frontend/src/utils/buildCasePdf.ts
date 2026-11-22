@@ -1,10 +1,9 @@
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import type { AppLanguage } from '../i18n/language';
+import { renderHtmlToPdf } from './htmlToPdf';
 import { localeForLanguage } from '../i18n/language';
 import { translate, type UiTextKey } from '../i18n/translations';
 import type { CaseStudySession, MedicalReference } from '../services/aiService';
-import { caseFocusLabel } from './caseFocusLabels';
+import { caseFocusLabel, sortCaseQuestionsByFocus } from './caseFocusLabels';
 import { catalogPdfVerificationFooter, type CatalogPdfMeta } from './catalogPdfVerification';
 
 function t(lang: AppLanguage, key: UiTextKey, params?: Record<string, string | number>): string {
@@ -31,11 +30,11 @@ function formatReference(ref: MedicalReference): string {
 function referencesBlock(refs: MedicalReference[] | undefined, title: string): string {
   if (!refs?.length) return '';
   const items = refs
-    .map((r) => `<li style="margin:4px 0;font-size:13px;color:#374151;">${escapeHtml(formatReference(r))}</li>`)
+    .map((r) => `<li style="margin:4px 0;font-size:13px;color:#1e3a5f;">${escapeHtml(formatReference(r))}</li>`)
     .join('');
   return `
-    <div style="margin:16px 0;padding:12px;background:#f9fafb;border-radius:8px;">
-      <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#4b5563;text-transform:uppercase;">${escapeHtml(title)}</p>
+    <div data-pdf-block style="margin:16px 0;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
+      <p data-pdf-keep-next style="margin:0 0 8px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(title)}</p>
       <ul style="margin:0;padding-left:18px;">${items}</ul>
     </div>
   `;
@@ -50,51 +49,14 @@ function keywordsBlock(keywords: string[] | undefined, lang: AppLanguage): strin
   `;
 }
 
-async function renderHtmlToPdf(html: string, filename: string): Promise<void> {
-  const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.left = '-10000px';
-  container.style.top = '0';
-  container.style.width = '760px';
-  container.style.background = '#ffffff';
-  container.innerHTML = html;
-  document.body.appendChild(container);
-
-  try {
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-    });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    let position = 0;
-    let heightLeft = pdfHeight;
-
-    pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight);
-    heightLeft -= pageHeight;
-    while (heightLeft > 0) {
-      position = position - pageHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight);
-      heightLeft -= pageHeight;
-    }
-    pdf.save(filename);
-  } finally {
-    document.body.removeChild(container);
-  }
-}
-
 function buildScenariosHtml(session: CaseStudySession, lang: AppLanguage, meta?: CatalogPdfMeta): string {
   const locale = localeForLanguage(lang);
-  const items = session.questions
+  // Ekrandagi bilan bir xil ketma-ketlik: tashxis → davolash → profilaktika.
+  const items = sortCaseQuestionsByFocus(session.questions)
     .map(
       (q, i) => `
-        <div style="margin-bottom:28px;page-break-inside:avoid;">
-          ${q.focus ? `<p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;">${escapeHtml(caseFocusLabel(q.focus, lang))}</p>` : ''}
+        <div data-pdf-block style="margin-bottom:28px;">
+          ${q.focus ? `<p data-pdf-keep-next style="margin:0 0 6px;font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;">${escapeHtml(caseFocusLabel(q.focus, lang))}</p>` : ''}
           <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;line-height:1.6;white-space:pre-wrap;">
             ${i + 1}. ${escapeHtml(q.scenario || '')}
           </p>
@@ -118,17 +80,17 @@ function buildScenariosHtml(session: CaseStudySession, lang: AppLanguage, meta?:
 
 function buildAnswerKeyHtml(session: CaseStudySession, lang: AppLanguage, meta?: CatalogPdfMeta): string {
   const locale = localeForLanguage(lang);
-  const items = session.questions
+  const items = sortCaseQuestionsByFocus(session.questions)
     .map((q, i) => {
       const refs = referencesBlock(q.references, t(lang, 'pdf.caseReferences'));
       return `
-        <div style="margin-bottom:32px;page-break-inside:avoid;">
-          ${q.focus ? `<p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(caseFocusLabel(q.focus, lang))}</p>` : ''}
+        <div data-pdf-block style="margin-bottom:32px;">
+          ${q.focus ? `<p data-pdf-keep-next style="margin:0 0 6px;font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(caseFocusLabel(q.focus, lang))}</p>` : ''}
           <p style="margin:0 0 10px;font-size:14px;font-weight:700;color:#374151;line-height:1.5;white-space:pre-wrap;">
             ${i + 1}. ${escapeHtml((q.scenario || '').slice(0, 180))}${(q.scenario || '').length > 180 ? '…' : ''}
           </p>
           <div style="margin-top:12px;padding:12px;background:#eff6ff;border-radius:8px;border-left:4px solid #3b82f6;">
-            <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.caseAnswerLabel'))}</p>
+            <p data-pdf-keep-next style="margin:0 0 6px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.caseAnswerLabel'))}</p>
             <p style="margin:0;font-size:14px;color:#1e3a8a;line-height:1.6;white-space:pre-wrap;">${escapeHtml(q.answer || '')}</p>
           </div>
           ${refs}

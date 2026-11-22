@@ -1,91 +1,125 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { pushAppNotification } from '../utils/notifications';
 import {
   BookOpen,
   Loader2,
   FlaskConical,
   ArrowRight,
   Check,
-  Plus,
-  X,
   GraduationCap,
   ListChecks,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import SyllabusHandoutPanel from './staff/SyllabusHandoutPanel';
-import { motion } from 'motion/react';
 import type { SyllabusTopic } from '../services/aiService';
 import { AppLanguageContext } from '../App';
 import { useUiText } from '../i18n/useUiText';
+import {
+  hasTranslations,
+  localizedSubjectName,
+  localizedTopicTitle,
+  requestSyllabusTranslation,
+} from '../utils/syllabusI18n';
 import type { UserRole } from '../utils/localStaffAuth';
 import {
-  fetchCourseSyllabusCatalog,
   fetchMyCourseSelections,
   isSyncUnavailable,
-  selectCourseSyllabus,
-  unselectCourseSyllabus,
   type CourseSyllabusRow,
   type StaffCourseSelectionRow,
 } from '../utils/syllabusApi';
 import { resolveSyllabusVariants, totalTopicCount } from '../utils/syllabusVariant';
 import {
   buildTopicContext,
-  loadPersistedVariantBySubject,
-  persistVariantBySubject,
   topicsMatch,
   type SyllabusTopicContext,
 } from '../utils/syllabusTopicContext';
 import {
-  applyInstructionLanguage,
   instructionLanguageBadge,
   resolveSyllabusInstructionLanguage,
 } from '../utils/syllabusInstructionLanguage';
+import { cacheSyllabusRows } from '../utils/syllabusRowCache';
 import { PAGE_ROOT } from '../layout/pageContainer';
+import { staffCardLg, STAFF_HEADING } from './staff/staffUi';
 
 interface SyllabusViewProps {
   userRole: UserRole | null;
   selectedTopic: SyllabusTopicContext | null;
   onSelectTopic: (topic: SyllabusTopicContext) => void;
+  onClearTopic: () => void;
   onOpenLectures: (topic: SyllabusTopicContext) => void;
-  onOpenHandouts: () => void;
 }
 
 export default function SyllabusView({
   userRole,
   selectedTopic,
   onSelectTopic,
+  onClearTopic,
   onOpenLectures,
-  onOpenHandouts,
 }: SyllabusViewProps) {
-  const { language, setLanguage } = React.useContext(AppLanguageContext);
+  const { language } = React.useContext(AppLanguageContext);
   const { t } = useUiText();
-  const steps = [t('syllabus.step1'), t('syllabus.step2'), t('syllabus.step3')];
+  const steps = [t('syllabus.step1'), t('syllabus.stepTopic')];
 
   const [loading, setLoading] = useState(true);
-  const [catalog, setCatalog] = useState<CourseSyllabusRow[]>([]);
   const [mySelections, setMySelections] = useState<StaffCourseSelectionRow[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [catalogOpen, setCatalogOpen] = useState(true);
   const [activeSyllabusId, setActiveSyllabusId] = useState<number | null>(null);
-  const [variantBySubject, setVariantBySubject] = useState<Record<number, string>>(
-    () => loadPersistedVariantBySubject(),
-  );
 
-  const selectedIds = new Set(mySelections.map((s) => s.syllabus.id));
+  // Bitta fan bir nechta qatorga biriktirilgan bo'lishi mumkin — chiplar uchun noyob.
+  const mySubjects = (() => {
+    const seen = new Set<number>();
+    const out: StaffCourseSelectionRow[] = [];
+    for (const s of mySelections) {
+      if (!seen.has(s.syllabus.id)) {
+        seen.add(s.syllabus.id);
+        out.push(s);
+      }
+    }
+    return out;
+  })();
 
-  const setVariant = useCallback((syllabusId: number, label: string) => {
-    setVariantBySubject((prev) => {
-      const next = { ...prev, [syllabusId]: label };
-      persistVariantBySubject(next);
-      return next;
-    });
-  }, []);
+  // Interfeys tili almashganda, tarjimasi yetishmayotgan fanlar uchun
+  // serverdan tarjima so'raymiz. Natija darhol kerak emas — server uni
+  // bazaga yozadi va keyingi yuklashda tayyor bo'ladi (idempotent, shuning
+  // uchun bir necha o'qituvchi bir vaqtda so'rasa ham xavfsiz).
+  useEffect(() => {
+    const pending = mySubjects
+      .map((s) => s.syllabus)
+      .filter((syl) => syl && !hasTranslations(syl, language));
+    if (!pending.length) return;
+    let cancelled = false;
+    (async () => {
+      // Tarjima fonda ketadi — "kuting, tarjima qilinmoqda" alerti
+      // ko'rsatilmaydi (foydalanuvchi so'rovi), faqat tugagani bildiriladi.
+      let any = false;
+      for (const syl of pending) {
+        if (cancelled) return;
+        const ok = await requestSyllabusTranslation(syl.id, language);
+        if (ok && !cancelled) {
+          any = true;
+          void load();
+        }
+      }
+      if (any && !cancelled) {
+        pushAppNotification({
+          title: t('common.doneTitle'),
+          body: t('syllabus.translated'),
+          titleKey: 'common.doneTitle',
+          bodyKey: 'syllabus.translated',
+          level: 'success',
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `load` ataylab bog'liqlikda emas — u har renderda yangilanadi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language, mySelections]);
 
   const load = useCallback(async () => {
     if (userRole !== 'hodim') {
       setLoading(false);
-      setCatalog([]);
       setMySelections([]);
       setError(t('syllabus.errorRole'));
       return;
@@ -93,13 +127,11 @@ export default function SyllabusView({
     setLoading(true);
     setError(null);
     try {
-      const [cat, mine] = await Promise.all([
-        fetchCourseSyllabusCatalog(),
-        fetchMyCourseSelections(),
-      ]);
-      setCatalog(cat);
+      const mine = await fetchMyCourseSelections();
       setMySelections(mine);
-      if (mine.length === 0) setCatalogOpen(true);
+      // Boshqa sahifalar (Ma'ruza, Taqdimot, Keys, Test) tanlangan mavzu
+      // sarlavhasini interfeys tilida ko'rsatishi uchun shu qatorlar kerak.
+      cacheSyllabusRows(mine.map((s) => s.syllabus).filter(Boolean));
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'no-backend-token') {
@@ -119,6 +151,16 @@ export default function SyllabusView({
   }, [load]);
 
   useEffect(() => {
+    const onTeachingSubjectsChanged = () => {
+      void load();
+    };
+    window.addEventListener('imentor:teaching-subjects-changed', onTeachingSubjectsChanged);
+    return () => {
+      window.removeEventListener('imentor:teaching-subjects-changed', onTeachingSubjectsChanged);
+    };
+  }, [load]);
+
+  useEffect(() => {
     if (selectedTopic?.syllabusId != null) {
       setActiveSyllabusId(selectedTopic.syllabusId);
       return;
@@ -133,66 +175,53 @@ export default function SyllabusView({
     });
   }, [mySelections, selectedTopic?.syllabusId]);
 
-  const syncCourseLanguage = (row: CourseSyllabusRow) => {
-    applyInstructionLanguage(resolveSyllabusInstructionLanguage(row), setLanguage);
-  };
-
-  const addSubject = async (row: CourseSyllabusRow) => {
-    setBusyId(row.id);
-    try {
-      await selectCourseSyllabus(row.id);
-      syncCourseLanguage(row);
-      setActiveSyllabusId(row.id);
-      setCatalogOpen(false);
-      await load();
-    } catch {
-      setError(t('syllabus.errorAdd'));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const removeSubject = async (syllabusId: number) => {
-    setBusyId(syllabusId);
-    try {
-      await unselectCourseSyllabus(syllabusId);
-      await load();
-    } catch {
-      setError(t('syllabus.errorRemove'));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const pickTopic = (
     topic: SyllabusTopic,
     syllabus: CourseSyllabusRow,
     variantLabel: string,
   ) => {
     const instructionLanguage = resolveSyllabusInstructionLanguage(syllabus);
-    applyInstructionLanguage(instructionLanguage, setLanguage);
     onSelectTopic(
       buildTopicContext(topic, syllabus.id, syllabus.subject_name, syllabus.subject_code, variantLabel, instructionLanguage),
     );
   };
 
-  const activeSelection =
-    mySelections.find((s) => s.syllabus.id === activeSyllabusId) ?? mySelections[0] ?? null;
-  const activeSyllabus = activeSelection?.syllabus ?? null;
-  const activeVariants = activeSyllabus ? resolveSyllabusVariants(activeSyllabus) : [];
-  const activeLabel = activeSyllabus
-    ? variantBySubject[activeSyllabus.id] ?? activeVariants[0]?.label ?? 'Asosiy'
-    : '';
-  const activeVariant =
-    activeVariants.find((v) => v.label === activeLabel) ?? activeVariants[0];
+  // Faol fanning biriktirish qatorlari
+  const activeRows = mySelections.filter((s) => s.syllabus.id === activeSyllabusId);
+  const activeSyllabus = activeRows[0]?.syllabus ?? mySelections[0]?.syllabus ?? null;
+  const allActiveVariants = activeSyllabus ? resolveSyllabusVariants(activeSyllabus) : [];
+  const assignedLabels = new Set(
+    activeRows.map((r) => (r.variant_label || '').trim()).filter(Boolean),
+  );
+  const adminAssignedAllDirections =
+    activeRows.length > 0 && activeRows.some((r) => !(r.variant_label || '').trim());
+  const allowedVariants =
+    adminAssignedAllDirections || assignedLabels.size === 0
+      ? allActiveVariants
+      : allActiveVariants.filter((v) => assignedLabels.has(v.label));
+  const activeVariants = allowedVariants.length > 0 ? allowedVariants : allActiveVariants;
+  // Yo'nalish UI yo'q — birinchi (yoki yagona) PDF/variant mavzulari.
+  const activeVariant = activeVariants[0] ?? null;
+  const activeLabel = activeVariant?.label ?? '';
   const activeTopics = activeVariant?.topics ?? [];
   const activeLectures = activeTopics.filter((topic) => topic.type === 'lecture');
   const activePracticals = activeTopics.filter((topic) => topic.type === 'practical');
   const showSplitTopics = activeLectures.length > 0 && activePracticals.length > 0;
 
-  const step1Done = mySelections.length > 0;
-  const step2Done = step1Done && activeSyllabus != null;
-  const step3Done = selectedTopic != null;
+  const step1Done = mySelections.length > 0 && activeSyllabus != null;
+  const step2Done = selectedTopic != null;
+
+  /**
+   * Hodim birinchi marta kirganda hech qanday mavzu tanlanmagan bo'ladi —
+   * "Test yaratish"/"Taqdimotlar" kabi sahifalar bo'sh/chalkash ko'rinadi.
+   * Fan ro'yxati keldi-yu, mavzu hali tanlanmagan bo'lsa — birinchi mavzuni
+   * avtomatik tanlab qo'yamiz (foydalanuvchi istasa keyin o'zi almashtiradi).
+   */
+  useEffect(() => {
+    if (loading || selectedTopic || !activeSyllabus || activeTopics.length === 0) return;
+    pickTopic(activeTopics[0], activeSyllabus, activeLabel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- faqat birinchi bo'sh holatda ishga tushsin
+  }, [loading, selectedTopic, activeSyllabus, activeTopics, activeLabel]);
 
   if (loading) {
     return (
@@ -205,32 +234,30 @@ export default function SyllabusView({
 
   return (
     <div className={`${PAGE_ROOT} py-2 sm:py-3 pb-6`}>
-      <div className="w-full bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-3 sm:px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+      <div className={`${staffCardLg} overflow-hidden`}>
+        <div className="px-3 sm:px-4 py-3 border-b border-white/60 bg-white/30">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                <GraduationCap className="text-blue-600 shrink-0" size={20} />
+              <h2 className={`text-base sm:text-lg font-bold tracking-tight flex items-center gap-2 ${STAFF_HEADING}`}>
+                <GraduationCap className="text-[#083047] shrink-0" size={20} />
                 {t('syllabus.title')}
               </h2>
-              <p className="text-slate-500 mt-0.5 text-[11px] sm:text-xs leading-snug">{t('syllabus.subtitle')}</p>
+              <p className="text-black/50 mt-0.5 text-[11px] sm:text-xs leading-snug">{t('syllabus.subtitle')}</p>
             </div>
             <div className="flex flex-wrap gap-1.5 shrink-0">
               {steps.map((label, i) => {
-                const done = i === 0 ? step1Done : i === 1 ? step2Done : step3Done;
+                const done = i === 0 ? step1Done : step2Done;
                 const active =
-                  (i === 0 && !step1Done) ||
-                  (i === 1 && step1Done && !step2Done) ||
-                  (i === 2 && step2Done && !step3Done);
+                  (i === 0 && !step1Done) || (i === 1 && step1Done && !step2Done);
                 return (
                   <span
                     key={label}
                     className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-[11px] font-semibold ${
                       done
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        ? 'bg-[#083047]/10 text-[#083047] border border-[#083047]/20'
                         : active
-                          ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                          : 'bg-white text-slate-600 border border-slate-200'
+                          ? 'bg-white/80 text-[#083047] border border-black/10'
+                          : 'bg-white/50 text-black/55 border border-black/8'
                     }`}
                   >
                     {done ? <Check size={12} /> : <ListChecks size={12} />}
@@ -249,180 +276,67 @@ export default function SyllabusView({
           </div>
         )}
 
-        <div className="border-b border-slate-100 grid grid-cols-1 lg:grid-cols-2 lg:divide-x divide-slate-100">
+        <div className="border-b border-slate-100">
         {/* 1-bosqich: Fan tanlash */}
         <SyllabusStepSection
           step={1}
           title={t('syllabus.step1')}
           done={step1Done}
           active={!step1Done}
-          className="border-b lg:border-b-0 border-slate-100"
         >
           {mySelections.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              {mySelections.map((sel) => {
-                  const syllabus = sel.syllabus;
-                  const isActive = activeSyllabusId === syllabus.id;
-                  return (
-                    <div
-                      key={sel.id}
-                      className={`inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg border text-[12px] transition ${
-                        isActive
-                          ? 'border-blue-400 bg-blue-50'
-                          : 'border-slate-200 bg-white'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setActiveSyllabusId(syllabus.id)}
-                        className="text-left min-w-0 flex items-center gap-1.5"
-                      >
-                        <span className="font-semibold text-slate-900 truncate max-w-[140px] sm:max-w-[200px]">
-                          {syllabus.subject_name}
-                        </span>
-                        <span className="text-[9px] text-slate-500 shrink-0">
-                          {instructionLanguageBadge(resolveSyllabusInstructionLanguage(syllabus))}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === syllabus.id}
-                        onClick={() => void removeSubject(syllabus.id)}
-                        className="p-1 rounded text-rose-500 hover:bg-rose-50 shrink-0"
-                        aria-label={t('syllabus.remove')}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
-              <button
-                type="button"
-                onClick={() => setCatalogOpen((v) => !v)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500"
-              >
-                <Plus size={14} />
-                {catalogOpen ? t('syllabus.close') : t('syllabus.addCourse')}
-              </button>
+              {mySubjects.map((sel) => {
+                const syllabus = sel.syllabus;
+                const isActive = activeSyllabusId === syllabus.id;
+                const variants = resolveSyllabusVariants(syllabus);
+                const topics = totalTopicCount(variants);
+                return (
+                  <button
+                    key={sel.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveSyllabusId(syllabus.id);
+                      if (selectedTopic?.syllabusId !== syllabus.id) onClearTopic();
+                    }}
+                    className={`inline-flex items-center gap-1.5 pl-2.5 pr-2.5 py-1.5 rounded-lg border text-[12px] transition ${
+                      isActive
+                        ? 'border-blue-400 bg-blue-50'
+                        : 'border-slate-200 bg-white hover:border-blue-300'
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-900 truncate max-w-[160px] sm:max-w-[220px]">
+                      {localizedSubjectName(syllabus, language)}
+                    </span>
+                    <span className="text-[9px] text-slate-500 shrink-0">
+                      {instructionLanguageBadge(resolveSyllabusInstructionLanguage(syllabus))}
+                    </span>
+                    <span className="text-[9px] text-slate-400 shrink-0">
+                      {topics} {t('syllabus.topics')}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[11px] text-slate-500">{t('syllabus.noCourseHint')}</p>
-              <button
-                type="button"
-                onClick={() => setCatalogOpen((v) => !v)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500"
-              >
-                <Plus size={14} />
-                {t('syllabus.addCourse')}
-              </button>
+            <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-3 space-y-1">
+              <p className="text-[12px] font-semibold text-amber-900">{t('syllabus.noAssignedCourses')}</p>
+              <p className="text-[11px] text-amber-800 leading-relaxed">{t('syllabus.noAssignedCoursesHint')}</p>
             </div>
           )}
-
-          {catalogOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-2 bg-slate-50 rounded-lg border border-slate-200 p-2 sm:p-3 space-y-2"
-            >
-              <p className="text-[11px] font-bold text-slate-700">{t('syllabus.availableCourses')}</p>
-              {catalog.length === 0 ? (
-                <p className="text-slate-500 text-sm py-4 text-center">{t('syllabus.noCourses')}</p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-1.5">
-                  {catalog.map((row) => {
-                    const picked = selectedIds.has(row.id);
-                    const variants = resolveSyllabusVariants(row);
-                    const topics = totalTopicCount(variants);
-                    return (
-                      <button
-                        key={row.id}
-                        type="button"
-                        disabled={picked || busyId === row.id}
-                        onClick={() => void addSubject(row)}
-                        className={`text-left p-2.5 rounded-lg border transition ${
-                          picked
-                            ? 'border-emerald-300 bg-emerald-50 opacity-70 cursor-default'
-                            : 'border-white bg-white hover:border-blue-300 hover:shadow-md'
-                        }`}
-                      >
-                        <p className="font-semibold text-slate-900 text-[12px] leading-tight">{row.subject_name}</p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">
-                          {variants.length} {t('syllabus.tracks')} · {topics} {t('syllabus.topics')}
-                        </p>
-                        {picked ? (
-                          <span className="inline-block mt-2 text-[10px] text-emerald-700 font-bold">
-                            ✓ {t('syllabus.selected')}
-                          </span>
-                        ) : (
-                          <span className="inline-block mt-2 text-[10px] text-blue-600 font-semibold">
-                            + {t('syllabus.add')}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </motion.div>
-          )}
         </SyllabusStepSection>
+        </div>
 
-        {/* 2-bosqich: Yo'nalish */}
+        {/* 2-bosqich: Mavzu tanlash */}
         <SyllabusStepSection
           step={2}
-          title={t('syllabus.step2')}
+          title={t('syllabus.stepTopic')}
           done={step2Done}
           active={step1Done && !step2Done}
           muted={!step1Done}
         >
           {!step1Done ? (
-            <p className="text-sm text-slate-400 italic">{t('syllabus.step2Locked')}</p>
-          ) : activeSyllabus ? (
-            <div className="space-y-1.5">
-              <p className="text-[12px] font-semibold text-slate-800 truncate">{activeSyllabus.subject_name}</p>
-              {activeVariants.length > 1 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {activeVariants.map((v) => (
-                    <button
-                      key={v.label}
-                      type="button"
-                      onClick={() => setVariant(activeSyllabus.id, v.label)}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold border transition ${
-                        activeLabel === v.label
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
-                      }`}
-                    >
-                      {v.label}
-                      <span className="opacity-70 ml-0.5">({v.topics.length})</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-slate-600 inline-flex items-center px-2 py-1 rounded-md bg-slate-100">
-                  {activeVariants[0]?.label ?? t('syllabus.singleTrack')}
-                </p>
-              )}
-              <p className="text-[10px] text-slate-500 leading-snug">{t('syllabus.step2Hint')}</p>
-              {activeVariant && (
-                <p className="text-[10px] text-gray-400 truncate">PDF: {activeVariant.file_name}</p>
-              )}
-            </div>
-          ) : null}
-        </SyllabusStepSection>
-        </div>
-
-        {/* 3-bosqich: Mavzu tanlash */}
-        <SyllabusStepSection
-          step={3}
-          title={t('syllabus.step3')}
-          done={step3Done}
-          active={step2Done && !step3Done}
-          muted={!step2Done}
-        >
-          {!step2Done ? (
-            <p className="text-sm text-slate-400 italic">{t('syllabus.step3Locked')}</p>
+            <p className="text-sm text-slate-400 italic">{t('syllabus.stepTopicLocked')}</p>
           ) : activeSyllabus ? (
             <div className="space-y-3">
               {selectedTopic && (
@@ -433,27 +347,19 @@ export default function SyllabusView({
                         {t('syllabus.selectedTopic')}
                       </p>
                       <p className="text-[12px] font-semibold text-gray-900 mt-0.5 leading-snug">
-                        <span className="text-blue-700">{selectedTopic.id}</span> — {selectedTopic.title}
+                        <span className="text-blue-700">{selectedTopic.id}</span>{' '}
+                        — {localizedTopicTitle(activeSyllabus, selectedTopic.title, language)}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => onOpenLectures(selectedTopic)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[11px] font-semibold"
-                      >
-                        {t('syllabus.lectureNotes')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onOpenHandouts}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-amber-400 bg-white text-amber-900 text-[11px] font-semibold"
-                      >
-                        {t('syllabus.handouts')}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenLectures(selectedTopic)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-[12px] font-semibold shrink-0"
+                    >
+                      {t('syllabus.next')}
+                      <ArrowRight size={14} />
+                    </button>
                   </div>
-                  <SyllabusHandoutPanel topic={selectedTopic} onOpenHandouts={onOpenHandouts} />
                 </div>
               )}
 
@@ -597,6 +503,7 @@ function TopicColumn({
   const visibleTopics = topics.slice(pageStart, pageStart + TOPICS_PER_PAGE);
   const showPagination = topics.length > TOPICS_PER_PAGE;
 
+  const { language } = React.useContext(AppLanguageContext);
   const selectedCard =
     accent === 'blue'
       ? 'border-2 ring-blue-200 border-blue-500 bg-blue-50/80'
@@ -655,7 +562,9 @@ function TopicColumn({
                   {topic.id}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-800 text-[12px] leading-snug break-words line-clamp-2">{topic.title}</p>
+                  <p className="font-medium text-gray-800 text-[12px] leading-snug break-words line-clamp-2">
+                    {localizedTopicTitle(syllabus, topic.title, language)}
+                  </p>
                 </div>
                 {isSelected ? (
                   <Check size={20} className={accent === 'blue' ? 'text-blue-600' : 'text-indigo-600'} />

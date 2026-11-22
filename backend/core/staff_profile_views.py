@@ -1,10 +1,11 @@
-"""Profil rasmi: serverda saqlash va qurilmalar o‘rtasida sinxron."""
+"""Profil rasmi va admin xodimlar katalogi: serverda saqlash, brauzer localStorage emas."""
 
 from __future__ import annotations
 
 import os
 
 from django.conf import settings
+from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -14,7 +15,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import StaffProfile
-from .permissions import HasEducationRole
+from .pagination import paginated_response
+from .permissions import ALLOWED_ROLES, HasEducationRole, IsAdminRole, resolve_user_role_from_db
+from .serializers import AdminStaffListEntrySerializer
 
 _ALLOWED_IMAGE_EXT = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp"})
 _BLOCKED_CONTENT_TYPES = frozenset(
@@ -133,3 +136,51 @@ class StaffAvatarView(APIView):
         if profile and profile.photo:
             profile.photo.delete(save=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _staff_entry(user: User, profile: StaffProfile | None) -> dict:
+    phone = user.username
+    role = resolve_user_role_from_db(user) or ""
+    return {
+        "phone_digits": phone,
+        "phone_display": f"+{phone}" if len(phone) == 12 else phone,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "display_name": f"{user.first_name} {user.last_name}".strip() or phone,
+        "role": role,
+        "faculty": profile.faculty if profile else "",
+        "department": profile.department if profile else "",
+        "direction": profile.direction if profile else "",
+        "participant_kind": profile.participant_kind if profile else "",
+        "study_group": profile.study_group if profile else "",
+        "job_title": profile.job_title if profile else "",
+        "is_active": user.is_active,
+        "date_joined": user.date_joined,
+        "last_login": user.last_login,
+    }
+
+
+class AdminStaffListView(APIView):
+    """Admin panel: barcha xodimlar ro'yxati — bazadan (localStorage emas)."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @extend_schema(responses=AdminStaffListEntrySerializer(many=True))
+    def get(self, request):
+        users = (
+            User.objects.filter(groups__name__in=ALLOWED_ROLES)
+            .distinct()
+            .order_by("-date_joined")
+        )
+        profiles = {
+            p.owner_key: p
+            for p in StaffProfile.objects.filter(owner_key__in=[u.username for u in users])
+        }
+        rows = [_staff_entry(u, profiles.get(u.username)) for u in users]
+        return paginated_response(
+            rows,
+            request,
+            default_page_size=200,
+            max_page_size=1000,
+        )

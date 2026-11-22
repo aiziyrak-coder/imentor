@@ -1,8 +1,6 @@
-"""Authenticated education AI proxy — DeepSeek kaliti faqat serverda."""
+"""Authenticated education AI proxy — OpenAI kaliti faqat serverda (Celery orqali)."""
 
 from __future__ import annotations
-
-from typing import Any
 
 from django.conf import settings
 from drf_spectacular.utils import extend_schema
@@ -12,67 +10,37 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .deepseek_client import (
-    DEEPSEEK_CHAT,
-    DEEPSEEK_REASONER,
-    DeepseekClientError,
-    _extract_text,
-    _http_post,
+from .ai_async import dispatch_ai_job
+from .book_retrieval import (
+    book_references_from_chunks,
+    format_book_context_message,
+    retrieve_book_context,
+    retrieve_references_for_queries,
 )
+from .education_ai_utils import clip_education_messages
+from .openai_client import OPENAI_CHAT
 from .permissions import HasEducationRole
-
-_ALLOWED_MODELS = {DEEPSEEK_CHAT, DEEPSEEK_REASONER}
-_MAX_MESSAGES = 32
-_MAX_MESSAGE_CHARS = 120_000
+from .tasks import run_education_ai_completion
+from .throttling import EducationAiUserThrottle
 
 
 class EducationAiCompletionSerializer(serializers.Serializer):
-    model = serializers.CharField(required=False, default=DEEPSEEK_CHAT)
+    model = serializers.CharField(required=False, default=OPENAI_CHAT)
     messages = serializers.ListField(child=serializers.JSONField(), allow_empty=False)
     max_tokens = serializers.IntegerField(required=False, default=4096, min_value=256, max_value=16384)
     temperature = serializers.FloatField(required=False, default=0.35, min_value=0.0, max_value=1.5)
+    subject_code = serializers.CharField(required=False, allow_blank=True, default="")
+    topic_query = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class EducationAiCompletionResponseSerializer(serializers.Serializer):
     content = serializers.CharField()
 
 
-def _clip_messages(messages: list[Any]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for raw in messages[:_MAX_MESSAGES]:
-        if not isinstance(raw, dict):
-            continue
-        role = str(raw.get("role") or "").strip().lower()
-        if role not in ("system", "user", "assistant"):
-            continue
-        content = raw.get("content")
-        if isinstance(content, str):
-            content = content[:_MAX_MESSAGE_CHARS]
-        elif isinstance(content, list):
-            clipped: list[Any] = []
-            for part in content[:24]:
-                if not isinstance(part, dict):
-                    continue
-                if part.get("type") == "text" and isinstance(part.get("text"), str):
-                    clipped.append(
-                        {"type": "text", "text": part["text"][:_MAX_MESSAGE_CHARS]}
-                    )
-                elif part.get("type") == "image_url":
-                    img = part.get("image_url")
-                    if isinstance(img, dict) and isinstance(img.get("url"), str):
-                        url = img["url"]
-                        if url.startswith("data:image/") and len(url) <= 6_000_000:
-                            clipped.append(part)
-            content = clipped
-        else:
-            continue
-        out.append({"role": role, "content": content})
-    return out
-
-
 class EducationAiCompletionView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, HasEducationRole]
+    throttle_classes = [EducationAiUserThrottle]
 
     @extend_schema(
         request=EducationAiCompletionSerializer,
@@ -83,33 +51,73 @@ class EducationAiCompletionView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        api_key = getattr(settings, "DEEPSEEK_API_KEY", "") or ""
+        api_key = getattr(settings, "OPENAI_API_KEY", "") or ""
         if not api_key.strip():
             return Response(
-                {"detail": "DeepSeek API kaliti serverda sozlanmagan."},
+                {"detail": "OpenAI API kaliti serverda sozlanmagan."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        model = (data.get("model") or DEEPSEEK_CHAT).strip()
-        if model not in _ALLOWED_MODELS:
-            model = DEEPSEEK_CHAT
-
-        messages = _clip_messages(data["messages"])
+        messages = clip_education_messages(data["messages"])
         if not messages:
             return Response({"detail": "Xabarlar bo‘sh."}, status=status.HTTP_400_BAD_REQUEST)
 
-        payload: dict[str, Any] = {
-            "model": model,
+        subject_code = (data.get("subject_code") or "").strip()
+        topic_query = (data.get("topic_query") or "").strip()
+        book_references: list[dict] = []
+        if subject_code and topic_query:
+            book_chunks = retrieve_book_context(subject_code, topic_query)
+            context_message = format_book_context_message(book_chunks)
+            if context_message:
+                messages = [{"role": "system", "content": context_message}] + messages
+                # Qaysi kitobning qaysi betlari modelga berilgani — ANIQ ma'lum.
+                # Shuni javobga qo'shamiz: chaqiruvchi uni tayyor kontentga
+                # `references` sifatida biriktiradi (AI o'ylab topmaydi).
+                book_references = book_references_from_chunks(book_chunks)
+
+        payload = {
+            "model": data.get("model") or OPENAI_CHAT,
             "messages": messages,
             "max_tokens": int(data.get("max_tokens") or 4096),
             "temperature": float(data.get("temperature") if data.get("temperature") is not None else 0.35),
-            "stream": False,
         }
+        return dispatch_ai_job(
+            user_id=request.user.pk,
+            kind="education_completion",
+            payload=payload,
+            task=run_education_ai_completion,
+            timeout=280.0,
+            extra={"book_references": book_references} if book_references else None,
+        )
 
-        try:
-            resp = _http_post(api_key.strip(), payload, timeout_sec=180)
-            content = _extract_text(resp)
-        except DeepseekClientError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        return Response({"content": content})
+class EducationAiBookReferencesSerializer(serializers.Serializer):
+    subject_code = serializers.CharField(required=True, allow_blank=False, max_length=200)
+    queries = serializers.ListField(
+        child=serializers.CharField(allow_blank=True, max_length=4000),
+        allow_empty=False,
+        max_length=90,
+    )
+    top_k = serializers.IntegerField(required=False, default=3, min_value=1, max_value=8)
+
+
+class EducationAiBookReferencesView(APIView):
+    """
+    Har bir so'rov (savol matni) uchun alohida darslik manbasi.
+    Test yaratishdan KEYIN frontend shu endpoint orqali per-savol references biriktiradi.
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, HasEducationRole]
+    throttle_classes = [EducationAiUserThrottle]
+
+    @extend_schema(request=EducationAiBookReferencesSerializer)
+    def post(self, request):
+        serializer = EducationAiBookReferencesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        subject_code = (data.get("subject_code") or "").strip()
+        queries = [str(q or "") for q in (data.get("queries") or [])][:90]
+        top_k = int(data.get("top_k") or 3)
+        results = retrieve_references_for_queries(subject_code, queries, top_k=top_k)
+        return Response({"subject_code": subject_code, "results": results})

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from django.db.models import Count, Q
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -11,9 +12,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .models import CourseSyllabus, StaffCourseSelection
+from .models import AcademicDepartment, CourseSyllabus, StaffCourseSelection
+from .pagination import paginated_response
 from .permissions import HasEducationRole, IsAdminRole, IsHodimRole
+from .phone import normalize_uz_phone_digits
 from .serializers import (
+    AdminStaffCourseSelectionSerializer,
     CourseSyllabusSerializer,
     CourseSyllabusUpsertSerializer,
     StaffCourseSelectionSerializer,
@@ -45,7 +49,13 @@ class AdminCourseSyllabusListCreateView(APIView):
     @extend_schema(responses=CourseSyllabusSerializer(many=True))
     def get(self, request):
         qs = CourseSyllabus.objects.all().order_by("sort_order", "subject_name")
-        return Response(CourseSyllabusSerializer(qs, many=True).data)
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=50,
+            max_page_size=200,
+            mapper=lambda obj: CourseSyllabusSerializer(obj).data,
+        )
 
     @extend_schema(request=CourseSyllabusUpsertSerializer, responses=CourseSyllabusSerializer)
     def post(self, request):
@@ -85,6 +95,55 @@ class AdminCourseSyllabusListCreateView(APIView):
         _sync_legacy_fields(obj)
         obj.save(update_fields=["file_name", "topics"])
         return Response(CourseSyllabusSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+def build_syllabus_catalog_stats() -> dict:
+    """Kafedra → fan → yo'nalish → mavzu ierarxiyasi (bazadan)."""
+    by_department = list(
+        AcademicDepartment.objects.filter(is_active=True)
+        .annotate(subjects_count=Count('subjects', filter=Q(subjects__is_active=True)))
+        .order_by('sort_order', 'name')
+        .values('name', 'code', 'subjects_count')
+    )
+
+    active_qs = CourseSyllabus.objects.filter(is_active=True).only('variants', 'topics')
+    subjects_count = active_qs.count()
+    variants_count = 0
+    topics_count = 0
+    for obj in active_qs.iterator():
+        variants = obj.variants or []
+        if variants:
+            variants_count += len(variants)
+            for variant in variants:
+                topics_count += len(variant.get('topics') or [])
+        elif obj.topics:
+            variants_count += 1
+            topics_count += len(obj.topics)
+
+    return {
+        'departments_count': len(by_department),
+        'subjects_count': subjects_count,
+        'subjects_total': CourseSyllabus.objects.count(),
+        'variants_count': variants_count,
+        'topics_count': topics_count,
+        'by_department': [
+            {
+                'name': row['name'],
+                'code': row['code'],
+                'subjects_count': row['subjects_count'],
+            }
+            for row in by_department
+        ],
+    }
+
+
+class AdminSyllabusCatalogStatsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        return Response(build_syllabus_catalog_stats())
 
 
 class AdminCourseSyllabusDetailView(APIView):
@@ -166,7 +225,7 @@ class CourseSyllabusCatalogView(APIView):
                 topic_count = len(data.get("topics") or [])
             if topic_count > 0:
                 rows.append(data)
-        return Response(rows)
+        return paginated_response(rows, request, default_page_size=50, max_page_size=200)
 
 
 class StaffCourseSelectionListView(APIView):
@@ -190,19 +249,11 @@ class StaffCourseSelectionListView(APIView):
         responses=StaffCourseSelectionSerializer,
     )
     def post(self, request):
-        syllabus_id = request.data.get("syllabus_id")
-        if not syllabus_id:
-            return Response({"detail": "syllabus_id kerak."}, status=400)
-        syllabus = CourseSyllabus.objects.filter(pk=syllabus_id, is_active=True).first()
-        if not syllabus:
-            return Response({"detail": "Fan topilmadi yoki faol emas."}, status=404)
-        sel, _created = StaffCourseSelection.objects.get_or_create(
-            owner_key=request.user.username,
-            syllabus=syllabus,
-        )
         return Response(
-            StaffCourseSelectionSerializer(sel).data,
-            status=status.HTTP_201_CREATED if _created else status.HTTP_200_OK,
+            {
+                "detail": "Fanni faqat administrator biriktiradi. Administrator bilan bog'laning.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
         )
 
 
@@ -211,10 +262,121 @@ class StaffCourseSelectionDetailView(APIView):
     permission_classes = [IsAuthenticated, IsHodimRole]
 
     def delete(self, request, syllabus_id: int):
-        deleted, _ = StaffCourseSelection.objects.filter(
-            owner_key=request.user.username,
-            syllabus_id=syllabus_id,
-        ).delete()
+        return Response(
+            {
+                "detail": "Fanni faqat administrator olib tashlaydi.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class AdminStaffCourseSelectionListCreateView(APIView):
+    """Admin: barcha o'qituvchi-fan biriktiruvlarini ko'rish va yangi biriktirish."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    @extend_schema(responses=AdminStaffCourseSelectionSerializer(many=True))
+    def get(self, request):
+        qs = StaffCourseSelection.objects.select_related("syllabus").order_by("-selected_at")
+        syllabus_id = request.query_params.get("syllabus_id")
+        if syllabus_id:
+            qs = qs.filter(syllabus_id=syllabus_id)
+        owner_key = request.query_params.get("owner_key")
+        if owner_key:
+            qs = qs.filter(owner_key=normalize_uz_phone_digits(owner_key))
+        shared_context: dict = {}
+        return paginated_response(
+            qs,
+            request,
+            default_page_size=100,
+            max_page_size=500,
+            mapper=lambda obj: AdminStaffCourseSelectionSerializer(
+                obj, context=shared_context
+            ).data,
+        )
+
+    @extend_schema(request=serializers.Serializer, responses=AdminStaffCourseSelectionSerializer)
+    def post(self, request):
+        phone_raw = (request.data.get("phone_digits") or request.data.get("owner_key") or "").strip()
+        syllabus_id = request.data.get("syllabus_id")
+        if not phone_raw or not syllabus_id:
+            return Response({"detail": "phone_digits va syllabus_id kerak."}, status=400)
+        try:
+            phone = normalize_uz_phone_digits(phone_raw)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        from django.contrib.auth.models import User
+
+        if not User.objects.filter(username=phone).exists():
+            return Response({"detail": "Bu telefon raqamli xodim topilmadi."}, status=404)
+
+        syllabus = CourseSyllabus.objects.filter(pk=syllabus_id).first()
+        if not syllabus:
+            return Response({"detail": "Fan topilmadi."}, status=404)
+
+        available = [
+            (v.get("label") or "").strip()
+            for v in (syllabus.variants or [])
+            if (v.get("label") or "").strip()
+        ]
+
+        # `variant_labels` (ro'yxat) yoki eski `variant_label` (bitta) qabul qilinadi.
+        raw_labels = request.data.get("variant_labels")
+        if raw_labels is None:
+            single = (request.data.get("variant_label") or "").strip()
+            raw_labels = [single] if single else []
+        if not isinstance(raw_labels, list):
+            return Response({"detail": "variant_labels ro'yxat bo'lishi kerak."}, status=400)
+
+        labels: list[str] = []
+        for item in raw_labels:
+            label = str(item).strip()
+            if label and label not in labels:
+                labels.append(label)
+
+        if available:
+            invalid = [lbl for lbl in labels if lbl not in available]
+            if invalid:
+                return Response({"detail": "Noto'g'ri syllabus/yo'nalish."}, status=400)
+            if not labels:
+                return Response(
+                    {"detail": "Kamida bitta syllabus (yo'nalish) tanlang."},
+                    status=400,
+                )
+        else:
+            # Fanda yo'nalish (variant) yo'q — bitta bo'sh biriktirish
+            labels = [""]
+
+        cache: dict = {}
+        rows = []
+        for label in labels:
+            sel, _ = StaffCourseSelection.objects.update_or_create(
+                owner_key=phone,
+                syllabus=syllabus,
+                variant_label=label,
+                defaults={},
+            )
+            rows.append(sel)
+
+        return Response(
+            [
+                AdminStaffCourseSelectionSerializer(r, context={"_user_cache": cache}).data
+                for r in rows
+            ],
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminStaffCourseSelectionDetailView(APIView):
+    """Admin: biriktiruvni bekor qilish (o'qituvchini fandan chetlashtirish)."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def delete(self, request, pk: int):
+        deleted, _ = StaffCourseSelection.objects.filter(pk=pk).delete()
         if not deleted:
-            return Response({"detail": "Tanlov topilmadi."}, status=404)
+            return Response({"detail": "Topilmadi."}, status=404)
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -1,11 +1,11 @@
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import type { AppLanguage } from '../i18n/language';
 import { localeForLanguage } from '../i18n/language';
 import { translate, type UiTextKey } from '../i18n/translations';
 import type { MedicalReference, TestQuestion, TestSession } from '../services/aiService';
 import { scoreToGrade } from './testGrading';
+import { renderHtmlToPdf } from './htmlToPdf';
 import { catalogPdfVerificationFooter, type CatalogPdfMeta } from './catalogPdfVerification';
+import { stripOptionLetterPrefix } from './testOptionText';
 
 export interface TestSubmissionRow {
   firstName: string;
@@ -38,11 +38,11 @@ function formatReference(ref: MedicalReference): string {
 function referencesBlock(refs: MedicalReference[] | undefined, title: string): string {
   if (!refs?.length) return '';
   const items = refs
-    .map((r) => `<li style="margin:4px 0;font-size:13px;color:#374151;">${escapeHtml(formatReference(r))}</li>`)
+    .map((r) => `<li style="margin:4px 0;font-size:13px;color:#1e3a5f;">${escapeHtml(formatReference(r))}</li>`)
     .join('');
   return `
-    <div style="margin:16px 0;padding:12px;background:#f9fafb;border-radius:8px;">
-      <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#4b5563;text-transform:uppercase;">${escapeHtml(title)}</p>
+    <div style="margin:16px 0;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
+      <p data-pdf-keep-next style="margin:0 0 8px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(title)}</p>
       <ul style="margin:0;padding-left:18px;">${items}</ul>
     </div>
   `;
@@ -59,11 +59,11 @@ function buildQuestionsHtml(session: TestSession, lang: AppLanguage, meta?: Cata
       const options = q.options
         .map(
           (opt, optIdx) =>
-            `<p style="margin:6px 0 6px 12px;font-size:14px;color:#1f2937;">${optionLetter(optIdx)}) ${escapeHtml(opt)}</p>`
+            `<p style="margin:6px 0 6px 12px;font-size:14px;color:#1f2937;">${optionLetter(optIdx)}) ${escapeHtml(stripOptionLetterPrefix(opt, optIdx))}</p>`
         )
         .join('');
       return `
-        <div style="margin-bottom:28px;page-break-inside:avoid;">
+        <div data-pdf-block style="margin-bottom:28px;">
           <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;line-height:1.5;">
             ${i + 1}. ${escapeHtml(q.question)}
           </p>
@@ -96,18 +96,18 @@ function buildAnswerKeyHtml(session: TestSession, lang: AppLanguage, meta?: Cata
             ? 'margin:6px 0 6px 12px;padding:8px 10px;border-radius:8px;background:#ecfdf5;border:1px solid #34d399;font-size:14px;color:#065f46;font-weight:600;'
             : 'margin:6px 0 6px 12px;font-size:14px;color:#374151;';
           const marker = isCorrect ? ' ✓' : '';
-          return `<p style="${style}">${optionLetter(optIdx)}) ${escapeHtml(opt)}${marker}</p>`;
+          return `<p style="${style}">${optionLetter(optIdx)}) ${escapeHtml(stripOptionLetterPrefix(opt, optIdx))}${marker}</p>`;
         })
         .join('');
       const refs = referencesBlock(q.references, t(lang, 'pdf.questionReferences'));
       return `
-        <div style="margin-bottom:32px;page-break-inside:avoid;">
+        <div data-pdf-block style="margin-bottom:32px;">
           <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#111827;line-height:1.5;">
             ${i + 1}. ${escapeHtml(q.question)}
           </p>
           ${options}
           <div style="margin-top:12px;padding:12px;background:#eff6ff;border-radius:8px;border-left:4px solid #3b82f6;">
-            <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.correctAnalysis'))}</p>
+            <p data-pdf-keep-next style="margin:0 0 6px;font-size:12px;font-weight:700;color:#1d4ed8;text-transform:uppercase;">${escapeHtml(t(lang, 'pdf.correctAnalysis'))}</p>
             <p style="margin:0;font-size:14px;color:#1e3a8a;line-height:1.6;white-space:pre-wrap;">${escapeHtml(q.explanation || '')}</p>
           </div>
           ${refs}
@@ -177,7 +177,7 @@ function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]
         .join('');
       const name = `${s.firstName} ${s.lastName}`.trim();
       return `
-        <div style="margin-bottom:20px;padding:14px;border:1px solid #e5e7eb;border-radius:10px;page-break-inside:avoid;">
+        <div data-pdf-block style="margin-bottom:20px;padding:14px;border:1px solid #e5e7eb;border-radius:10px;">
           <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#111827;">
             ${idx + 1}. ${escapeHtml(t(lang, 'pdf.studentRowSummary', { name, score, total, grade }))}
           </p>
@@ -209,44 +209,6 @@ function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]
       ${sorted.length > 0 ? `<p style="margin:0 0 12px;font-size:13px;font-weight:700;color:#374151;">${escapeHtml(t(lang, 'pdf.detailedAnswers'))}</p>${detailBlocks}` : ''}
     </div>
   `;
-}
-
-async function renderHtmlToPdf(html: string, filename: string): Promise<void> {
-  const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.left = '-10000px';
-  container.style.top = '0';
-  container.style.width = '760px';
-  container.style.background = '#ffffff';
-  container.innerHTML = html;
-  document.body.appendChild(container);
-
-  try {
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff',
-    });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    let position = 0;
-    let heightLeft = pdfHeight;
-
-    pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight);
-    heightLeft -= pageHeight;
-    while (heightLeft > 0) {
-      position = position - pageHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, pdfHeight);
-      heightLeft -= pageHeight;
-    }
-    pdf.save(filename);
-  } finally {
-    document.body.removeChild(container);
-  }
 }
 
 export async function downloadTestQuestionsPdf(

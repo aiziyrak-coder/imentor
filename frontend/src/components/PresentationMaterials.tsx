@@ -1,35 +1,89 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { buildPreparedContentMeta } from '../utils/preparedContentMeta';
+import { pushAppNotification } from '../utils/notifications';
 import {
+  ArrowLeft,
   BookOpen,
   ChevronLeft,
   ChevronRight,
   Download,
   FileText,
+  History,
   Loader2,
   Presentation,
+  Sparkles,
   Trash2,
   Upload,
   X,
   ZoomIn,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GlobalTopicContext, AppNavigationContext } from '../App';
+import { GlobalTopicContext, AppNavigationContext, AppLanguageContext } from '../App';
 import { useUiText } from '../i18n/useUiText';
+import { aiService, type LectureNote } from '../services/aiService';
+import { buildPresentationPptxFile } from '../utils/buildPresentationPptx';
+import {
+  coercePresentationContent,
+  type PresentationContent,
+} from '../utils/presentationContentSchema';
+import { extractPdfTextFromBlob } from '../utils/presentationTopicNorm';
+import PdfSlideViewer from './PdfSlideViewer';
+import { apiErrorMessage } from '../utils/apiErrorMessage';
+import { outputLanguageLooksWrong } from '../utils/outputLanguage';
+import { isTopicContextComplete, topicContextKey } from '../utils/syllabusTopicContext';
+import {
+  loadLatestPreparedContent,
+  loadPreparedByIdSynced,
+  listPreparedForTopicSynced,
+  savePreparedContent,
+  deletePreparedContent,
+  preparedContentNumericId,
+  type PreparedContentSummary,
+} from '../utils/preparedContentStore';
 import {
   deletePresentation,
   fetchPresentationsForTopic,
   getPresentationFileBlobUrl,
+  getPresentationPreviewBlobUrl,
   isAllowedPresentationFile,
-  officePreviewUrl,
-  resolvePresentationFileUrl,
   uploadPresentation,
   type TopicPresentationItem,
 } from '../utils/presentationUploadApi';
+import StaffPageLayout from './staff/StaffPageLayout';
+import SavedWorkBanner from './staff/SavedWorkBanner';
+import SavedWorkList from './staff/SavedWorkList';
+import { useLocalizedTopic } from '../i18n/useLocalizedTopic';
+import StaffTopicHeader from './staff/StaffTopicHeader';
+import StaffEmptyState from './staff/StaffEmptyState';
+import StaffErrorAlert from './staff/StaffErrorAlert';
+import StaffPanel from './staff/StaffPanel';
+import { staffBtnGhost, staffBtnPrimary, staffBtnSecondary } from './staff/staffUi';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Bazadagi yozuv (prepared_content) bilan serverga yuklangan PPTX faylni
+ * bog'lovchi barqaror belgi — fayl nomiga qo'yiladi.
+ *
+ * Ilgari bog'lanish sarlavhalarni bir-biriga "includes" qilib solishtirish
+ * orqali topilardi: noto'g'ri taqdimot ochilishi mumkin edi, mos kelmasa esa
+ * HAR ochilishda serverga yangi nusxa yuklanardi. Endi belgi aniq va yagona.
+ */
+function deckFileMarker(preparedId: string): string | null {
+  const numeric = preparedContentNumericId(preparedId);
+  return numeric ? `--pc${numeric}` : null;
+}
+
+/** Fayl nomiga bog'lanish belgisini qo'shadi (kengaytmasi saqlanadi). */
+function withDeckMarker(file: File, marker: string): File {
+  const dot = file.name.lastIndexOf('.');
+  const base = dot > 0 ? file.name.slice(0, dot) : file.name;
+  const ext = dot > 0 ? file.name.slice(dot) : '';
+  return new File([file], `${base.slice(0, 120)}${marker}${ext}`, { type: file.type });
 }
 
 function kindLabel(kind: TopicPresentationItem['kind']): string {
@@ -65,46 +119,65 @@ type LightboxProps = {
 function PresentationLightbox({ items, index, onClose, onIndexChange }: LightboxProps) {
   const { t } = useUiText();
   const item = items[index];
-  const [fileSrc, setFileSrc] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
-  if (!item) return null;
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [fileReady, setFileReady] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
   const hasPrev = index > 0;
   const hasNext = index < items.length - 1;
-  const publicUrl = resolvePresentationFileUrl(item.file_url);
-  const officeUrl = item.kind !== 'pdf' && publicUrl ? officePreviewUrl(publicUrl) : '';
 
   useEffect(() => {
+    if (!item) return;
     let cancelled = false;
-    setFileSrc('');
     setDownloadUrl('');
+    setPreviewUrl('');
+    setFileReady(false);
+    setPreviewError(false);
     (async () => {
       try {
-        const blob = await getPresentationFileBlobUrl(item.id);
-        if (!cancelled) {
-          setFileSrc(blob);
-          setDownloadUrl(blob);
+        const fileBlob = await getPresentationFileBlobUrl(item.id);
+        if (cancelled) return;
+        setDownloadUrl(fileBlob);
+
+        if (item.kind === 'pdf') {
+          setPreviewUrl(fileBlob);
+        } else {
+          // PPTX/PPT → server LibreOffice PDF (shu taqdimotning o‘zi)
+          try {
+            const pdfBlob = await getPresentationPreviewBlobUrl(item.id);
+            if (!cancelled) setPreviewUrl(pdfBlob);
+          } catch {
+            if (!cancelled) setPreviewError(true);
+          }
         }
       } catch {
-        if (!cancelled && publicUrl) {
-          setFileSrc(publicUrl);
-          setDownloadUrl(publicUrl);
-        }
+        if (!cancelled) setPreviewError(true);
+      } finally {
+        if (!cancelled) setFileReady(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [item.id, item.file_url, publicUrl]);
+  }, [item?.id, item?.kind]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft' && hasPrev) onIndexChange(index - 1);
-      if (e.key === 'ArrowRight' && hasNext) onIndexChange(index + 1);
+      // ←/→ endi slaydlarni almashtiradi (PdfSlideViewer ichida) — bu yerda
+      // ular boshqa TAQDIMOTGA o'tkazsa, dars paytida bir tugma ikki ishni
+      // bajarib chalkashlik tug'dirardi. Taqdimotlar orasida o'tish uchun
+      // chap/o'ng chetdagi katta tugmalar qoldi.
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [index, hasPrev, hasNext, onClose, onIndexChange]);
+    // Faqat Escape kuzatiladi — slayd almashganda listener qayta ro'yxatdan
+    // o'tishi shart emas (avval `index` ham deps'da turardi).
+  }, [onClose]);
+
+  // Hooks'dan KEYIN — erta return hook tartibini buzardi (React "rendered
+  // fewer hooks than expected" xatosi).
+  if (!item) return null;
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-black/92" role="dialog" aria-modal="true">
@@ -112,7 +185,9 @@ function PresentationLightbox({ items, index, onClose, onIndexChange }: Lightbox
         <div className="min-w-0 flex-1">
           <p className="text-[15px] font-semibold truncate">{item.title || item.file_name}</p>
           <p className="text-[12px] text-white/60 truncate">
-            {index + 1} / {items.length} · {kindLabel(item.kind)} · {item.author_name}
+            {index + 1} / {items.length}
+            {' · '}
+            {kindLabel(item.kind)} · {item.author_name}
           </p>
         </div>
         {downloadUrl && (
@@ -141,16 +216,39 @@ function PresentationLightbox({ items, index, onClose, onIndexChange }: Lightbox
         )}
 
         <div className="w-full h-full max-w-6xl flex items-center justify-center">
-          {!fileSrc && !officeUrl ? (
-            <Loader2 className="animate-spin text-white" size={40} />
-          ) : item.kind === 'pdf' && fileSrc ? (
-            <iframe title={item.file_name} src={fileSrc} className="w-full h-full min-h-[50vh] rounded-lg bg-white" />
-          ) : officeUrl ? (
-            <iframe title={item.file_name} src={officeUrl} className="w-full h-full min-h-[50vh] rounded-lg bg-white" />
-          ) : fileSrc ? (
-            <iframe title={item.file_name} src={fileSrc} className="w-full h-full min-h-[50vh] rounded-lg bg-white" />
+          {!fileReady ? (
+            <div className="text-center text-white space-y-3">
+              <Loader2 className="animate-spin mx-auto" size={40} />
+              {item.kind !== 'pdf' ? (
+                <p className="text-[13px] text-white/70">{t('presentation.openingPptx')}</p>
+              ) : null}
+            </div>
+          ) : previewUrl ? (
+            // Brauzerning o'z ichki PDF paneli o'rniga — dars o'tishga moslashtirilgan
+            // slayd ko'ruvchi: katta oldinga/orqaga tugmalari, zoom (+/-) va to'liq ekran.
+            <PdfSlideViewer fileUrl={previewUrl} />
           ) : (
-            <Loader2 className="animate-spin text-white" size={40} />
+            <div className="text-center text-white px-6 space-y-5 max-w-md">
+              <div className="relative w-48 h-32 mx-auto rounded-2xl overflow-hidden bg-white/10">
+                <PresentationPreview item={item} mode="full" />
+              </div>
+              {/* Ilgari ikkala shoxda bir xil matn turardi — preview xatosi
+                  yuz berganini foydalanuvchi bilmasdi. */}
+              <p className="text-[14px] text-white/80 leading-relaxed">
+                {previewError
+                  ? t('presentation.previewFailed')
+                  : t('presentation.previewDownload')}
+              </p>
+              {downloadUrl && (
+                <a
+                  href={downloadUrl}
+                  download={item.file_name}
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white text-[14px] font-semibold hover:bg-blue-500"
+                >
+                  <Download size={18} /> {t('common.download')}
+                </a>
+              )}
+            </div>
           )}
         </div>
 
@@ -171,26 +269,159 @@ function PresentationLightbox({ items, index, onClose, onIndexChange }: Lightbox
 export default function PresentationMaterials() {
   const { t } = useUiText();
   const globalTopic = useContext(GlobalTopicContext);
+  // Sarlavha interfeys tilida (kontekstda asl matn — u AI va saqlash kaliti).
+  const localizedTopic = useLocalizedTopic(globalTopic);
+  const { language } = useContext(AppLanguageContext);
   const { openSyllabus } = useContext(AppNavigationContext);
   const [items, setItems] = useState<TopicPresentationItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiProgress, setAiProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** Xato emas — ogohlantirish (ma'ruza tili joriy tilga mos kelmasa). */
+  const [languageWarning, setLanguageWarning] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [savedDecks, setSavedDecks] = useState<PreparedContentSummary[]>([]);
+  const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Kartochkalarda FAQAT shu seansda yaratilgan/yuklangan taqdimotlar ko'rinadi.
+  // Avvalgilari (o'zining ham) "Baza" bo'limida turadi — sahifa har ochilganda
+  // eski ishlar bilan to'lib ketmasin. `items` esa to'liq ro'yxat bo'lib qoladi:
+  // AI "PDF asosida to'ldirish" rejimi yuklangan PDF'ni shundan topadi.
+  const [sessionIds, setSessionIds] = useState<Set<number>>(() => new Set());
 
-  const topicTitle = globalTopic?.title?.trim() ?? '';
-
-  const loadItems = useCallback(async () => {
-    if (!topicTitle) {
-      setItems([]);
+  // Baza faqat TANLANGAN MAVZU bo'yicha (4 bo'limda bir xil qoida).
+  const refreshDeckHistory = useCallback(() => {
+    if (!globalTopic) {
+      setSavedDecks([]);
       return;
     }
+    void listPreparedForTopicSynced('presentation', globalTopic).then(setSavedDecks);
+  }, [globalTopic]);
+
+  // Eslatma qatorida sonni ko'rsatish uchun sahifa ochilishida ham yuklaymiz.
+  useEffect(() => {
+    refreshDeckHistory();
+  }, [refreshDeckHistory]);
+
+  /** Baza: HTML preview yo‘q — mavjud PPTX ni ochadi yoki shu deckdan PPTX yuklaydi. */
+  const openHistoryDeck = async (summary: PreparedContentSummary) => {
+    const marker = deckFileMarker(summary.id);
+    // 1) Aniq bog'lanish: fayl nomidagi `--pc<id>` belgisi.
+    // 2) Eski (belgisiz) fayllar uchun — FAQAT sarlavha to'liq teng bo'lsa.
+    //    "includes" bilan taxminiy moslash noto'g'ri taqdimotni ochardi.
+    const topicNorm = (summary.topic || '').trim().toLowerCase();
+    const match =
+      (marker ? items.find((i) => (i.file_name || '').includes(marker)) : undefined) ??
+      items.find((i) => (i.title || '').trim().toLowerCase() === topicNorm);
+    if (match) {
+      // Bazadan ochilgan taqdimot shu seansda ko'rinadigan bo'lib qoladi.
+      const nextIds = new Set(sessionIds).add(match.id);
+      setSessionIds(nextIds);
+      setShowHistory(false);
+      setLightboxIndex(items.filter((i) => nextIds.has(i.id)).findIndex((i) => i.id === match.id));
+      return;
+    }
+
+    if (!globalTopic) return;
+
+    setHistoryBusyId(summary.id);
+    try {
+      const raw = await loadPreparedByIdSynced<unknown>('presentation', summary.id);
+      if (!raw) return;
+      const deck = coercePresentationContent(raw, {
+        title: summary.topic,
+        subject: globalTopic?.subjectName || '',
+      });
+      const built = await buildPresentationPptxFile(deck, {
+        meta: {
+          subjectName: globalTopic?.subjectName || deck.subject_area,
+          topicId: globalTopic?.id || 'T',
+          variantLabel: globalTopic?.variantLabel,
+          language,
+        },
+      });
+      // Belgi qo'yiladi — shu deck ikkinchi marta ochilganda mavjud fayl
+      // topilib, serverga yana nusxa yuklanmaydi.
+      const file = marker ? withDeckMarker(built, marker) : built;
+      // Bazadagi yozuvga hali fayl biriktirilmagan bo'lsa — yuklab OLMAYMIZ,
+      // balki serverga qo'yamiz va shu sahifada ko'rish oynasini ochamiz.
+      const shortTopic =
+        [globalTopic.id, globalTopic.title].filter(Boolean).join(' — ').slice(0, 240) ||
+        summary.topic;
+      const created = await uploadPresentation({
+        topic: shortTopic,
+        file,
+        title: (deck.presentation_title || shortTopic).slice(0, 240),
+        context: globalTopic,
+      });
+      const rows = await fetchPresentationsForTopic(globalTopic);
+      setItems(rows);
+      const createdRow = rows.find((r) => r.id === created?.id) ?? rows.find((r) => r.file_name === file.name);
+      const nextIds = new Set(sessionIds);
+      if (createdRow) nextIds.add(createdRow.id);
+      setSessionIds(nextIds);
+      const visible = rows.filter((r) => nextIds.has(r.id));
+      const newIdx = visible.findIndex((r) => r.id === createdRow?.id);
+      setShowHistory(false);
+      setLightboxIndex(visible.length ? (newIdx >= 0 ? newIdx : 0) : null);
+    } finally {
+      setHistoryBusyId(null);
+    }
+  };
+
+  /** Bazadagi taqdimotni o'chirish — yozuv bilan birga unga bog'langan
+   *  (fayl nomida `--pc<id>` belgisi bor) PPTX ham o'chiriladi. */
+  const handleDeleteSavedDeck = (id: string) => {
+    if (!window.confirm(t('toolbar.deleteConfirm'))) return;
+    void (async () => {
+      setHistoryBusyId(id);
+      try {
+        const marker = deckFileMarker(id);
+        const linked = marker ? items.find((i) => (i.file_name || '').includes(marker)) : undefined;
+        await deletePreparedContent('presentation', id);
+        if (linked?.can_delete) {
+          try {
+            await deletePresentation(linked.id);
+            await loadItems();
+          } catch (fileErr) {
+            console.warn('Linked presentation file delete failed', fileErr);
+          }
+        }
+        refreshDeckHistory();
+      } catch (err) {
+        console.error('Delete deck failed', err);
+        setError(t('toolbar.deleteFailed'));
+      } finally {
+        setHistoryBusyId(null);
+      }
+    })();
+  };
+
+  const topicTitle = globalTopic?.title?.trim() ?? '';
+  const topicReady = Boolean(globalTopic && topicTitle && isTopicContextComplete(globalTopic));
+
+  const topicKey = topicContextKey(globalTopic);
+  const requestSeq = useRef(0);
+
+  const loadItems = useCallback(async (): Promise<TopicPresentationItem[]> => {
+    if (!topicReady || !globalTopic || !topicKey) {
+      setItems([]);
+      setLoading(false);
+      return [];
+    }
+    const seq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     try {
-      setItems(await fetchPresentationsForTopic(topicTitle));
+      const rows = await fetchPresentationsForTopic(globalTopic);
+      if (seq !== requestSeq.current) return [];
+      setItems(rows);
+      return rows;
     } catch (e) {
+      if (seq !== requestSeq.current) return [];
       setItems([]);
       setError(
         e instanceof Error && e.message === 'no-backend-token'
@@ -198,16 +429,34 @@ export default function PresentationMaterials() {
           : t('presentation.errorLoad'),
       );
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
-  }, [topicTitle, t]);
+    return [];
+  }, [topicReady, topicKey, globalTopic, t]);
 
   useEffect(() => {
     void loadItems();
   }, [loadItems]);
 
+  // Mavzu almashsa — seans ro'yxati ham tozalanadi.
+  useEffect(() => {
+    setSessionIds(new Set());
+    setLightboxIndex(null);
+  }, [topicKey]);
+
+  const visibleItems = items.filter((i) => sessionIds.has(i.id));
+  // Tugma yozuvi ("yaratish" yoki "to'ldirish") kartochkalar soniga emas,
+  // yuklangan PDF manba borligiga bog'liq — u kartochkada ko'rinmasa ham
+  // AI uchun kontekst bo'lib qolaveradi.
+  const hasPdfSource = items.some((i) => i.kind === 'pdf');
+
+  /** Yangi yaratilgan/yuklangan taqdimotni seans ro'yxatiga qo'shadi. */
+  const markAsSessionItem = (id: number) => {
+    setSessionIds((prev) => new Set(prev).add(id));
+  };
+
   const handleUpload = async (file: File) => {
-    if (!topicTitle) return;
+    if (!topicReady || !globalTopic) return;
     if (!isAllowedPresentationFile(file)) {
       setError(t('presentation.errorFileType'));
       return;
@@ -215,13 +464,139 @@ export default function PresentationMaterials() {
     setUploading(true);
     setError(null);
     try {
-      await uploadPresentation({ topic: topicTitle, file });
+      const created = await uploadPresentation({ topic: topicTitle, file, context: globalTopic });
+      if (created?.id) markAsSessionItem(created.id);
       await loadItems();
-    } catch {
-      setError(t('presentation.errorUpload'));
+    } catch (e) {
+      setError(apiErrorMessage(e, t('presentation.errorUpload'), language));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleAiPresentation = async () => {
+    if (!topicReady || !globalTopic) return;
+    setAiLoading(true);
+    setError(null);
+    setAiProgress('');
+    try {
+      // Taqdimot MA'RUZA MATNI asosida quriladi. Matn bo'lmasa yaratmaymiz —
+      // aks holda taqdimot ma'ruzaga bog'lanmagan, umumiy bo'lib qolardi.
+      // MUHIM: "Ma'ruza matni" bo'limi matnni MAVZU SARLAVHASI (oddiy satr)
+      // bo'yicha saqlaydi, sillabus-kontekst kaliti bilan emas. Shuning uchun
+      // avval kontekst bo'yicha, topilmasa sarlavha bo'yicha qidiramiz —
+      // shunda eski va yangi formatda saqlangan ma'ruzalar ham topiladi.
+      const lecture =
+        (await loadLatestPreparedContent<LectureNote>('lecture', globalTopic)) ??
+        (await loadLatestPreparedContent<LectureNote>('lecture', globalTopic.title));
+      const lectureText = (lecture?.content || '').trim();
+      if (!lectureText) {
+        setError(t('presentation.errorNoLecture'));
+        return;
+      }
+      // Ma'ruza o'sha paytdagi interfeys tilida saqlanadi. Hozirgi til boshqa
+      // bo'lsa, model bir tildagi manbadan boshqa tilda slayd yasashga majbur
+      // bo'ladi va natija aralash chiqishi mumkin — buni oldindan aytamiz.
+      setLanguageWarning(
+        outputLanguageLooksWrong(lectureText, language)
+          ? t('presentation.warnLectureLanguage')
+          : null,
+      );
+
+      // Yuklangan PDF (bo'lsa) qo'shimcha kontekst sifatida beriladi.
+      let sourceText = '';
+      const pdfItem = items.find((i) => i.kind === 'pdf');
+      if (pdfItem) {
+        try {
+          const blobUrl = await getPresentationFileBlobUrl(pdfItem.id);
+          const res = await fetch(blobUrl);
+          sourceText = await extractPdfTextFromBlob(await res.blob());
+        } catch {
+          /* PDF matn ixtiyoriy */
+        }
+      }
+      const hasPdfContext = Boolean(pdfItem && sourceText.trim());
+      const deck = await aiService.generatePresentationDeck({
+        topicTitle: globalTopic.title,
+        topicId: globalTopic.id,
+        topicType: globalTopic.type,
+        subjectName: globalTopic.subjectName,
+        variantLabel: globalTopic.variantLabel,
+        // Foydalanuvchi UI'da tanlagan til ustuvor (lekin bilan bir xil qoida).
+        language,
+        mode: hasPdfContext ? 'enhance' : 'generate',
+        lectureText,
+        sourceFileName: hasPdfContext ? pdfItem?.file_name : undefined,
+        sourceText: hasPdfContext ? sourceText : undefined,
+        subjectCode: globalTopic.subjectCode,
+        onProgress: (textSoFar) => setAiProgress(textSoFar),
+      });
+      let savedDeckId: string | null = null;
+      try {
+        // MUHIM: mavzu kaliti sifatida taqdimot SARLAVHASI emas, MAVZU nomi
+        // ishlatiladi — aks holda Baza mavzu bo'yicha qidirganda topa olmaydi
+        // (boshqa 3 bo'lim ham aynan shunday saqlaydi).
+        // topicNorm (sillabus::yo'nalish::mavzu kodi) qo'shiladi — sarlavha
+        // kalit bo'lib qolmasin (tarjimadan keyin yozuv yo'qolmasligi uchun).
+        savedDeckId = await savePreparedContent(
+          'presentation',
+          globalTopic.title,
+          deck,
+          buildPreparedContentMeta(globalTopic),
+        );
+        // Muvaffaqiyat xabari saqlangandan KEYIN — aks holda saqlash
+        // yiqilganda ham "tayyor" deb ko'rsatilardi.
+        pushAppNotification({
+          title: t('common.doneTitle'),
+          body: t('presentation.readyToast'),
+          titleKey: 'common.doneTitle',
+          bodyKey: 'presentation.readyToast',
+          level: 'success',
+        });
+        refreshDeckHistory();
+      } catch (histErr) {
+        console.warn('Presentation history save skipped:', histErr);
+        pushAppNotification({
+          title: t('common.doneTitle'),
+          body: t('common.saveFailedKeepWork'),
+          titleKey: 'common.doneTitle',
+          bodyKey: 'common.saveFailedKeepWork',
+          level: 'warning',
+        });
+      }
+      // PPTX Baza yozuvi yaratilgandan KEYIN quriladi — fayl nomiga o'sha
+      // yozuvning belgisi qo'yiladi va ikkalasi bir-biriga bog'lanadi.
+      const built = await buildPresentationPptxFile(deck, {
+        meta: {
+          subjectName: globalTopic.subjectName,
+          topicId: globalTopic.id,
+          variantLabel: globalTopic.variantLabel,
+          language,
+        },
+      });
+      if (!built.size) {
+        throw new Error('empty-pptx');
+      }
+      const deckMarker = savedDeckId ? deckFileMarker(savedDeckId) : null;
+      const file = deckMarker ? withDeckMarker(built, deckMarker) : built;
+
+      const shortTopic =
+        [globalTopic.id, globalTopic.title].filter(Boolean).join(' — ').slice(0, 240) || topicTitle;
+      const created = await uploadPresentation({
+        topic: shortTopic,
+        file,
+        title: (deck.presentation_title || shortTopic).slice(0, 240),
+        context: globalTopic,
+      });
+      if (created?.id) markAsSessionItem(created.id);
+      await loadItems();
+    } catch (e) {
+      const detail = apiErrorMessage(e, t('presentation.errorAiHint'), language);
+      setError(`${t('presentation.errorAi')} ${detail}`);
+    } finally {
+      setAiLoading(false);
+      setAiProgress('');
     }
   };
 
@@ -236,37 +611,55 @@ export default function PresentationMaterials() {
     }
   };
 
-  if (!globalTopic || !topicTitle) {
+  if (showHistory) {
     return (
-      <div className="max-w-lg mx-auto p-8 text-center space-y-4">
-        <div className="ios-glass rounded-2xl border border-white/70 p-8">
-          <BookOpen size={40} className="mx-auto text-indigo-600 mb-4" />
-          <h2 className="text-lg font-bold text-[#083047]">{t('presentation.noTopic')}</h2>
-          <p className="text-[14px] text-black/55 mt-2 leading-relaxed">{t('presentation.noTopicHint')}</p>
-          <button
-            type="button"
-            onClick={openSyllabus}
-            className="mt-5 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold hover:bg-indigo-500"
-          >
-            {t('common.goToSyllabus')}
+      <StaffPageLayout>
+        <div className="flex items-center justify-between gap-3">
+          <button type="button" onClick={() => setShowHistory(false)} className={staffBtnGhost}>
+            <ArrowLeft size={18} />
+            {t('lecture.back')}
           </button>
+          <h2 className="text-lg font-bold flex items-center gap-2 text-[#083047]">
+            <History size={20} />
+            {t('lecture.database')}
+          </h2>
         </div>
-      </div>
+        <SavedWorkList
+          items={savedDecks}
+          activeId={historyBusyId}
+          onSelect={(id) => {
+            const deck = savedDecks.find((x) => x.id === id);
+            if (deck) void openHistoryDeck(deck);
+          }}
+          onDelete={handleDeleteSavedDeck}
+          emptyText={t('lecture.noSaved')}
+        />
+      </StaffPageLayout>
+    );
+  }
+
+  if (!topicReady || !globalTopic) {
+    return (
+      <StaffPageLayout>
+        <StaffEmptyState
+          icon={BookOpen}
+          title={t('presentation.noTopic')}
+          hint={t('presentation.noTopicHint')}
+          actionLabel={t('common.goToSyllabus')}
+          onAction={openSyllabus}
+        />
+      </StaffPageLayout>
     );
   }
 
   return (
-    <div className="w-full px-3 sm:px-5 lg:px-6 py-4 sm:py-6 space-y-5 pb-8">
-      <div className="ios-glass rounded-[1.5rem] border border-white/70 p-5 sm:p-6 shadow-sm">
-        <h2 className="text-xl sm:text-2xl font-bold text-[#083047]">{t('presentation.title')}</h2>
-        <p className="text-[14px] text-black/55 mt-1">
-          {t('presentation.topicLabel')}{' '}
-          <span className="font-semibold text-indigo-800">
-            {globalTopic.id} — {globalTopic.title}
-          </span>
-        </p>
-        <p className="text-[12px] text-black/45 mt-2">{t('presentation.hint')}</p>
-        <div className="mt-4 flex flex-wrap gap-2">
+    <StaffPageLayout>
+      <StaffTopicHeader
+        moduleLabel={t('presentation.title')}
+        topic={localizedTopic}
+        hint={hasPdfSource ? t('presentation.hintWithUpload') : t('presentation.hintAiGenerate')}
+      >
+        <div className="flex flex-wrap gap-2">
           <input
             ref={fileRef}
             type="file"
@@ -279,37 +672,94 @@ export default function PresentationMaterials() {
           />
           <button
             type="button"
-            disabled={uploading}
+            disabled={uploading || aiLoading}
             onClick={() => fileRef.current?.click()}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold hover:bg-indigo-500 disabled:opacity-50"
+            className={`${staffBtnPrimary} disabled:opacity-50`}
           >
             {uploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
             {uploading ? t('common.loading') : t('presentation.upload')}
           </button>
           <button
             type="button"
+            disabled={uploading || aiLoading}
+            onClick={() => void handleAiPresentation()}
+            className={`${staffBtnSecondary} disabled:opacity-50`}
+          >
+            {aiLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+            {aiLoading
+              ? t('common.loading')
+              : hasPdfSource
+                ? t('presentation.aiEnhance')
+                : t('presentation.aiGenerate')}
+          </button>
+          <button
+            type="button"
             onClick={() => void loadItems()}
             disabled={loading}
-            className="px-4 py-2.5 rounded-xl border border-black/10 text-[14px] font-semibold text-indigo-700 hover:bg-white/80 disabled:opacity-50"
+            className={`${staffBtnGhost} disabled:opacity-50`}
           >
             {loading ? t('common.loading') : t('common.refresh')}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              refreshDeckHistory();
+              setShowHistory(true);
+            }}
+            className={staffBtnGhost}
+          >
+            <History size={16} />
+            {t('lecture.databaseShort')}
+          </button>
         </div>
-      </div>
+      </StaffTopicHeader>
 
-      {error && <p className="text-[13px] text-rose-600 font-medium text-center">{error}</p>}
+      {!aiLoading && (
+        <SavedWorkBanner count={savedDecks.length} />
+      )}
+
+      {error && <StaffErrorAlert message={error} />}
+
+      {languageWarning && (
+        <StaffPanel className="p-4 border border-amber-200 bg-amber-50/80">
+          <p className="text-[13px] text-amber-900/90">{languageWarning}</p>
+        </StaffPanel>
+      )}
+
+      {aiLoading && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <StaffPanel className="p-5 sm:p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-sky-600/10 text-sky-700 flex items-center justify-center shrink-0">
+                <Sparkles size={20} className="animate-pulse" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] font-bold text-[#083047]">{t('presentation.aiGenerating')}</p>
+                {aiProgress ? (
+                  <p className="text-[12px] text-sky-700 font-semibold mt-0.5 truncate">{aiProgress}</p>
+                ) : null}
+              </div>
+              <Loader2 size={18} className="animate-spin text-sky-600 shrink-0" />
+            </div>
+          </StaffPanel>
+        </motion.div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="animate-spin text-indigo-600" size={36} />
+          <Loader2 className="animate-spin text-[#083047]/60" size={36} />
         </div>
-      ) : items.length === 0 ? (
-        <p className="text-center text-black/45 py-12 ios-glass rounded-2xl border border-white/60">
-          {t('presentation.empty')}
-        </p>
+      ) : visibleItems.length === 0 ? (
+        <StaffPanel className="py-12 text-center text-black/45 text-[14px] space-y-1.5">
+          <p>{t('presentation.empty')}</p>
+          {/* Eski ishlar yo'qolmagan — ular "Baza"da. */}
+          {(items.length > 0 || savedDecks.length > 0) && (
+            <p className="text-[12.5px] text-black/35">{t('presentation.emptySavedHint')}</p>
+          )}
+        </StaffPanel>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-          {items.map((item, idx) => (
+          {visibleItems.map((item, idx) => (
             <motion.div
               key={item.id}
               layout
@@ -331,11 +781,12 @@ export default function PresentationMaterials() {
                   {kindLabel(item.kind)} · {formatSize(item.file_size)} · {item.author_name}
                 </p>
               </div>
+              {/* O'chirish tugmasi doim ko'rinadi — hover yo'q qurilmalarda ham ishlasin. */}
               {item.can_delete && (
                 <button
                   type="button"
                   onClick={() => void handleDelete(item.id)}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-rose-600 shadow opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/90 text-rose-600 shadow ring-1 ring-rose-200/70 hover:bg-rose-50 transition-colors"
                   aria-label={t('common.delete')}
                 >
                   <Trash2 size={16} />
@@ -347,15 +798,15 @@ export default function PresentationMaterials() {
       )}
 
       <AnimatePresence>
-        {lightboxIndex !== null && items[lightboxIndex] && (
+        {lightboxIndex !== null && visibleItems[lightboxIndex] && (
           <PresentationLightbox
-            items={items}
+            items={visibleItems}
             index={lightboxIndex}
             onClose={() => setLightboxIndex(null)}
             onIndexChange={setLightboxIndex}
           />
         )}
       </AnimatePresence>
-    </div>
+    </StaffPageLayout>
   );
 }

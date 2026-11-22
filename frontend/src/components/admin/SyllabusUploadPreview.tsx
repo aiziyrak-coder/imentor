@@ -11,12 +11,14 @@ export type SyllabusUploadPreviewData = {
   subjectName: string;
   description: string;
   instructionLanguage: AppLanguage;
-  variants: Array<VariantRow & { editableLabel: string }>;
+  variants: Array<VariantRow & { editableLabel: string; directionCode?: string }>;
 };
 
 type Props = {
   data: SyllabusUploadPreviewData;
   saving: boolean;
+  directionOptions?: string[];
+  requireDirection?: boolean;
   onChange: (data: SyllabusUploadPreviewData) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -25,6 +27,8 @@ type Props = {
 export default function SyllabusUploadPreview({
   data,
   saving,
+  directionOptions = [],
+  requireDirection = false,
   onChange,
   onConfirm,
   onCancel,
@@ -40,11 +44,15 @@ export default function SyllabusUploadPreview({
     0,
   );
   const totalTopics = data.variants.reduce((n, v) => n + v.topics.length, 0);
+  const missingDirection =
+    requireDirection && data.variants.some((v) => !(v.directionCode || '').trim());
 
-  const updateVariantLabel = (index: number, label: string) => {
-    const variants = data.variants.map((v, i) =>
-      i === index ? { ...v, label: label.trim() || v.label, editableLabel: label } : v,
-    );
+  const updateTopicTitle = (variantIndex: number, topicIndex: number, title: string) => {
+    const variants = data.variants.map((v, i) => {
+      if (i !== variantIndex) return v;
+      const topics = v.topics.map((topic, ti) => (ti === topicIndex ? { ...topic, title } : topic));
+      return { ...v, topics };
+    });
     onChange({ ...data, variants });
   };
 
@@ -68,16 +76,6 @@ export default function SyllabusUploadPreview({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <label className="block space-y-1">
-            <span className="text-[12px] font-semibold text-slate-600">{t('admin.subjectName')}</span>
-            <input
-              value={data.subjectName}
-              onChange={(e) => onChange({ ...data, subjectName: e.target.value })}
-              className="w-full h-11 px-3 rounded-xl border border-slate-200"
-              disabled={saving}
-            />
-          </label>
-
           <div className="grid grid-cols-3 gap-2">
             <StatCard label={t('admin.previewTotal')} value={String(totalTopics)} />
             <StatCard label={t('admin.previewLecture')} value={String(totalLectures)} icon={<BookOpen size={14} />} />
@@ -90,22 +88,36 @@ export default function SyllabusUploadPreview({
 
           {data.variants.map((variant, index) => {
             const counts = countTopicsByType(variant.topics);
+            const lectures = variant.topics.filter((x) => x.type === 'lecture');
+            const practicals = variant.topics.filter((x) => x.type !== 'lecture');
             return (
               <div
                 key={`${variant.file_name}-${index}`}
                 className="rounded-2xl border border-slate-200 overflow-hidden"
               >
                 <div className="bg-slate-50 px-3 py-2 flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-2 flex-1 min-w-[140px]">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">{t('admin.previewVariant')}</span>
-                    <input
-                      value={variant.editableLabel}
-                      onChange={(e) => updateVariantLabel(index, e.target.value)}
-                      className="h-8 px-2 rounded-lg border border-slate-200 text-[12px] font-semibold flex-1 min-w-0"
+                  <span className="text-[12px] font-semibold text-slate-800 truncate flex-1 min-w-0">
+                    {variant.file_name}
+                  </span>
+                  {directionOptions.length > 0 ? (
+                    <select
+                      value={variant.directionCode || ''}
                       disabled={saving}
-                    />
-                  </label>
-                  <span className="text-[10px] text-slate-500 truncate max-w-[180px]">{variant.file_name}</span>
+                      onChange={(e) => {
+                        const variants = data.variants.map((v, i) =>
+                          i === index ? { ...v, directionCode: e.target.value } : v,
+                        );
+                        onChange({ ...data, variants });
+                      }}
+                      className="h-7 max-w-[140px] px-1.5 rounded-lg border border-indigo-200 bg-white text-[11px] font-semibold text-indigo-800"
+                      title={t('admin.syllabusPreview.direction')}
+                    >
+                      <option value="">{t('admin.selectVariantPlaceholder')}</option>
+                      {directionOptions.map((code) => (
+                        <option key={code} value={code}>{code}</option>
+                      ))}
+                    </select>
+                  ) : null}
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-slate-200">
                     {instructionLanguageBadge(data.instructionLanguage)}
                   </span>
@@ -117,16 +129,30 @@ export default function SyllabusUploadPreview({
                     practicals: counts.practicals,
                   })}
                 </div>
-                <ul className="max-h-40 overflow-y-auto divide-y divide-slate-50">
-                  {variant.topics.slice(0, 24).map((topic) => (
-                    <TopicPreviewRow key={`${variant.label}-${topic.id}`} topic={topic} />
-                  ))}
-                  {variant.topics.length > 24 && (
-                    <li className="px-3 py-2 text-[11px] text-slate-400 italic">
-                      {t('admin.previewMore', { count: variant.topics.length - 24 })}
-                    </li>
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+                  {lectures.length > 0 && (
+                    <TopicGroup
+                      title={t('admin.lecturesSection')}
+                      topics={lectures}
+                      saving={saving}
+                      onTitleChange={(topicId, title) => {
+                        const ti = variant.topics.findIndex((x) => x.id === topicId && x.type === 'lecture');
+                        if (ti >= 0) updateTopicTitle(index, ti, title);
+                      }}
+                    />
                   )}
-                </ul>
+                  {practicals.length > 0 && (
+                    <TopicGroup
+                      title={t('admin.practicalsSection')}
+                      topics={practicals}
+                      saving={saving}
+                      onTitleChange={(topicId, title) => {
+                        const ti = variant.topics.findIndex((x) => x.id === topicId && x.type !== 'lecture');
+                        if (ti >= 0) updateTopicTitle(index, ti, title);
+                      }}
+                    />
+                  )}
+                </div>
               </div>
             );
           })}
@@ -144,7 +170,7 @@ export default function SyllabusUploadPreview({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={saving || !data.subjectName.trim() || totalTopics === 0}
+            disabled={saving || totalTopics === 0 || missingDirection}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold disabled:opacity-50"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
@@ -176,18 +202,41 @@ function StatCard({
   );
 }
 
-function TopicPreviewRow({ topic }: { topic: SyllabusTopic }) {
-  const isLecture = topic.type === 'lecture';
+function TopicGroup({
+  title,
+  topics,
+  saving,
+  onTitleChange,
+}: {
+  title: string;
+  topics: SyllabusTopic[];
+  saving: boolean;
+  onTitleChange: (topicId: string, title: string) => void;
+}) {
   return (
-    <li className="px-3 py-1.5 flex items-start gap-2 text-[11px]">
-      <span
-        className={`shrink-0 font-bold px-1.5 py-0.5 rounded ${
-          isLecture ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'
-        }`}
-      >
-        {topic.id}
-      </span>
-      <span className="text-slate-700 leading-snug">{topic.title}</span>
-    </li>
+    <div className="px-3 py-2 space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{title}</p>
+      {topics.map((topic) => {
+        const isLecture = topic.type === 'lecture';
+        return (
+          <div key={`${topic.type}-${topic.id}`} className="flex items-start gap-2">
+            <span
+              className={`shrink-0 mt-1.5 font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                isLecture ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'
+              }`}
+            >
+              {topic.id}
+            </span>
+            <input
+              value={topic.title}
+              onChange={(e) => onTitleChange(topic.id, e.target.value)}
+              disabled={saving}
+              className="flex-1 min-w-0 h-8 px-2 rounded-lg border border-slate-200 text-[12px] text-slate-800"
+              aria-label={title}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }

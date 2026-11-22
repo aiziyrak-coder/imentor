@@ -1,4 +1,6 @@
-import { HttpError } from '../api/httpClient';
+import { HttpError, httpJson } from '../api/httpClient';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { unwrapPagedResults, type PagedResponse } from '../api/pagedResults';
 import { getBackendAccessToken } from './backendAuth';
 import { normTopicKey } from './preparedContentStore';
 import {
@@ -41,7 +43,7 @@ export async function getHandoutFileBlobUrl(id: number): Promise<string> {
   if (cached) return cached;
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const res = await fetch(`${apiBaseUrl()}/v1/handouts/${id}/file/`, {
+  const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/handouts/${id}/file/`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, null);
@@ -84,6 +86,13 @@ export async function fetchHandoutsForTopic(
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
   const lookupKeys = topicNormLookupKeys(topic);
+  if (
+    lookupKeys.length === 0 &&
+    (typeof topic === 'string' ||
+      !isTopicContextComplete(topic))
+  ) {
+    return [];
+  }
   const params = new URLSearchParams();
   if (typeof topic !== 'string' && isTopicContextComplete(topic)) {
     params.set('syllabus_id', String(topic.syllabusId));
@@ -91,7 +100,7 @@ export async function fetchHandoutsForTopic(
     params.set('topic_code', topic.id);
   }
   for (const key of lookupKeys) params.append('topic_norm', key);
-  const res = await fetch(`${apiBaseUrl()}/v1/handouts/?${params.toString()}`, {
+  const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/handouts/?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const text = await res.text();
@@ -167,6 +176,64 @@ export async function deleteHandout(id: number): Promise<void> {
     }
     throw new HttpError(`HTTP ${res.status}`, res.status, data);
   }
+}
+
+// ——— Admin: tarqatmalarni boshqarish (o'qituvchi faqat ko'radi) ———
+
+export async function fetchAdminHandouts(): Promise<TopicHandoutItem[]> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  const data = await httpJson<TopicHandoutItem[] | PagedResponse<TopicHandoutItem>>(
+    `${apiBaseUrl()}/v1/admin/handouts/?page_size=500`,
+    { headers: { Authorization: `Bearer ${token}` }, timeoutMs: 30000 },
+  );
+  return unwrapPagedResults(data);
+}
+
+export async function uploadAdminHandout(params: {
+  syllabusId: number;
+  variantLabel: string;
+  topicCode: string;
+  topic: string;
+  title?: string;
+  file: File;
+}): Promise<TopicHandoutItem> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  const form = new FormData();
+  form.append('topic', params.topic.trim());
+  form.append('syllabus_id', String(params.syllabusId));
+  form.append('variant_label', params.variantLabel);
+  form.append('topic_code', params.topicCode);
+  form.append('file', params.file);
+  if (params.title?.trim()) form.append('title', params.title.trim());
+
+  const res = await fetch(`${apiBaseUrl()}/v1/admin/handouts/`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const text = await res.text();
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, data);
+  return data as TopicHandoutItem;
+}
+
+export async function deleteAdminHandout(id: number): Promise<void> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  await httpJson<unknown>(`${apiBaseUrl()}/v1/admin/handouts/${Number(id)}/`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    timeoutMs: 20000,
+  });
 }
 
 export { isAllowedHandoutFile, HANDOUT_FILE_ACCEPT, handoutFileTypeLabel } from './handoutFileTypes';

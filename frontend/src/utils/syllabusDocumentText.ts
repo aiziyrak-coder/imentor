@@ -1,8 +1,11 @@
-const SYLLABUS_EXTENSIONS = ['.pdf', '.doc', '.docx'] as const;
+import { undoLetterTracking } from './letterTracking';
+
+const SYLLABUS_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xlsx'] as const;
 
 export const SYLLABUS_UPLOAD_ACCEPT =
-  '.pdf,.doc,.docx,application/pdf,application/msword,' +
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  '.pdf,.doc,.docx,.xlsx,application/pdf,application/msword,' +
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document,' +
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 export function syllabusFileExtension(fileName: string): string {
   const lower = fileName.toLowerCase();
@@ -21,7 +24,7 @@ export function filterSyllabusUploadFiles(files: FileList | File[]): File[] {
 }
 
 export function stripSyllabusFileExtension(fileName: string): string {
-  return fileName.replace(/\.(pdf|docx?)$/i, '').trim();
+  return fileName.replace(/\.(pdf|docx?|xlsx)$/i, '').trim();
 }
 
 async function extractPdfText(file: File): Promise<string> {
@@ -96,10 +99,21 @@ function extractLegacyDocText(buffer: ArrayBuffer): string {
 
 export async function extractSyllabusDocumentText(file: File): Promise<string> {
   const ext = syllabusFileExtension(file.name);
-  if (ext === '.pdf') return extractPdfText(file);
-  if (ext === '.docx') return extractDocxText(file);
+  // MUHIM: `undoLetterTracking` shu yerda — matn olingan zahoti — chaqiriladi.
+  // Parser keyinroq `\s+ -> ' '` qiladi va so'z chegarasini bildiruvchi
+  // qo'sh probellar yo'qoladi, o'shandan keyin tiklash imkonsiz bo'lib qoladi.
+  if (ext === '.pdf') return undoLetterTracking(await extractPdfText(file));
+  if (ext === '.docx') return undoLetterTracking(await extractDocxText(file));
+  if (ext === '.xlsx') {
+    const { readXlsxRows } = await import('./xlsxRows');
+    const { parseSyllabusExcel } = await import('./syllabusExcelParse');
+    const rows = await readXlsxRows(await file.arrayBuffer());
+    const parsed = parseSyllabusExcel(rows);
+    if (parsed.asText.trim()) return parsed.asText;
+    return rows.map((r) => r.join('\t')).join('\n');
+  }
   if (ext === '.doc') {
-    const text = extractLegacyDocText(await file.arrayBuffer());
+    const text = undoLetterTracking(extractLegacyDocText(await file.arrayBuffer()));
     if (text.trim().length >= 20) return text;
     throw new Error('doc-empty');
   }

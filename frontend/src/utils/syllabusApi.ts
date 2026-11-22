@@ -1,4 +1,5 @@
 import { httpJson, HttpError } from '../api/httpClient';
+import { unwrapPagedResults, type PagedResponse } from '../api/pagedResults';
 import { getBackendAccessToken } from './backendAuth';
 import type { SyllabusTopic } from '../services/aiService';
 import type { AppLanguage } from '../i18n/language';
@@ -18,21 +19,33 @@ export type CourseSyllabusRow = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  department?: number | null;
+  department_name?: string;
+  department_code?: string;
+  /** OnlineTest yo'nalish kodi (DI, TPI, PI, …). */
+  direction_code?: string;
+  /** Ko'rsatish uchun tarjimalar (asl nom o'zgarmaydi — u kalit): */
+  name_i18n?: Partial<Record<AppLanguage, string>>;
+  topics_i18n?: Partial<Record<AppLanguage, Record<string, string>>>;
 };
 
 export type StaffCourseSelectionRow = {
   id: number;
   syllabus: CourseSyllabusRow;
+  /** Admin qat'iy biriktirgan bo'lsa — aynan shu variant/yo'nalish; bo'sh = erkin. */
+  variant_label: string;
   selected_at: string;
 };
 
-/** @deprecated Legacy per-user syllabus */
-export type SyllabusApiRow = {
+/** Admin ko'rinishi: fanga biriktirilgan o'qituvchi (owner_key bilan) */
+export type AdminStaffCourseSelectionRow = {
   id: number;
-  external_id: string;
-  file_name: string;
-  topics: SyllabusTopic[];
-  created_at: string;
+  owner_key: string;
+  owner_name: string;
+  owner_phone_display: string;
+  syllabus: CourseSyllabusRow;
+  variant_label: string;
+  selected_at: string;
 };
 
 export type ClientSyllabusDocument = {
@@ -52,21 +65,51 @@ function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
+export type SyllabusCatalogStats = {
+  departments_count: number;
+  subjects_count: number;
+  subjects_total: number;
+  variants_count: number;
+  topics_count: number;
+  by_department: {
+    id: number;
+    name: string;
+    code: string;
+    subjects_count: number;
+    sort_order?: number;
+  }[];
+};
+
 // ——— Admin: markaziy katalog ———
+
+export async function fetchAdminSyllabusCatalogStats(): Promise<SyllabusCatalogStats | null> {
+  const token = await getBackendAccessToken();
+  if (!token) return null;
+  return httpJson<SyllabusCatalogStats>(`${apiBaseUrl()}/v1/admin/course-syllabuses/stats/`, {
+    headers: authHeaders(token),
+    timeoutMs: 30000,
+  });
+}
 
 export async function fetchAdminCourseSyllabuses(): Promise<CourseSyllabusRow[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const rows = await httpJson<CourseSyllabusRow[]>(`${apiBaseUrl()}/v1/admin/course-syllabuses/`, {
-    headers: authHeaders(token),
-    timeoutMs: 30000,
-  });
-  return Array.isArray(rows) ? rows : [];
+  // Fan katalogi to'liq kelishi kerak — default page_size=50 yetarli emas.
+  const data = await httpJson<CourseSyllabusRow[] | PagedResponse<CourseSyllabusRow>>(
+    `${apiBaseUrl()}/v1/admin/course-syllabuses/?page_size=1000`,
+    {
+      headers: authHeaders(token),
+      timeoutMs: 60000,
+    },
+  );
+  return unwrapPagedResults(data);
 }
 
 export async function createAdminCourseSyllabus(payload: {
   subject_name: string;
   subject_code?: string;
+  department_id?: number | null;
+  direction_code?: string;
   description?: string;
   instruction_language?: AppLanguage;
   file_name?: string;
@@ -89,6 +132,8 @@ export async function updateAdminCourseSyllabus(
   payload: Partial<{
     subject_name: string;
     description: string;
+    department_id: number | null;
+    direction_code: string;
     instruction_language: AppLanguage;
     file_name: string;
     topics: SyllabusTopic[];
@@ -118,19 +163,91 @@ export async function deleteAdminCourseSyllabus(id: number): Promise<void> {
   });
 }
 
+// ——— Admin: o'qituvchi-fan biriktiruvi ———
+
+export async function fetchAdminStaffCourseSelections(
+  syllabusId: number,
+): Promise<AdminStaffCourseSelectionRow[]> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  const data = await httpJson<
+    AdminStaffCourseSelectionRow[] | PagedResponse<AdminStaffCourseSelectionRow>
+  >(`${apiBaseUrl()}/v1/admin/staff-course-selections/?syllabus_id=${syllabusId}`, {
+    headers: authHeaders(token),
+    timeoutMs: 20000,
+  });
+  return unwrapPagedResults(data);
+}
+
+/** Barcha o'qituvchi–fan biriktiruvlari (fan bo'yicha filtrsiz) */
+export async function fetchAllStaffCourseSelections(): Promise<AdminStaffCourseSelectionRow[]> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  const data = await httpJson<
+    AdminStaffCourseSelectionRow[] | PagedResponse<AdminStaffCourseSelectionRow>
+  >(`${apiBaseUrl()}/v1/admin/staff-course-selections/?page_size=500`, {
+    headers: authHeaders(token),
+    timeoutMs: 30000,
+  });
+  return unwrapPagedResults(data);
+}
+
+export async function assignStaffToCourseSyllabus(
+  phoneDigits: string,
+  syllabusId: number,
+  variantLabels: string[] = [],
+): Promise<AdminStaffCourseSelectionRow[]> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  return httpJson<AdminStaffCourseSelectionRow[]>(`${apiBaseUrl()}/v1/admin/staff-course-selections/`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: { phone_digits: phoneDigits, syllabus_id: syllabusId, variant_labels: variantLabels },
+    timeoutMs: 20000,
+  });
+}
+
+export async function removeStaffCourseSelection(selectionId: number): Promise<void> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  await httpJson<unknown>(`${apiBaseUrl()}/v1/admin/staff-course-selections/${selectionId}/`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+    timeoutMs: 20000,
+  });
+}
+
 // ——— Hodim: katalog va tanlov ———
 
 export async function fetchCourseSyllabusCatalog(): Promise<CourseSyllabusRow[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const rows = await httpJson<CourseSyllabusRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/catalog/`, {
-    headers: authHeaders(token),
-    timeoutMs: 30000,
-  });
-  return Array.isArray(rows) ? rows : [];
+  const data = await httpJson<CourseSyllabusRow[] | PagedResponse<CourseSyllabusRow>>(
+    `${apiBaseUrl()}/v1/course-syllabuses/catalog/?page_size=1000`,
+    {
+      headers: authHeaders(token),
+      timeoutMs: 60000,
+    },
+  );
+  return unwrapPagedResults(data);
 }
 
-export async function fetchMyCourseSelections(): Promise<StaffCourseSelectionRow[]> {
+/** Sahifa ochilganda App, SyllabusView va UserProfile bir vaqtda shu ro'yxatni
+ * so'raydi — javob esa ~250 KB. Bir vaqtda ketayotgan so'rovlar bittaga
+ * birlashtiriladi (kesh emas: so'rov tugagach dedupe bekor qilinadi, shuning
+ * uchun fanlar o'zgartirilgandan keyin keyingi chaqiruv yangi ma'lumot oladi). */
+let inFlightMySelections: Promise<StaffCourseSelectionRow[]> | null = null;
+
+export function fetchMyCourseSelections(): Promise<StaffCourseSelectionRow[]> {
+  if (!inFlightMySelections) {
+    inFlightMySelections = doFetchMyCourseSelections().finally(() => {
+      inFlightMySelections = null;
+    });
+  }
+  return inFlightMySelections;
+}
+
+async function doFetchMyCourseSelections(): Promise<StaffCourseSelectionRow[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
   const rows = await httpJson<StaffCourseSelectionRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/my/`, {
@@ -140,25 +257,41 @@ export async function fetchMyCourseSelections(): Promise<StaffCourseSelectionRow
   return Array.isArray(rows) ? rows : [];
 }
 
-export async function selectCourseSyllabus(syllabusId: number): Promise<StaffCourseSelectionRow> {
+/** Xodim kafedrasidagi fanlar (onboarding / profile tanlash). */
+export async function fetchDepartmentCourseSyllabuses(): Promise<CourseSyllabusRow[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  return httpJson<StaffCourseSelectionRow>(`${apiBaseUrl()}/v1/course-syllabuses/my/`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: { syllabus_id: syllabusId },
-    timeoutMs: 20000,
-  });
+  const data = await httpJson<CourseSyllabusRow[] | PagedResponse<CourseSyllabusRow>>(
+    `${apiBaseUrl()}/v1/course-syllabuses/department/?page_size=1000`,
+    {
+      headers: authHeaders(token),
+      timeoutMs: 60000,
+    },
+  );
+  return unwrapPagedResults(data);
 }
 
-export async function unselectCourseSyllabus(syllabusId: number): Promise<void> {
+/** O'qitadigan fanlar to'plamini almashtirish (kamida 1 ta). */
+export async function setMyTeachingSubjects(syllabusIds: number[]): Promise<StaffCourseSelectionRow[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  await httpJson<unknown>(`${apiBaseUrl()}/v1/course-syllabuses/my/${syllabusId}/`, {
-    method: 'DELETE',
+  const rows = await httpJson<StaffCourseSelectionRow[]>(`${apiBaseUrl()}/v1/course-syllabuses/my/`, {
+    method: 'PUT',
     headers: authHeaders(token),
-    timeoutMs: 20000,
+    body: { syllabus_ids: syllabusIds },
+    timeoutMs: 30000,
   });
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function selectCourseSyllabus(syllabusId: number): Promise<StaffCourseSelectionRow> {
+  const rows = await setMyTeachingSubjects([syllabusId]);
+  if (!rows[0]) throw new Error('select-failed');
+  return rows[0];
+}
+
+export async function unselectCourseSyllabus(_syllabusId: number): Promise<void> {
+  throw new Error('Use setMyTeachingSubjects to update teaching subjects.');
 }
 
 export function isSyncUnavailable(err: unknown): boolean {

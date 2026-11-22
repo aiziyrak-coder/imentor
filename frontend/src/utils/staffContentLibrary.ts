@@ -3,12 +3,12 @@
  * Administrator bu yozuvlarni ko‘rishi va o‘chirishi mumkin.
  */
 import type { CaseStudySession, TestSession } from '../services/aiService';
+import { LIVE_SESSION_PREFIX, LIVE_SUBMISSIONS_PREFIX } from './liveTestStorage';
 
 const CASES_KEY = 'salomatlik-library-cases-v1';
 const TESTS_KEY = 'salomatlik-library-tests-v1';
 
-export const LIVE_SESSION_PREFIX = 'salomatlik-live-test-session-';
-export const LIVE_SUBMISSIONS_PREFIX = 'salomatlik-live-test-submissions-';
+export { LIVE_SESSION_PREFIX, LIVE_SUBMISSIONS_PREFIX };
 
 export interface CaseLibraryRecord {
   id: string;

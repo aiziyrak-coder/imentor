@@ -1,0 +1,22 @@
+iMentor — Tashqi API (partner integratsiya)
+============================================
+
+BU FAYL KO'CHIRILDI.
+
+To'liq va yangilangan hujjat (Markdown):
+
+  docs/EXTERNAL_TESTS_API.md
+
+Asosiy o'zgarishlar (qisqa):
+  - GET /v1/external/questions/sample/ — language SHART EMAS;
+    har savol languages.uz / .ru / .en da avtomatik qaytadi.
+  - GET /v1/external/tests/<id>/?language=uz|ru|en — top-level
+    payload.questions shu tilda (ixtiyoriy).
+  - Soxta tarjima (masalan ru kaliti ostida o'zbekcha matn)
+    API tomonidan filtrlanadi; available_languages faqat
+    haqiqiy tillarni ko'rsatadi.
+  - YANGI: keys (case study) bazasi ham tashqi APIda:
+      GET /v1/external/keys/stats/
+      GET /v1/external/keys/
+      GET /v1/external/keys/<id>/?question_limit=1..50
+      GET /v1/external/keys/scenarios/   <- tekis savollar banki (UI uchun)

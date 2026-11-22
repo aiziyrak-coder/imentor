@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
@@ -141,9 +142,11 @@ class DevicePairStatusView(APIView):
             return Response({"detail": "Topilmadi."}, status=404)
         secret = (request.query_params.get("secret") or request.headers.get("X-Desktop-Secret") or "").strip()
         stored_secret = (obj.desktop_secret or "").strip()
-        # Secret yuborilsa — mos kelishi shart; yuborilmasa — eski frontend/kesh bilan moslik.
-        if stored_secret and secret and not secrets.compare_digest(stored_secret, secret):
-            return Response({"detail": "Desktop secret noto‘g‘ri."}, status=403)
+        if stored_secret:
+            if not secret:
+                return Response({"detail": "Desktop secret talab qilinadi."}, status=403)
+            if not secrets.compare_digest(stored_secret, secret):
+                return Response({"detail": "Desktop secret noto‘g‘ri."}, status=403)
         now = timezone.now()
         if obj.status == DevicePairingSession.STATUS_PENDING and obj.expires_at < now:
             obj.status = DevicePairingSession.STATUS_EXPIRED
@@ -199,26 +202,34 @@ class DevicePairConfirmView(APIView):
         if not isinstance(profile, dict):
             profile = {}
 
-        obj = DevicePairingSession.objects.filter(pairing_token=token).first()
-        if not obj:
-            return Response({"detail": "QR kod eskirgan yoki noto'g'ri."}, status=404)
-        now = timezone.now()
-        if obj.expires_at < now or obj.status != DevicePairingSession.STATUS_PENDING:
-            return Response({"detail": "QR kod muddati tugagan. Kompyuterda yangilang."}, status=400)
+        with transaction.atomic():
+            obj = (
+                DevicePairingSession.objects.select_for_update()
+                .filter(pairing_token=token)
+                .first()
+            )
+            if not obj:
+                return Response({"detail": "QR kod eskirgan yoki noto'g'ri."}, status=404)
+            now = timezone.now()
+            if obj.expires_at < now or obj.status != DevicePairingSession.STATUS_PENDING:
+                return Response(
+                    {"detail": "QR kod muddati tugagan. Kompyuterda yangilang."},
+                    status=400,
+                )
 
-        role = resolve_user_role(request.user, request) or "hodim"
-        refresh = RefreshToken.for_user(request.user)
-        refresh["role"] = role
-        access = refresh.access_token
-        access["role"] = role
+            role = resolve_user_role(request.user, request) or "hodim"
+            refresh = RefreshToken.for_user(request.user)
+            refresh["role"] = role
+            access = refresh.access_token
+            access["role"] = role
 
-        obj.status = DevicePairingSession.STATUS_CONFIRMED
-        obj.owner_key = request.user.username
-        obj.role = role
-        obj.profile_snapshot = _profile_snapshot_for_pairing(request, profile)
-        obj.access_token = str(access)
-        obj.refresh_token = str(refresh)
-        obj.confirmed_at = now
-        obj.save()
+            obj.status = DevicePairingSession.STATUS_CONFIRMED
+            obj.owner_key = request.user.username
+            obj.role = role
+            obj.profile_snapshot = _profile_snapshot_for_pairing(request, profile)
+            obj.access_token = str(access)
+            obj.refresh_token = str(refresh)
+            obj.confirmed_at = now
+            obj.save()
 
         return Response({"status": "confirmed", "ok": True})

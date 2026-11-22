@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "core.apps.CoreConfig",
 ]
@@ -71,12 +72,68 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-_sqlite_path = os.getenv("DJANGO_SQLITE_PATH", "").strip()
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": _sqlite_path or (BASE_DIR / "db.sqlite3"),
+_db_engine = os.getenv("DJANGO_DB_ENGINE", "postgresql").strip().lower()
+
+if _db_engine in ("postgresql", "postgres"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DJANGO_DB_NAME", "imentor"),
+            "USER": os.getenv("DJANGO_DB_USER", "imentor"),
+            "PASSWORD": os.getenv("DJANGO_DB_PASSWORD", ""),
+            "HOST": os.getenv("DJANGO_DB_HOST", "127.0.0.1"),
+            "PORT": os.getenv("DJANGO_DB_PORT", "5432"),
+            "CONN_MAX_AGE": int(os.getenv("DJANGO_DB_CONN_MAX_AGE", "60")),
+            "OPTIONS": {
+                "connect_timeout": int(os.getenv("DJANGO_DB_CONNECT_TIMEOUT", "10")),
+            },
+        }
     }
+else:
+    raise RuntimeError(
+        "SQLite olib tashlangan. DJANGO_DB_ENGINE=postgresql va "
+        "DJANGO_DB_HOST/DJANGO_DB_PASSWORD ni sozlang (yoki docker compose ishlating)."
+    )
+
+# Shared cache — throttle va rate-limit (production/docker: Redis).
+_redis_url = os.getenv("REDIS_URL", "").strip()
+if _redis_url:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _redis_url,
+        }
+    }
+elif DEBUG:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "imentor-dev",
+        }
+    }
+else:
+    raise RuntimeError(
+        "REDIS_URL talab qilinadi (masalan: redis://redis:6379/0). "
+        "Docker compose bilan avtomatik beriladi."
+    )
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv("DJANGO_DATA_UPLOAD_MAX_MB", "25")) * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
+
+# Productionda ochiq ro'yxatdan o'tishni o'chirish (faqat admin provision).
+ALLOW_OPEN_REGISTRATION = env_bool("DJANGO_ALLOW_OPEN_REGISTRATION", default=DEBUG)
+
+from datetime import timedelta  # noqa: E402
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(
+        minutes=int(os.getenv("DJANGO_JWT_ACCESS_MINUTES", "30" if not DEBUG else "120"))
+    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(
+        days=int(os.getenv("DJANGO_JWT_REFRESH_DAYS", "7"))
+    ),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -133,11 +190,18 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer"
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_RATES": {
+        "education_ai": os.getenv("DJANGO_AI_EDUCATION_RATE", "60/hour"),
+        "startup_ai": os.getenv("DJANGO_AI_STARTUP_RATE", "40/hour"),
+        "login": os.getenv("DJANGO_LOGIN_RATE", "20/minute"),
+        "live_test_anon": os.getenv("DJANGO_LIVE_TEST_ANON_RATE", "120/minute"),
+        "staff_ping": os.getenv("DJANGO_STAFF_PING_RATE", "2/minute"),
+    },
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Salomatlik AI API",
-    "DESCRIPTION": "API documentation for Salomatlik AI backend",
+    "TITLE": "iMentor API",
+    "DESCRIPTION": "API documentation for iMentor backend",
     "VERSION": "1.0.0",
 }
 
@@ -165,13 +229,37 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
 SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", default=not DEBUG)
 ALLOW_LEGACY_PREPARED_CONTENT_API = env_bool("DJANGO_ALLOW_LEGACY_PREPARED_CONTENT_API", default=DEBUG)
 
-# DeepSeek — test, keys, ma'ruza, tarjima va boshqalar (taqdimot emas). Kalit gitga kirmaydi.
-DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
-# Eski muhit fayllari (bir martalik moslik)
-if not DEEPSEEK_API_KEY:
-    DEEPSEEK_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+# Tashqi servislar uchun API kalitlari (vergul bilan). Masalan: key1,key2
+EXTERNAL_API_KEYS = (os.getenv("IMENTOR_EXTERNAL_API_KEYS") or os.getenv("EXTERNAL_API_KEYS") or "").strip()
+
+# OnlineTest — talaba auth (bitta login manbai). Masalan: https://onlinetest.example.com
+ONLINE_TEST_API_BASE_URL = (os.getenv("ONLINE_TEST_API_BASE_URL") or "").strip().rstrip("/")
+
+# OnlineTest — Kafedra/Yo'nalish/Guruh katalogini o'qish uchun X-Api-Key
+# (OnlineTest tomonidagi ONLINE_TEST_PUBLIC_API_KEYS ro'yxatiga mos bo'lishi kerak)
+ONLINE_TEST_CONSUMER_API_KEY = (os.getenv("ONLINE_TEST_CONSUMER_API_KEY") or "").strip()
+
+# OpenAI — test, keys, ma'ruza, tarjima va boshqalar. Kalit gitga kirmaydi.
+OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or "").strip()
+OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o").strip() or "gpt-4o"
+OPENAI_FAST_MODEL = os.getenv("OPENAI_FAST_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+OPENAI_REASONER_MODEL = os.getenv("OPENAI_REASONER_MODEL", "gpt-4o").strip() or "gpt-4o"
+# Eski nom (moslik)
+DEEPSEEK_API_KEY = OPENAI_API_KEY
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Celery — AI tasklar Redis orqali
+CELERY_BROKER_URL = _redis_url or "redis://127.0.0.1:6379/0"
+CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "300"))
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "270"))
 
 JAZZMIN_SETTINGS = {
     "site_title": "Salomatlik AI",

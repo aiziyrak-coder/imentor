@@ -1,6 +1,12 @@
 import { HttpError } from '../api/httpClient';
+import { fetchWithTimeout } from './fetchWithTimeout';
 import { getBackendAccessToken } from './backendAuth';
 import { normTopicKey } from './preparedContentStore';
+import {
+  primaryPresentationTopicNorm,
+  resolvePresentationTopicNorms,
+} from './presentationTopicNorm';
+import type { SyllabusTopicContext } from './syllabusTopicContext';
 
 export type PresentationKind = 'pdf' | 'ppt' | 'pptx';
 
@@ -41,16 +47,12 @@ export function resolvePresentationFileUrl(fileUrl: string): string {
   }
 }
 
-export function officePreviewUrl(publicFileUrl: string): string {
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicFileUrl)}`;
-}
-
 export async function getPresentationFileBlobUrl(id: number): Promise<string> {
   const cached = blobCache.get(id);
   if (cached) return cached;
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const res = await fetch(`${apiBaseUrl()}/v1/presentations/${id}/file/`, {
+  const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/presentations/${id}/file/`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, null);
@@ -60,18 +62,63 @@ export async function getPresentationFileBlobUrl(id: number): Promise<string> {
   return url;
 }
 
+const previewBlobCache = new Map<number, string>();
+
+/** Brauzer preview: backend LibreOffice orqali PPTX→PDF. */
+export async function getPresentationPreviewBlobUrl(id: number): Promise<string> {
+  const cached = previewBlobCache.get(id);
+  if (cached) return cached;
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/presentations/${id}/preview/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }, 180_000);
+  if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, null);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  previewBlobCache.set(id, url);
+  return url;
+}
+
 export function normPresentationTopic(topic: string): string {
   return normTopicKey(topic);
 }
 
-export async function fetchPresentationsForTopic(topic: string): Promise<TopicPresentationItem[]> {
+/**
+ * Mavzu bo'yicha taqdimotlar.
+ *
+ * `onlyMine` (standart: true) — o'qituvchining ish sahifasida faqat O'ZI
+ * yaratgan/yuklagan taqdimotlar ko'rinadi. Avval boshqa hodimlarnikilar ham
+ * chiqib qolardi va ularni o'chirib bo'lmasdi (o'chirish tugmasi yo'q edi).
+ */
+export async function fetchPresentationsForTopic(
+  topic: string | SyllabusTopicContext,
+  options?: { onlyMine?: boolean },
+): Promise<TopicPresentationItem[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const topicNorm = normPresentationTopic(topic);
-  const res = await fetch(
-    `${apiBaseUrl()}/v1/presentations/?topic_norm=${encodeURIComponent(topicNorm)}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const norms = resolvePresentationTopicNorms(topic);
+  if (!norms.length) return [];
+  const query =
+    typeof topic === 'object' &&
+    topic &&
+    'syllabusId' in topic &&
+    topic.syllabusId != null &&
+    topic.variantLabel &&
+    topic.id
+      ? new URLSearchParams({
+          syllabus_id: String(topic.syllabusId),
+          variant_label: topic.variantLabel,
+          topic_code: topic.id,
+        })
+      : new URLSearchParams();
+  for (const norm of norms) {
+    query.append('topic_norm', norm);
+  }
+  if (options?.onlyMine !== false) query.set('mine', '1');
+  const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/presentations/?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   const text = await res.text();
   let data: unknown = [];
   if (text) {
@@ -85,18 +132,31 @@ export async function fetchPresentationsForTopic(topic: string): Promise<TopicPr
   return Array.isArray(data) ? (data as TopicPresentationItem[]) : [];
 }
 
+function clipField(value: string, max: number): string {
+  const s = value.trim();
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + '…';
+}
+
 export async function uploadPresentation(params: {
   topic: string;
   file: File;
   title?: string;
+  context?: SyllabusTopicContext;
 }): Promise<TopicPresentationItem> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
+  const topicNorm = params.context
+    ? primaryPresentationTopicNorm(params.context)
+    : normPresentationTopic(params.topic);
+  // Backend CharField max_length=255 — uzun syllabus sarlavhalari 400 bermasin
+  const topic = clipField(params.topic, 255);
+  const title = params.title?.trim() ? clipField(params.title, 255) : '';
   const form = new FormData();
-  form.append('topic', params.topic.trim());
-  form.append('topic_norm', normPresentationTopic(params.topic));
+  form.append('topic', topic);
+  form.append('topic_norm', clipField(topicNorm, 255));
   form.append('file', params.file);
-  if (params.title?.trim()) form.append('title', params.title.trim());
+  if (title) form.append('title', title);
 
   const res = await fetch(`${apiBaseUrl()}/v1/presentations/`, {
     method: 'POST',

@@ -21,8 +21,8 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--password",
-            default="imentor123",
-            help="Password for all teachers (default: imentor123)",
+            required=True,
+            help="Password to set for every teacher in the roster (min 6 chars)",
         )
         parser.add_argument(
             "--role",

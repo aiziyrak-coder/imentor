@@ -8,7 +8,7 @@ import { useUiText } from '../../i18n/useUiText';
 import type { UiTextKey } from '../../i18n/translations';
 import './AdminStaffLiveMapPanel.css';
 import type { CampusBuildingDto, StaffLocationPingDto } from '../../utils/staffLocationApi';
-import type { LocalStaffUser } from '../../utils/localStaffAuth';
+import type { StaffDirectoryEntry } from '../../utils/staffDirectoryApi';
 
 /** Fargʻona viloyati — kampus binolari markazi */
 const DEFAULT_CENTER: [number, number] = [40.386, 71.786];
@@ -56,16 +56,16 @@ function formatAge(recordedAt: string, t: TranslateFn, locale: string): string {
   return new Date(recordedAt).toLocaleString(locale);
 }
 
-function findStaffProfile(ownerKey: string, directory: LocalStaffUser[]): LocalStaffUser | undefined {
-  return directory.find((u) => u.phoneDigits === ownerKey);
+function findStaffProfile(ownerKey: string, directory: StaffDirectoryEntry[]): StaffDirectoryEntry | undefined {
+  return directory.find((u) => u.phone_digits === ownerKey);
 }
 
-function initialsFromProfile(u: LocalStaffUser | undefined, fallbackKey: string): string {
+function initialsFromProfile(u: StaffDirectoryEntry | undefined, fallbackKey: string): string {
   if (u) {
-    const a = (u.firstName || '').trim().charAt(0);
-    const b = (u.lastName || '').trim().charAt(0);
+    const a = (u.first_name || '').trim().charAt(0);
+    const b = (u.last_name || '').trim().charAt(0);
     if (a || b) return (a + b).toUpperCase();
-    const n = (u.displayName || '').trim();
+    const n = (u.display_name || '').trim();
     if (n.length >= 2) return n.slice(0, 2).toUpperCase();
   }
   return fallbackKey.slice(-2);
@@ -124,7 +124,7 @@ function MapViewportController({
 
 type StaffMarkerProps = {
   ping: StaffLocationPingDto;
-  profile?: LocalStaffUser;
+  profile?: StaffDirectoryEntry;
   buildings: CampusBuildingDto[];
 };
 
@@ -154,8 +154,8 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
     [ping.latitude, ping.longitude, buildings],
   );
 
-  const title = profile?.displayName?.trim() || t('admin.staffDefaultName');
-  const subtitle = profile?.jobTitle?.trim() || profile?.department?.trim() || '';
+  const title = profile?.display_name?.trim() || t('admin.staffDefaultName');
+  const subtitle = profile?.job_title?.trim() || profile?.department?.trim() || '';
 
   return (
     <Marker position={position} icon={icon} riseOnHover>
@@ -172,7 +172,7 @@ function StaffMarker({ ping, profile, buildings }: StaffMarkerProps) {
             <div className="min-w-0 flex-1">
               <div className="text-[15px] font-bold leading-tight text-black/95">{title}</div>
               {subtitle ? <div className="mt-0.5 text-[12px] text-black/55">{subtitle}</div> : null}
-              <div className="mt-1 font-mono text-[12px] text-sky-700">{profile?.phoneDisplay ?? ping.owner_key}</div>
+              <div className="mt-1 font-mono text-[12px] text-sky-700">{profile?.phone_display ?? ping.owner_key}</div>
             </div>
           </div>
 
@@ -278,7 +278,7 @@ export type AdminStaffLiveMapPanelProps = {
   buildings: CampusBuildingDto[];
   lastUpdated: Date | null;
   pollIntervalSec: number;
-  staffDirectory: LocalStaffUser[];
+  staffDirectory: StaffDirectoryEntry[];
   filterOwnerDigits?: string;
 };
 
@@ -400,7 +400,7 @@ export default function AdminStaffLiveMapPanel({
                   {initialsFromProfile(profile, p.owner_key)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold text-black/90">{profile?.displayName ?? p.owner_key}</div>
+                  <div className="truncate font-semibold text-black/90">{profile?.display_name ?? p.owner_key}</div>
                   {nearest ? (
                     <div className={`truncate text-[11px] ${stale ? 'text-slate-600' : nearest.inside ? 'text-emerald-700' : 'text-amber-800'}`}>
                       {stale

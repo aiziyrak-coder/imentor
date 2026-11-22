@@ -1,4 +1,5 @@
 import { httpJson, HttpError } from '../api/httpClient';
+import { unwrapPagedResults, type PagedResponse } from '../api/pagedResults';
 import { getBackendAccessToken } from './backendAuth';
 
 export type WeekPhase = 'every' | 'upper' | 'lower';
@@ -237,18 +238,51 @@ export async function listAdminStaffPings(
   if (ownerKey?.trim()) params.set('owner_key', ownerKey.trim());
   if (options?.mode === 'live') params.set('mode', 'live');
   const q = params.toString() ? `?${params.toString()}` : '';
-  const rows = await httpJson<StaffLocationPingDto[]>(`${apiBaseUrl()}/v1/admin/staff-location-pings/${q}`, {
-    headers: await authHeaders(),
-    timeoutMs: 30000,
-  });
-  return Array.isArray(rows) ? rows : [];
+  const data = await httpJson<StaffLocationPingDto[] | PagedResponse<StaffLocationPingDto>>(
+    `${apiBaseUrl()}/v1/admin/staff-location-pings/${q}`,
+    {
+      headers: await authHeaders(),
+      timeoutMs: 30000,
+    },
+  );
+  return unwrapPagedResults(data);
 }
 
 export async function listAdminStaffAlerts(ownerKey?: string): Promise<StaffLocationAlertDto[]> {
   const q = ownerKey?.trim() ? `?owner_key=${encodeURIComponent(ownerKey.trim())}` : '';
-  const rows = await httpJson<StaffLocationAlertDto[]>(`${apiBaseUrl()}/v1/admin/staff-location-alerts/${q}`, {
+  const data = await httpJson<StaffLocationAlertDto[] | PagedResponse<StaffLocationAlertDto>>(
+    `${apiBaseUrl()}/v1/admin/staff-location-alerts/${q}`,
+    {
+      headers: await authHeaders(),
+      timeoutMs: 30000,
+    },
+  );
+  return unwrapPagedResults(data);
+}
+
+/** "Katta ekran" jonli monitoring — hozir kim darsda, kim yo'q. */
+export type LiveTeachingRow = {
+  owner_key: string;
+  display_name: string;
+  department: string;
+  building_name: string;
+  slot_start: string;
+  slot_end: string;
+  title: string;
+  present: boolean;
+  ping_age_min: number | null;
+};
+
+export type LiveTeachingStatusDto = {
+  jami: number;
+  joyida: number;
+  joyida_emas: number;
+  royxat: LiveTeachingRow[];
+};
+
+export async function fetchLiveTeachingStatus(): Promise<LiveTeachingStatusDto> {
+  return httpJson(`${apiBaseUrl()}/v1/admin/live-teaching-status/`, {
     headers: await authHeaders(),
-    timeoutMs: 30000,
+    timeoutMs: 15000,
   });
-  return Array.isArray(rows) ? rows : [];
 }

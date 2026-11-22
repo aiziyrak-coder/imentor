@@ -154,15 +154,6 @@ export function matchStaffBuilding(
   return best;
 }
 
-/** @deprecated matchStaffBuilding ishlating */
-export function matchNearestBuilding(
-  lat: number,
-  lng: number,
-  buildings: BuildingGeoInput[],
-): NearestBuildingMatch | null {
-  return matchStaffBuilding(lat, lng, buildings);
-}
-
 /**
  * Foydalanuvchi bosishi bilan chaqiring — iOS Safari va baʼzi Android brauzerlarida
  * geolocation dialog faqat user gesture dan keyin chiqishi uchun.

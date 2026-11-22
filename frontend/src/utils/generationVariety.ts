@@ -1,9 +1,17 @@
+import type { TestDifficulty } from './testDifficulty';
+
 type CaseLike = { questions: Array<{ scenario?: string }> };
 type TestLike = { questions: Array<{ question?: string }> };
 
 export type CaseStudyFocus = 'profilaktika' | 'davolash' | 'tashxis';
 
-export const CASE_STUDY_FOCUS_ORDER: readonly CaseStudyFocus[] = ['profilaktika', 'davolash', 'tashxis'] as const;
+/**
+ * Keys savollarining tartibi — KLINIK MANTIQ bo'yicha:
+ * avval TASHXIS qo'yiladi, so'ng DAVOLASH tayinlanadi, oxirida PROFILAKTIKA.
+ *
+ * Bu tartib ham generatsiyada, ham ekranda ishlatiladi (`sortCaseQuestionsByFocus`).
+ */
+export const CASE_STUDY_FOCUS_ORDER: readonly CaseStudyFocus[] = ['tashxis', 'davolash', 'profilaktika'] as const;
 
 function pickRandom<T>(items: readonly T[], count: number): T[] {
   const pool = [...items];
@@ -32,11 +40,6 @@ export function buildCaseStructurePrompt(topic: string): string {
   ].join(' ');
 }
 
-/** @deprecated use buildCaseStructurePrompt */
-export function buildCaseVarietyPrompt(topic: string): string {
-  return buildCaseStructurePrompt(topic);
-}
-
 const TEST_ANGLES = [
   'diagnostika va differensial tashxis',
   'davolash strategiyasi tanlash',
@@ -50,16 +53,64 @@ const TEST_ANGLES = [
   'etika va bemor huquqlari',
 ];
 
-export function buildTestVarietyPrompt(topic: string, count: number): string {
-  const angles = pickRandom(TEST_ANGLES, 4);
+/**
+ * Mavzu sarlavhasini bo'limlarga ajratadi.
+ *
+ * Sillabus mavzulari odatda bir nechta mustaqil bo'limdan iborat bo'ladi
+ * ("Piodermiyalar. Dermatozoonozlar. Ter va yog' bezlari. Zamburug' kasallik.").
+ * Ularni ochiq ro'yxat qilib berish model savollarni shu bo'limlar bo'ylab
+ * taqsimlashiga yordam beradi — aks holda u bitta bo'limga yopishib qoladi
+ * yoki umuman mavzudan chiqib ketadi.
+ */
+export function topicSubThemes(topic: string): string[] {
+  return (topic || '')
+    .split(/[.;]\s+|\.$/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 2)
+    .slice(0, 8);
+}
+
+export function buildTestVarietyPrompt(
+  topic: string,
+  count: number,
+  difficulty: TestDifficulty = 'medium',
+): string {
+  const anglePool =
+    difficulty === 'easy'
+      ? TEST_ANGLES.filter(
+          (a) =>
+            a.includes('diagnostika') ||
+            a.includes('dori-darmon') ||
+            a.includes('profilaktika') ||
+            a.includes('laboratoriya'),
+        )
+      : difficulty === 'hard'
+        ? TEST_ANGLES
+        : TEST_ANGLES.filter((a) => !a.includes('etika'));
+  const angles = pickRandom(anglePool.length ? anglePool : TEST_ANGLES, 2);
+  const themes = topicSubThemes(topic);
+  const themeBlock =
+    themes.length > 1
+      ? `MAVZU BO'LIMLARI: ${themes.map((s, i) => `${i + 1}) ${s}`).join('; ')}. ` +
+        'Savollarni shu bo\'limlar bo\'ylab taqsimlang — har bo\'limdan kamida bittadan.'
+      : '';
   return [
     `Variatsiya ID: ${generationNonce()}.`,
     `Mavzu: "${topic}". ${count} ta NOYOB test savoli.`,
+    themeBlock,
+    // Eng muhim qoida: prod'da yaratilgan testda 10 savoldan 4 tasining to'g'ri
+    // javobi mavzuga umuman kirmaydigan tashxis edi (kontakt dermatit, fotodermatit).
+    'QAT\'IY QOIDA: har savolning TO\'G\'RI JAVOBI shu mavzuga kiradigan kasallik/holat/dori bo\'lsin. ' +
+      'Mavzuga kirmaydigan tashxis faqat DISTRAKTOR (noto\'g\'ri variant) sifatida ishlatilishi mumkin, ' +
+      'hech qachon to\'g\'ri javob bo\'lmasin.',
+    'To\'g\'ri javoblar takrorlanmasin — har savolda boshqa tashxis/dori to\'g\'ri bo\'lsin.',
     'Avvalgi generatsiyalardagi savollarni qayta ishlatmang — yangi klinik ssenariyalar yozing.',
-    `Asosiy yo'nalishlar: ${angles.join('; ')}.`,
+    `Savol uslublari (mavzu doirasida qoling): ${angles.join('; ')}.`,
     'To\'g\'ri javoblar A–E variantlari bo\'ylab teng taqsimlansin (faqat bir xil harfda emas).',
     'Har safar boshqacha bemorga, yoshga, shikoyatga va laboratoriya topilmalariga ega bo\'lsin.',
-  ].join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function summarizeCaseForAvoid(session: CaseLike): string {

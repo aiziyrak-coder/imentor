@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Users, Plus, Pencil, Trash2, Loader2, AlertCircle, Shield, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, Loader2, AlertCircle, Shield, ArrowUpDown, ArrowUp, ArrowDown, X, Search, FilterX, ChevronLeft, ChevronRight, Printer, ScanFace, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { normalizeStaffLogin, type UserRole } from '../../utils/localStaffAuth';
+import { isValidStaffLogin, normalizeStaffLogin, type UserRole } from '../../utils/localStaffAuth';
 import {
   fetchStaffDirectory,
   removeStaffMember,
   upsertStaffMember,
   type StaffDirectoryEntry,
 } from '../../utils/staffDirectoryApi';
+import { openStaffCredentials } from '../../utils/staffCredentialsHtml';
+import AdminFaceLinks from './AdminFaceLinks';
+import AdminStaffDetail from './AdminStaffDetail';
 import { fetchAdminSyllabusCatalogStats } from '../../utils/syllabusApi';
 import { fetchPublicKafedralar } from '../../utils/academicCatalogApi';
+import { matchDepartmentByName } from '../../utils/departmentMatch';
 import { HttpError } from '../../api/httpClient';
 import { roleLabel } from '../../i18n/translations';
 import { useUiText } from '../../i18n/useUiText';
@@ -57,6 +61,17 @@ function loadErrorMessage(err: unknown, t: ReturnType<typeof useUiText>['t']): s
   return t('admin.error.loadFailed');
 }
 
+function httpDetail(err: HttpError): string {
+  const body = err.body;
+  if (!body || typeof body !== 'object') return typeof err.body === 'string' ? err.body : '';
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail[0] && typeof detail[0] === 'object' && detail[0] && 'msg' in (detail[0] as object)) {
+    return String((detail[0] as { msg: unknown }).msg);
+  }
+  return '';
+}
+
 export default function AdminStaffManagement() {
   const { t, language } = useUiText();
   const [rows, setRows] = useState<StaffDirectoryEntry[]>([]);
@@ -68,7 +83,14 @@ export default function AdminStaffManagement() {
   const [editing, setEditing] = useState<StaffDirectoryEntry | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [showAdd, setShowAdd] = useState(false);
+  const [showFaceLinks, setShowFaceLinks] = useState(false);
+  const [detailFor, setDetailFor] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
   const [departments, setDepartments] = useState<DeptOption[]>([]);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,10 +114,14 @@ export default function AdminStaffManagement() {
   }, [load]);
 
   useEffect(() => {
-    // Sillabusdagi kafedralar + akademik katalogdagi barcha kafedralar birlashtiriladi,
-    // shunda hali sillabusi yo'q kafedra ham xodim qo'shishda tanlanadi.
     void Promise.allSettled([fetchAdminSyllabusCatalogStats(), fetchPublicKafedralar()]).then(
       ([statsRes, kafedraRes]) => {
+        const academic: DeptOption[] = [];
+        if (statsRes.status === 'fulfilled') {
+          for (const d of statsRes.value?.by_department || []) {
+            academic.push({ id: d.id, name: d.name, code: d.code || d.name });
+          }
+        }
         const merged: DeptOption[] = [];
         const seen = new Set<string>();
         const push = (opt: DeptOption) => {
@@ -104,15 +130,16 @@ export default function AdminStaffManagement() {
           seen.add(key);
           merged.push(opt);
         };
-        if (statsRes.status === 'fulfilled') {
-          for (const d of statsRes.value?.by_department || []) {
-            push({ id: d.id, name: d.name, code: d.code || d.name });
-          }
-        }
-        if (kafedraRes.status === 'fulfilled') {
+        if (kafedraRes.status === 'fulfilled' && (kafedraRes.value || []).length > 0) {
           for (const k of kafedraRes.value) {
-            push({ id: null, name: k.name, code: k.code || k.name });
+            const hit = matchDepartmentByName(k.name, k.code, academic);
+            push({ id: hit?.id ?? null, name: k.name, code: k.code || k.name });
           }
+          for (const d of academic) {
+            if (!matchDepartmentByName(d.name, d.code, merged)) push(d);
+          }
+        } else {
+          for (const d of academic) push(d);
         }
         merged.sort((a, b) => a.name.localeCompare(b.name));
         setDepartments(merged);
@@ -138,6 +165,13 @@ export default function AdminStaffManagement() {
     setShowAdd(false);
   };
 
+  const closeForm = () => {
+    setEditing(null);
+    setShowAdd(false);
+    setForm(emptyForm);
+    setError(null);
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -145,6 +179,10 @@ export default function AdminStaffManagement() {
     try {
       if (form.password.length < 6) {
         setError(t('admin.error.passwordMin'));
+        return;
+      }
+      if (!isValidStaffLogin(form.phoneDisplay.trim())) {
+        setError(t('admin.error.invalidPhone'));
         return;
       }
       // Telefon raqami yoki Xodim ID — ikkalasi ham username sifatida saqlanadi.
@@ -170,6 +208,8 @@ export default function AdminStaffManagement() {
         setError(t('admin.error.forbidden'));
       } else if (err instanceof Error && err.message === 'no-admin-token') {
         setError(t('admin.error.noAdminToken'));
+      } else if (err instanceof HttpError) {
+        setError(httpDetail(err) || t('admin.error.createFailed'));
       } else {
         setError(t('admin.error.createFailed'));
       }
@@ -203,12 +243,8 @@ export default function AdminStaffManagement() {
         setError(t('admin.error.forbidden'));
       } else if (err instanceof Error && err.message === 'no-admin-token') {
         setError(t('admin.error.noAdminToken'));
-      } else if (err instanceof HttpError && err.status === 400) {
-        const detail =
-          err.body && typeof err.body === 'object' && 'detail' in err.body
-            ? String((err.body as { detail: unknown }).detail)
-            : '';
-        setError(detail || t('admin.error.updateFailed'));
+      } else if (err instanceof HttpError) {
+        setError(httpDetail(err) || t('admin.error.updateFailed'));
       } else {
         setError(t('admin.error.updateFailed'));
       }
@@ -283,6 +319,65 @@ export default function AdminStaffManagement() {
     return list;
   }, [rows, sortDirection, sortKey]);
 
+  const roleOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const u of rows) {
+      const role = String(u.role || 'hodim');
+      if (seen.has(role)) continue;
+      seen.add(role);
+      list.push(role);
+    }
+    return list;
+  }, [rows]);
+
+  const deptFilterOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    let hasUnassigned = false;
+    for (const u of rows) {
+      const name = (u.department || '').trim();
+      if (!name) {
+        hasUnassigned = true;
+        continue;
+      }
+      const key = name.toLocaleLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      names.push(name);
+    }
+    names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return { names, hasUnassigned };
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase();
+    return sortedRows.filter((u) => {
+      if (roleFilter && String(u.role || 'hodim') !== roleFilter) return false;
+      const dept = (u.department || '').trim();
+      if (deptFilter === '__none__' && dept) return false;
+      if (deptFilter && deptFilter !== '__none__' && dept !== deptFilter) return false;
+      if (!q) return true;
+      const hay = [u.display_name, u.phone_display, u.phone_digits, u.role, u.department, u.pinfl ?? '']
+        .join(' ')
+        .toLocaleLowerCase();
+      return hay.includes(q);
+    });
+  }, [deptFilter, query, roleFilter, sortedRows]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, roleFilter, deptFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pagedRows = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredRows.slice(start, start + PAGE_SIZE);
+  }, [filteredRows, safePage]);
+
+  const filtersActive = Boolean(query.trim() || roleFilter || deptFilter);
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -291,6 +386,15 @@ export default function AdminStaffManagement() {
     setSortKey(key);
     setSortDirection('asc');
   };
+
+  useEffect(() => {
+    if (!(showAdd || editing)) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [showAdd, editing]);
 
   const sortLabel = (key: SortKey, label: string) => (
     <button
@@ -318,36 +422,131 @@ export default function AdminStaffManagement() {
             <p className="text-[12px] text-black/50">{t('admin.staffManagementSubtitle')}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setShowAdd(true);
-            setEditing(null);
-            setForm({ ...emptyForm });
-            setError(null);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold shadow-md"
-        >
-          <Plus size={18} /> {t('admin.addStaff')}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              const ok = openStaffCredentials(filteredRows, { onlyInitial: true });
+              if (!ok) {
+                setError(
+                  "Chop etish oynasi bloklandi. Brauzer manzil qatoridagi “popup” ruxsatini yoqib, qayta urinib ko‘ring.",
+                );
+              }
+            }}
+            title="Hali kirmagan xodimlarning login va boshlang'ich parolini kafedralar bo'yicha chop etish"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-black/10 text-black/70 text-[13px] font-semibold shadow-sm hover:bg-black/[0.03]"
+          >
+            <Printer size={17} /> Login ro'yxati
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFaceLinks((v) => !v)}
+            title="cam.fermi.uz'dagi yuzni iMentor hisobiga bog'lash (yuz orqali kirish uchun)"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-black/10 text-black/70 text-[13px] font-semibold shadow-sm hover:bg-black/[0.03]"
+          >
+            <ScanFace size={17} /> Yuz ↔ hisob
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAdd(true);
+              setEditing(null);
+              setForm({ ...emptyForm });
+              setError(null);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold shadow-md"
+          >
+            <Plus size={18} /> {t('admin.addStaff')}
+          </button>
+        </div>
       </div>
 
-      {error && (
+      {showFaceLinks && <AdminFaceLinks staff={rows} onClose={() => setShowFaceLinks(false)} />}
+      {detailFor && <AdminStaffDetail username={detailFor} onClose={() => setDetailFor(null)} />}
+
+      {error && !(showAdd || editing) && (
         <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
           <AlertCircle size={18} className="shrink-0 mt-0.5" />
           {error}
         </div>
       )}
 
+      <div className="ios-glass rounded-2xl border border-white/70 p-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="relative sm:col-span-2">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-white text-[13px] outline-none"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('admin.searchPlaceholder')}
+          />
+        </div>
+        <select
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+          className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-[13px]"
+        >
+          <option value="">{t('admin.filterAllRoles')}</option>
+          {roleOptions.map((role) => (
+            <option key={role} value={role}>
+              {roleLabel(language, role)}
+            </option>
+          ))}
+        </select>
+        <select
+          value={deptFilter}
+          onChange={(e) => setDeptFilter(e.target.value)}
+          className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-[13px]"
+        >
+          <option value="">{t('admin.filterAllDepartments')}</option>
+          {deptFilterOptions.hasUnassigned ? (
+            <option value="__none__">{t('admin.departmentUnassigned')}</option>
+          ) : null}
+          {deptFilterOptions.names.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-[12px] text-black/50 font-medium">
+            {t('admin.staffShownCount', { shown: filteredRows.length, total: rows.length })}
+            {filteredRows.length > PAGE_SIZE
+              ? ` · ${t('admin.pageStatus', {
+                  from: String((safePage - 1) * PAGE_SIZE + 1),
+                  to: String(Math.min(safePage * PAGE_SIZE, filteredRows.length)),
+                  total: String(filteredRows.length),
+                })}`
+              : ''}
+          </p>
+          {filtersActive ? (
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setRoleFilter('');
+                setDeptFilter('');
+              }}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-slate-200 bg-white text-[12px] font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              <FilterX size={14} />
+              {t('admin.clearFilters')}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
       <div className="ios-glass rounded-2xl border border-white/60 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead className="bg-black/[0.04] text-black/55 font-semibold">
               <tr>
+                <th className="px-4 py-3 w-14 whitespace-nowrap">{t('admin.serialNo')}</th>
                 <th className="px-4 py-3">{sortLabel('displayName', t('admin.fullName'))}</th>
                 <th className="px-4 py-3">{sortLabel('phoneDisplay', t('admin.phone'))}</th>
                 <th className="px-4 py-3">{sortLabel('role', t('admin.role'))}</th>
                 <th className="px-4 py-3">{sortLabel('department', t('admin.department'))}</th>
+                <th className="px-4 py-3 whitespace-nowrap">JSHSHIR</th>
                 <th className="px-4 py-3 whitespace-nowrap min-w-[140px]">{sortLabel('lastActiveAt', t('admin.lastActivity'))}</th>
                 <th className="px-4 py-3 w-28"></th>
               </tr>
@@ -355,14 +554,21 @@ export default function AdminStaffManagement() {
             <tbody className="divide-y divide-black/5">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-black/45">
+                  <td colSpan={8} className="px-4 py-12 text-center text-black/45">
                     <Loader2 className="animate-spin inline mr-2" size={18} />
                     {t('admin.loading')}
                   </td>
                 </tr>
+              ) : filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center text-black/45">
+                    {filtersActive ? t('admin.noResults') : t('admin.noStaffInList')}
+                  </td>
+                </tr>
               ) : (
-                sortedRows.map((u) => (
+                pagedRows.map((u, index) => (
                   <tr key={u.phone_digits} className="hover:bg-black/[0.02]">
+                    <td className="px-4 py-2.5 text-black/45 tabular-nums text-[12px]">{(safePage - 1) * PAGE_SIZE + index + 1}</td>
                     <td className="px-4 py-2.5 font-medium text-black/90">{u.display_name}</td>
                     <td className="px-4 py-2.5 font-mono text-[12px]">{u.phone_display}</td>
                     <td className="px-4 py-2.5">
@@ -372,11 +578,28 @@ export default function AdminStaffManagement() {
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-black/65 max-w-[180px] truncate">{u.department}</td>
+                    <td className="px-4 py-2.5 font-mono text-[12px] whitespace-nowrap">
+                      {u.pinfl ? (
+                        u.pinfl
+                      ) : u.role === 'hodim' ? (
+                        <span className="text-amber-700 font-sans font-semibold">bog'lanmagan</span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-black/55 tabular-nums text-[12px] whitespace-nowrap">
                       {formatLastActive(u.last_login)}
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setDetailFor(u.phone_digits)}
+                          className="p-2 rounded-lg hover:bg-black/5 text-slate-500"
+                          title="To'liq ma'lumot"
+                        >
+                          <Info size={16} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => startEdit(u)}
@@ -401,17 +624,70 @@ export default function AdminStaffManagement() {
             </tbody>
           </table>
         </div>
+        {filteredRows.length > PAGE_SIZE ? (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-black/5">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="inline-flex items-center gap-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-[12px] font-semibold text-slate-600 disabled:opacity-40"
+            >
+              <ChevronLeft size={16} /> {t('common.prev')}
+            </button>
+            <span className="text-[12px] text-slate-500 font-medium">
+              {t('admin.pageStatus', {
+                from: String((safePage - 1) * PAGE_SIZE + 1),
+                to: String(Math.min(safePage * PAGE_SIZE, filteredRows.length)),
+                total: String(filteredRows.length),
+              })}
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= pageCount}
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              className="inline-flex items-center gap-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-[12px] font-semibold text-slate-600 disabled:opacity-40"
+            >
+              {t('common.next')} <ChevronRight size={16} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <AnimatePresence>
         {(showAdd || editing) && (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="ios-glass rounded-2xl border border-white/60 p-6 space-y-4"
+            className="fixed inset-0 z-[240] flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={closeForm}
           >
-            <h2 className="text-lg font-bold text-black/90">{editing ? t('admin.editStaff') : t('admin.newStaff')}</h2>
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              className="ios-glass w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-white/60 p-6 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-bold text-black/90">{editing ? t('admin.editStaff') : t('admin.newStaff')}</h2>
+              <button
+                type="button"
+                onClick={closeForm}
+                className="p-2 rounded-lg hover:bg-black/5 text-black/50"
+                aria-label={t('admin.cancel')}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {error && (
+              <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[13px] text-rose-800">
+                <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                {error}
+              </div>
+            )}
             <form onSubmit={editing ? handleUpdate : handleCreate} className="grid sm:grid-cols-2 gap-3">
               <label className="space-y-1 sm:col-span-2">
                 <span className="text-[11px] font-semibold text-black/50">{t('admin.phone')}</span>
@@ -534,17 +810,14 @@ export default function AdminStaffManagement() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditing(null);
-                    setShowAdd(false);
-                    setForm(emptyForm);
-                  }}
+                  onClick={closeForm}
                   className="px-6 py-3 rounded-xl border border-black/10 font-semibold"
                 >
                   {t('admin.cancel')}
                 </button>
               </div>
             </form>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -185,8 +185,8 @@ export default function StudentMyTests() {
 
   // Statistika — filtrga mos natijalar bo'yicha.
   const stats = useMemo(() => {
-    const scored = filteredRows.filter((r) => r.total > 0);
-    const pcts = scored.map((r) => (r.score / r.total) * 100);
+    const scored = filteredRows.filter((r) => r.total > 0 && r.score !== null);
+    const pcts = scored.map((r) => ((r.score ?? 0) / r.total) * 100);
     const subjects = new Set(filteredRows.map((r) => subjOf(r)));
     return {
       count: filteredRows.length,
@@ -310,9 +310,9 @@ export default function StudentMyTests() {
           ) : (
             <div className="space-y-4">
               {grouped.map((g) => {
-                const scored = g.rows.filter((r) => r.total > 0);
+                const scored = g.rows.filter((r) => r.total > 0 && r.score !== null);
                 const gAvg = scored.length
-                  ? Math.round(scored.reduce((a, r) => a + (r.score / r.total) * 100, 0) / scored.length)
+                  ? Math.round(scored.reduce((a, r) => a + ((r.score ?? 0) / r.total) * 100, 0) / scored.length)
                   : null;
                 const gTone = scoreTone(gAvg);
                 return (
@@ -340,7 +340,9 @@ export default function StudentMyTests() {
 
                     <ul className="divide-y divide-black/5">
                       {g.rows.map((row) => {
-                        const pct = row.total > 0 ? Math.round((row.score / row.total) * 100) : null;
+                        // Natija o'qituvchi testni tahlil qilgandan keyin keladi (2026-10-21).
+                        const pending = row.score === null;
+                        const pct = row.total > 0 && !pending ? Math.round(((row.score ?? 0) / row.total) * 100) : null;
                         const tone = scoreTone(pct);
                         return (
                           <li key={row.id} className="px-4 py-3 space-y-2">
@@ -353,7 +355,11 @@ export default function StudentMyTests() {
                                   {formatWhen(row.submittedAt)}
                                 </p>
                               </div>
-                              {row.total > 0 ? (
+                              {pending ? (
+                                <span className="shrink-0 text-[12px] font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
+                                  {t('student.myTestsPending')}
+                                </span>
+                              ) : row.total > 0 ? (
                                 <span className={`shrink-0 text-[13px] font-bold px-2.5 py-1 rounded-full ${tone.chip}`}>
                                   {row.score}/{row.total}
                                   {pct !== null ? ` · ${pct}%` : ''}

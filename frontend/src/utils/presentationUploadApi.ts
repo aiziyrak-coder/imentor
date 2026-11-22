@@ -87,9 +87,8 @@ export function normPresentationTopic(topic: string): string {
 /**
  * Mavzu bo'yicha taqdimotlar.
  *
- * `onlyMine` (standart: true) — o'qituvchining ish sahifasida faqat O'ZI
- * yaratgan/yuklagan taqdimotlar ko'rinadi. Avval boshqa hodimlarnikilar ham
- * chiqib qolardi va ularni o'chirib bo'lmasdi (o'chirish tugmasi yo'q edi).
+ * `onlyMine` (standart: false) — shu fan/mavzudagi barcha fayllar.
+ * `onlyMine: true` — faqat joriy foydalanuvchiniki.
  */
 export async function fetchPresentationsForTopic(
   topic: string | SyllabusTopicContext,
@@ -99,23 +98,22 @@ export async function fetchPresentationsForTopic(
   if (!token) throw new Error('no-backend-token');
   const norms = resolvePresentationTopicNorms(topic);
   if (!norms.length) return [];
-  const query =
+  const query = new URLSearchParams();
+  if (
     typeof topic === 'object' &&
     topic &&
     'syllabusId' in topic &&
     topic.syllabusId != null &&
-    topic.variantLabel &&
     topic.id
-      ? new URLSearchParams({
-          syllabus_id: String(topic.syllabusId),
-          variant_label: topic.variantLabel,
-          topic_code: topic.id,
-        })
-      : new URLSearchParams();
+  ) {
+    query.set('syllabus_id', String(topic.syllabusId));
+    query.set('variant_label', topic.variantLabel || 'asosiy');
+    query.set('topic_code', topic.id);
+  }
   for (const norm of norms) {
     query.append('topic_norm', norm);
   }
-  if (options?.onlyMine !== false) query.set('mine', '1');
+  if (options?.onlyMine) query.set('mine', '1');
   const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/presentations/?${query.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -129,7 +127,9 @@ export async function fetchPresentationsForTopic(
     }
   }
   if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, data);
-  return Array.isArray(data) ? (data as TopicPresentationItem[]) : [];
+  const rows = Array.isArray(data) ? (data as TopicPresentationItem[]) : [];
+  const allowed = new Set(norms.map((n) => n.trim().toLowerCase()));
+  return rows.filter((row) => allowed.has((row.topic_norm || '').trim().toLowerCase()));
 }
 
 function clipField(value: string, max: number): string {
@@ -157,6 +157,11 @@ export async function uploadPresentation(params: {
   form.append('topic_norm', clipField(topicNorm, 255));
   form.append('file', params.file);
   if (title) form.append('title', title);
+  if (params.context && params.context.syllabusId != null && params.context.id) {
+    form.append('syllabus_id', String(params.context.syllabusId));
+    form.append('variant_label', params.context.variantLabel || 'asosiy');
+    form.append('topic_code', params.context.id);
+  }
 
   const res = await fetch(`${apiBaseUrl()}/v1/presentations/`, {
     method: 'POST',
@@ -186,11 +191,27 @@ export async function deletePresentation(id: number): Promise<void> {
   if (!res.ok && res.status !== 204) {
     throw new HttpError(`HTTP ${res.status}`, res.status, null);
   }
-  const cached = blobCache.get(id);
-  if (cached) {
-    URL.revokeObjectURL(cached);
-    blobCache.delete(id);
+  pruneBlobs(blobCache, (key) => key !== id);
+  pruneBlobs(previewBlobCache, (key) => key !== id);
+}
+
+function pruneBlobs(cache: Map<number, string>, keep: (id: number) => boolean): void {
+  for (const [key, url] of [...cache]) {
+    if (keep(key)) continue;
+    URL.revokeObjectURL(url);
+    cache.delete(key);
   }
+}
+
+/**
+ * Joriy mavzuda yo'q taqdimotlarning fayllarini xotiradan bo'shatadi.
+ * Ilgari ochilgan har PPTX/PDF sessiya oxirigacha xotirada qolardi va uzoq
+ * ishlaganda brauzer og'irlashardi.
+ */
+export function prunePresentationBlobCache(keepIds: number[]): void {
+  const keep = new Set(keepIds);
+  pruneBlobs(blobCache, (id) => keep.has(id));
+  pruneBlobs(previewBlobCache, (id) => keep.has(id));
 }
 
 export function isAllowedPresentationFile(file: File): boolean {

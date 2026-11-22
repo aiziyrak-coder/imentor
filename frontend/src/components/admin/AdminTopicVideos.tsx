@@ -3,6 +3,8 @@ import { Loader2, Plus, RefreshCw, Search, Trash2, Youtube } from 'lucide-react'
 import { backendErrorMessage } from '../../utils/apiError';
 import { fetchAdminCourseSyllabuses, type CourseSyllabusRow } from '../../utils/syllabusApi';
 import { resolveSyllabusVariants } from '../../utils/syllabusVariant';
+import { buildTopicCoverage, subjectDot, topicHasMaterial } from '../../utils/topicCoverage';
+import { formatTopicDisplayLabel } from '../../utils/topicLessonLabel';
 import SearchableSelect from './SearchableSelect';
 import {
   createAdminTopicVideo,
@@ -24,12 +26,14 @@ function VideoRow({
 }) {
   const { t } = useUiText();
   // Sarlavha kiritilmagan bo'lsa — YouTube'dan asl nomi olinadi.
-  const displayTitle = useYoutubeTitle(video.youtube_id, video.title);
+  const isYoutube = !video.provider || video.provider === 'youtube';
+  const ytTitle = useYoutubeTitle(isYoutube ? video.youtube_id : '', video.title);
+  const displayTitle = isYoutube ? ytTitle : video.title || video.youtube_url;
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       <img
-        src={`https://img.youtube.com/vi/${video.youtube_id}/default.jpg`}
+        src={isYoutube ? `https://img.youtube.com/vi/${video.youtube_id}/default.jpg` : 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw=='}
         alt=""
         className="w-16 h-12 rounded-lg object-cover bg-slate-100 shrink-0"
       />
@@ -105,7 +109,14 @@ export default function AdminTopicVideos() {
     () => variants.find((v) => v.label === variantLabel) || null,
     [variants, variantLabel],
   );
-  const topics = selectedVariant?.topics ?? [];
+  const topics = useMemo(() => {
+    const seen = new Set<string>();
+    return (selectedVariant?.topics ?? []).filter((tp) => {
+      if (!tp.id || seen.has(tp.id)) return false;
+      seen.add(tp.id);
+      return true;
+    });
+  }, [selectedVariant]);
 
   useEffect(() => {
     // Yo'nalish UI yo'q — teacher flow bilan bir xil: birinchi (yoki yagona) variant.
@@ -116,6 +127,36 @@ export default function AdminTopicVideos() {
   useEffect(() => {
     setTopicCode('');
   }, [variantLabel]);
+
+  /** Qaysi mavzuga video yuklangani — bir marta indekslanadi. */
+  const coverage = useMemo(() => buildTopicCoverage(videos), [videos]);
+
+  /** Fan ro'yxati: bitta chiroqcha (bo'sh / qisman / to'liq) va yonida hisob. */
+  const fanOptions = useMemo(
+    () =>
+      fans.map((f) => {
+        const tps = resolveSyllabusVariants(f)[0]?.topics ?? [];
+        const info = subjectDot(coverage, f.id, tps);
+        return {
+          value: String(f.id),
+          label: info ? `${f.subject_name} · ${info.done}/${info.total}` : f.subject_name,
+          searchText: f.subject_name,
+          dot: info?.dot,
+        };
+      }),
+    [fans, coverage],
+  );
+
+  /** Mavzu ro'yxati: video bor bo'lsa yashil, yo'q bo'lsa qizil. */
+  const topicOptions = useMemo(
+    () =>
+      topics.map((tp) => ({
+        value: tp.id,
+        label: formatTopicDisplayLabel(tp.type, tp.id, tp.title, t),
+        dot: topicHasMaterial(coverage, fanId, tp.id) ? ('green' as const) : ('red' as const),
+      })),
+    [topics, coverage, fanId, t],
+  );
 
   const fanNameById = useMemo(() => {
     const m = new Map<number, string>();
@@ -151,15 +192,18 @@ export default function AdminTopicVideos() {
   const grouped = useMemo(() => {
     const map = new Map<string, { fanName: string; topic: string; rows: TopicVideo[] }>();
     for (const v of filteredVideos) {
-      const syllabusId = Number((v.topic_norm || '').split('::')[0]);
+      const parts = (v.topic_norm || '').split('::');
+      const syllabusId = Number(parts[0]);
+      const code = (parts[2] || '').toUpperCase();
       const fanName = fanNameById.get(syllabusId) || t('catalog.otherTopics');
-      const key = `${fanName}||${v.topic}`;
-      if (!map.has(key)) map.set(key, { fanName, topic: v.topic, rows: [] });
+      const key = v.topic_norm || `${fanName}||${v.topic}`;
+      const label = code ? `${code} · ${v.topic}` : v.topic;
+      if (!map.has(key)) map.set(key, { fanName, topic: label, rows: [] });
       map.get(key)!.rows.push(v);
     }
-    return [...map.values()].sort(
-      (a, b) => a.fanName.localeCompare(b.fanName) || a.topic.localeCompare(b.topic),
-    );
+    return [...map.entries()]
+      .map(([key, g]) => ({ key, ...g }))
+      .sort((a, b) => a.fanName.localeCompare(b.fanName) || a.topic.localeCompare(b.topic));
   }, [filteredVideos, fanNameById, t]);
 
   const addVideo = async () => {
@@ -236,24 +280,19 @@ export default function AdminTopicVideos() {
               disabled={adding}
               placeholder={t('admin.selectSubjectPlaceholder')}
               noMatchText={t('admin.noResults')}
-              options={fans.map((f) => ({ value: String(f.id), label: f.subject_name }))}
+              options={fanOptions}
             />
           </label>
           <label className="space-y-1">
             <span className="text-[12px] font-semibold text-slate-600">2 · {t('admin.topicLabel')}</span>
-            <select
+            <SearchableSelect
               value={topicCode}
-              onChange={(e) => setTopicCode(e.target.value)}
+              onChange={setTopicCode}
               disabled={adding || !fanId || topics.length === 0}
-              className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-white text-[13px] disabled:bg-slate-50"
-            >
-              <option value="">{t('admin.selectTopicPlaceholder')}</option>
-              {topics.map((tp) => (
-                <option key={tp.id} value={tp.id}>
-                  {tp.id} · {tp.title}
-                </option>
-              ))}
-            </select>
+              placeholder={t('admin.selectTopicPlaceholder')}
+              noMatchText={t('admin.noResults')}
+              options={topicOptions}
+            />
           </label>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -340,7 +379,7 @@ export default function AdminTopicVideos() {
       ) : (
         <ul className="space-y-3">
           {grouped.map((g) => (
-            <li key={`${g.fanName}-${g.topic}`} className="ios-glass rounded-2xl border border-white/70 overflow-hidden">
+            <li key={g.key} className="ios-glass rounded-2xl border border-white/70 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
                 <span className="font-bold text-slate-900">{g.topic}</span>
                 <span className="text-[11px] text-slate-400"> · {g.fanName}</span>

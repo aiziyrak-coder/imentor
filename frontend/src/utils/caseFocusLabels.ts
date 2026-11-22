@@ -1,5 +1,6 @@
 import type { AppLanguage } from '../i18n/language';
 import { CASE_STUDY_FOCUS_ORDER, type CaseStudyFocus } from './generationVariety';
+import { isPatientFree, type SubjectDomain } from './subjectDomain';
 
 const LABELS: Record<AppLanguage, Record<CaseStudyFocus, string>> = {
   uz: {
@@ -16,6 +17,24 @@ const LABELS: Record<AppLanguage, Record<CaseStudyFocus, string>> = {
     profilaktika: 'Prevention',
     davolash: 'Treatment',
     tashxis: 'Diagnosis',
+  },
+};
+
+const LABELS_ACADEMIC: Record<AppLanguage, Record<CaseStudyFocus, string>> = {
+  uz: {
+    tashxis: 'Sababni topish',
+    davolash: 'Yechim tanlash',
+    profilaktika: 'Xatolikning oldini olish',
+  },
+  ru: {
+    tashxis: 'Найти причину',
+    davolash: 'Выбрать решение',
+    profilaktika: 'Не допустить ошибку',
+  },
+  en: {
+    tashxis: 'Find the cause',
+    davolash: 'Choose a solution',
+    profilaktika: 'Prevent the mistake',
   },
 };
 
@@ -38,23 +57,25 @@ const ICON_BG_CLASS: Record<CaseStudyFocus, string> = {
 };
 
 export function caseFocusAccentBorderClass(focus: CaseStudyFocus | undefined): string {
-  if (!focus) return 'border-l-black/15';
-  return ACCENT_BORDER_CLASS[focus];
+  return (focus && ACCENT_BORDER_CLASS[focus]) || 'border-l-black/15';
 }
 
 export function caseFocusIconBgClass(focus: CaseStudyFocus | undefined): string {
-  if (!focus) return 'bg-black/5 text-black/50';
-  return ICON_BG_CLASS[focus];
+  return (focus && ICON_BG_CLASS[focus]) || 'bg-black/5 text-black/50';
 }
 
-export function caseFocusLabel(focus: CaseStudyFocus | undefined, lang: AppLanguage = 'uz'): string {
+export function caseFocusLabel(
+  focus: CaseStudyFocus | undefined,
+  lang: AppLanguage = 'uz',
+  domain: SubjectDomain = 'clinical',
+): string {
   if (!focus) return '';
-  return LABELS[lang][focus] || LABELS.uz[focus];
+  const table = isPatientFree(domain) ? LABELS_ACADEMIC : LABELS;
+  return table[lang]?.[focus] || table.uz[focus] || '';
 }
 
 export function caseFocusBadgeClass(focus: CaseStudyFocus | undefined): string {
-  if (!focus) return 'bg-black/5 text-black/60 border-black/10';
-  return BADGE_CLASS[focus];
+  return (focus && BADGE_CLASS[focus]) || 'bg-black/5 text-black/60 border-black/10';
 }
 
 /**

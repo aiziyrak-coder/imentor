@@ -13,6 +13,9 @@ class LocalLoginRequest(BaseModel):
     role: str | None = None
     first_name: str = ""
     last_name: str = ""
+    faculty: str = ""
+    department: str = ""
+    direction: str = ""
     register: bool = False
 
     @field_validator("phone_digits")
@@ -41,6 +44,26 @@ class LoginResponse(BaseModel):
     photo_url: str = ""
     student_id: str | None = None
     group_name: str | None = None
+    # Hisob boshqa odam bergan parol bilan yaratilgan (masalan pasport
+    # seriyasi) — foydalanuvchi avval o'z parolini qo'yishi kerak.
+    must_change_password: bool = False
+    # Xodimning JSHSHIRi (bog'langan bo'lsa); yuz bilan kirganda ham to'ldiriladi.
+    pinfl: str = ""
+    # Ikki rolli odam (2026-10-28): ["hodim", "student"] — brauzer qaysi biri bilan davom
+    # etishni so'raydi va `/auth/switch-role/` bilan shu rol tokenini oladi.
+    roles: list[str] = []
+
+
+class SwitchRoleRequest(BaseModel):
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def _role(cls, value: str) -> str:
+        v = (value or "").strip().lower()
+        if v not in ("hodim", "student"):
+            raise ValueError("role must be hodim or student")
+        return v
 
 
 class TokenRefreshRequest(BaseModel):
@@ -50,3 +73,18 @@ class TokenRefreshRequest(BaseModel):
 class TokenRefreshResponse(BaseModel):
     access: str
     refresh: str
+
+
+class IdLoginRequest(BaseModel):
+    """Parolsiz kirish: JSHSHIR yoki pasport (seriya ro'yxatdan + raqam).
+
+    Parol maydoni YO'Q — 2026-10-02 da kirish shaxs raqamiga o'tkazildi.
+    """
+
+    pinfl: str = Field(default="", max_length=32)
+    passport_series: str = Field(default="", max_length=8)
+    passport_number: str = Field(default="", max_length=24)
+    #: Institut bergan raqam — talabada Talaba ID, xodimda Xodim ID.
+    #: Yangi kelgan va xorijiy talabalarda JSHSHIR/pasport hali yo'q, shuning
+    #: uchun kirish faqat shu raqam bilan mumkin (2026-10-05).
+    institute_id: str = Field(default="", max_length=32)

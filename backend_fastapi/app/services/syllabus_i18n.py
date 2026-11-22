@@ -83,18 +83,86 @@ _UZ_LATIN_WORDS = (
 )
 
 
+_LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z0-9'’\-]*")
+
+# Ruscha sarlavhada lotincha qolishi TO'G'RI bo'lgan ilmiy nomlar: avlod/oila/tartib (Campylobacter spp.,
+# Liliales, Magnoliaceae). Ular hisobga olinmaydi — aks holda to'g'ri tarjima rad etilib, mavzu nomi
+# abadiy tarjimasiz qolardi (2026-11-12: botanika va mikrobiologiya sarlavhalari).
+_SCIENTIFIC_LATIN = re.compile(
+    r"\b(?:[A-Z][a-z]+(?:aceae|ales|idae|inae|opsida|phyta|phyceae|mycetes|mycota|bacter|bacteria|bacterium"
+    r"|coccus|cocci|bacillus|monas|myces|virus|viridae)|spp|sp|subsp|var)\b\.?"
+)
+# Ruscha tarjimaga o'zbekcha so'z sizib kirgani (2026-11-12: "Mirtadoshlar i jo'kadoshlar семейства").
+_UZ_LATIN_WORD = re.compile(r"\b[A-Za-z]*(?:[oOgG]['’‘ʻ][a-z]+|[a-z](?<![uo])(?:lar|lari|larning|larda)|[a-z](?:dosh|doshlar))\b")
+
+
 def _letters(text: str) -> int:
     return len(_CYRILLIC.findall(text)) + len(_LATIN.findall(text))
 
 
-def looks_wrong_language(text: str, lang: str) -> bool:
+def _drop_shared_latin(text: str, source: str) -> str:
+    """Asl sarlavhada ham bor lotin so'zlarini olib tashlaydi.
+
+    Mahsulot nomlari tarjima qilinmaydi ("Internet Explorer, Mozilla Firefox,
+    Google Chrome"). Ular ko'p bo'lsa, to'g'ri ruscha tarjimada ham lotin
+    harflari kirilchadan ko'p bo'lib qolardi va tarjima rad etilardi (2026-09-23).
+    """
+    if not source:
+        return text
+    shared = {w.lower() for w in _LATIN_WORD.findall(source) if len(w) > 2}
+    if not shared:
+        return text
+    return _LATIN_WORD.sub(lambda m: "" if m.group(0).lower() in shared else m.group(0), text)
+
+
+_UZ_POSITIVE = re.compile(
+    r"[oOgG]['’‘ʻ]|\b(?:va|bilan|uchun|hamda|yoki)\b"
+    r"|\w(?:lar|lari|larning|ning|dagi|lik|ligi|lilar|ish|ishi|izm|tsiya|siya|iya)\b",
+    re.I,
+)
+
+
+_EN_WORD = re.compile(
+    r"\b(?:the|of|and|in|for|with|to|on|an|is|are|from|by|at|as|its|their|into|about|basic|basics|introduction"
+    r"|disease|diseases|treatment|diagnosis|general|clinical|system|systems|methods?)\b",
+    re.I,
+)
+
+
+# O'zbekcha qo'shimchalar (egalik, kelishik, so'roq): daftar-chasi, restoran-da, ism-ingiz, bor-mi, ishonch-noma.
+_UZ_SUFFIX = re.compile(
+    r"\w(?:chasi|si|da|dan|ga|ni|mi|miz|ngiz|imiz|ingiz|noma|xona|chi|ingizni)\b", re.I
+)
+
+
+def already_in_language(text: str, lang: str) -> bool:
+    """Matn ochiq-oydin `lang` tilidami — o'zgarishsiz qaytgan "tarjima"ni qabul qilish uchun (ehtiyotkor)."""
+    value = (text or "").strip()
+    cyr, lat = len(_CYRILLIC.findall(value)), len(_LATIN.findall(value))
+    if cyr + lat < 3:
+        return False
+    if lang == "ru":
+        return cyr > lat and not _UZ_ONLY_CYRILLIC.search(value)
+    if lang == "uz":
+        # Model o'zbekchaga tarjima so'ralganda o'zgarishsiz qaytargan lotin yozuvli nom — inglizcha
+        # bo'lmasa, o'zbekcha. 2026-11-13: "O'zbek tili" fanidagi "Mehnat daftarchasi, mehnat
+        # shartnomasi", "Restoranda" kabi nomlarda o'zbek belgisi (o', -lar, va) yo'q edi — 10 fanning
+        # 18 mavzusi har 2 soatda qayta so'ralib, abadiy tarjimasiz qolardi.
+        return lat > cyr and (bool(_UZ_POSITIVE.search(value))
+                              or (bool(_UZ_SUFFIX.search(value)) and not _EN_WORD.search(value)))
+    if lang == "en":
+        return lat > cyr and not _UZ_POSITIVE.search(value) and not _UZ_LATIN_WORD.search(value)
+    return False
+
+
+def looks_wrong_language(text: str, lang: str, source: str = "") -> bool:
     """Matn `lang` tilida EMASLIGI aniq bo'lsa True.
 
     Ehtiyotkor: qisqa yoki harfsiz matnlarga (raqam, kod) tegmaydi — faqat
     yozuv tizimi ochiq-oydin mos kelmasa rad etadi. Asosiy maqsad — model
     rus tili so'ralganda inglizcha (yoki aksincha) qaytargan holatni tutish.
     """
-    value = (text or "").strip()
+    value = _drop_shared_latin((text or "").strip(), source or "")
     if _letters(value) < 8:
         return False
     cyr = len(_CYRILLIC.findall(value))
@@ -102,7 +170,14 @@ def looks_wrong_language(text: str, lang: str) -> bool:
     total = cyr + lat
     if lang == "ru":
         # Rus matni asosan kirilcha bo'ladi va o'zbek kiril harflari uchramaydi.
-        return cyr / total < 0.6 or bool(_UZ_ONLY_CYRILLIC.search(value))
+        # O'zbekcha so'z asl sarlavhada ham bor — shuning uchun "umumiy lotin"ni olib tashlashdan OLDINGI matnda.
+        if _UZ_ONLY_CYRILLIC.search(value) or _UZ_LATIN_WORD.search(text or ""):
+            return True
+        value = _SCIENTIFIC_LATIN.sub("", value)
+        cyr, lat = len(_CYRILLIC.findall(value)), len(_LATIN.findall(value))
+        if cyr + lat == 0:
+            return False
+        return cyr / (cyr + lat) < 0.6
     if lang == "en":
         if cyr / total > 0.15:
             return True
@@ -155,11 +230,22 @@ def _parse_translation_list(raw: str) -> list | None:
     return None
 
 
+_DOUBLED_APOSTROPHE = re.compile(r"(?<=\w)''(?=\w)")
+
+
+def fix_doubled_apostrophes(text: str) -> str:
+    """So'z ichidagi ikkilangan tutuq belgisini bittaga keltiradi: o''zgarish → o'zgarish.
+
+    Faqat harflar orasidagi `''` tegiladi — tirnoq sifatida ishlatilgani qoladi.
+    """
+    return _DOUBLED_APOSTROPHE.sub("'", text or "")
+
+
 def _translate_batch(api_key: str, model: str, items: list[str], target: str) -> dict[str, str]:
     """`items` ni `target` tiliga tarjima qiladi: {asl: tarjima}."""
     if not items:
         return {}
-    payload = json.dumps(items, ensure_ascii=False)
+    payload = json.dumps(items, ensure_ascii=False, separators=(",", ":"))
     try:
         raw = oai.generate_openai_chat(
             api_key,
@@ -179,6 +265,16 @@ def _translate_batch(api_key: str, model: str, items: list[str], target: str) ->
                             if target == "uz"
                             else ""
                         )
+                        # 2026-10-23: o'zbekcha KIRILL sarlavhalar ("Юрак-қон томир тизими") ruscha
+                        # so'ralganda o'zgarishsiz qaytardi, tekshiruv tashlab yuborardi va har safar
+                        # qayta so'ralardi.
+                        + (
+                            "Some titles are UZBEK written in Cyrillic script (letters ў, қ, ғ, ҳ, words like "
+                            "'тизими', 'анатомияси') — that is NOT Russian: translate their meaning into proper "
+                            "Russian medical language. "
+                            if target == "ru"
+                            else ""
+                        )
                         + "Input is a JSON array of strings. Return ONLY a JSON object of the form "
                         '{"items": ["...", "..."]} where "items" has the SAME length and SAME order '
                         "as the input. Do not add numbering or any extra text. Every double quote "
@@ -188,6 +284,7 @@ def _translate_batch(api_key: str, model: str, items: list[str], target: str) ->
                 {"role": "user", "content": payload},
             ],
             model=model,
+            usage_kind="syllabus_translate",
             max_tokens=8000,
             temperature=0.1,
             timeout_sec=180,
@@ -216,9 +313,17 @@ def _translate_batch(api_key: str, model: str, items: list[str], target: str) ->
             m = _NUM_PREFIX.match(dst)
             if m and not _NUM_PREFIX.match(src):
                 dst = m.group(1).strip()
-            if not dst or dst == src:
+            # Model ba'zan tutuq belgisini ikkilab yozadi ("Yallig''lanish") —
+            # SQL qochirishiga o'xshaydi, lekin matnda hech qachon kerak emas.
+            dst = fix_doubled_apostrophes(dst)
+            if not dst:
                 continue
-            if looks_wrong_language(dst, target):
+            # O'zgarishsiz qaytgan nom — u ALLAQACHON shu tilda bo'lsa, to'g'ri tarjima ("Vitiligo" → en,
+            # ingliz guruhi fanining o'zbekcha nomi → uz). Ilgari bunday nom hech qachon saqlanmas, fan
+            # "tarjimasiz" bo'lib qolib, har kuni qayta so'ralardi (2026-11-12: 62 fan).
+            if dst == src and not already_in_language(dst, target):
+                continue
+            if looks_wrong_language(dst, target, src):
                 # Model boshqa tilda qaytardi (masalan "ru" so'ralganda
                 # inglizcha) — bunday "tarjima" saqlansa, interfeys butunlay
                 # noto'g'ri tilda ko'rinadi. Saqlamaymiz: asl sarlavha qoladi.
@@ -307,6 +412,12 @@ def ensure_uzbek_latin_source(db, syllabus, api_key: str, model: str) -> bool:
     Ruscha sillabusga tegmaydi. Maqsad: interfeysda o'zbekcha hech qachon
     kirillcha ko'rinmasin.
     """
+    # O'qituvchi o'zi yuklagan fan — uning asl matni. Uni fonda qayta yozish
+    # mavzularni nomi bo'yicha birlashtirishni buzardi (kirillcha Excel qayta
+    # yuklansa hamma mavzu "yangi" bo'lib qolardi) va orada saqlangan tahrir
+    # ustidan eski variantlarni yozib yuborishi mumkin edi.
+    if getattr(syllabus, "created_by", ""):
+        return False
     source_lang = (syllabus.instruction_language or "uz").strip().lower()
     titles = collect_topic_titles(syllabus)
     name = (syllabus.subject_name or "").strip()
@@ -387,7 +498,9 @@ def ensure_syllabus_translations(db, syllabus, langs: tuple[str, ...] = SUPPORTE
     # Saqlangan noto'g'ri tildagi tarjimalarni tozalaymiz — ular `instruction_language`
     # xato bo'lgan sillabuslarda paydo bo'lgan (masalan "ru" katagida inglizcha matn).
     for lang, mapping in list(topics_i18n.items()):
-        bad = [k for k, v in mapping.items() if looks_wrong_language(str(v or ""), lang)]
+        # Asl sarlavha (kalit) bilan: unda ham bor nomlar (Google Scholar, PubMed) tarjimani "lotincha"
+        # qilib qo'ymasin — aks holda to'g'ri tarjima har safar o'chirilib, qayta yaratilardi.
+        bad = [k for k, v in mapping.items() if looks_wrong_language(str(v or ""), lang, k)]
         if bad:
             logger.warning(
                 "Sillabus %s: %s ta noto'g'ri tildagi (%s) tarjima tozalandi",

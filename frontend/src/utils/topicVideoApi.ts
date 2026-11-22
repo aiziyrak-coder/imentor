@@ -1,6 +1,7 @@
 import { httpJson } from '../api/httpClient';
 import { unwrapPagedResults, type PagedResponse } from '../api/pagedResults';
 import { getBackendAccessToken } from './backendAuth';
+import { isStructuredTopicNorm } from './syllabusTopicContext';
 
 export type TopicVideo = {
   id: number;
@@ -10,8 +11,14 @@ export type TopicVideo = {
   youtube_id: string;
   youtube_url: string;
   embed_url: string;
+  /** youtube | gdrive | vimeo | rutube | mover | telegram | file | link (2026-11-19). */
+  provider?: string;
+  /** iframe — sayt pleyeri; video — HTML5 pleyer; link — faqat yangi oynada ochiladi. */
+  kind?: 'iframe' | 'video' | 'link';
   author_name: string;
   created_at: string;
+  /** Qo'shgan o'qituvchi yoki admin — o'chirish tugmasi faqat shunda. */
+  can_delete?: boolean;
 };
 
 function apiBaseUrl(): string {
@@ -23,6 +30,16 @@ function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
+function matchesTopic(row: TopicVideo, syllabusId: number, variantLabel: string, topicCode: string): boolean {
+  const norm = (row.topic_norm || '').trim().toLowerCase();
+  if (!isStructuredTopicNorm(norm)) return false;
+  const variant = (variantLabel || '').trim().toLowerCase() || 'asosiy';
+  const code = topicCode.trim().toLowerCase().replace(/\s+/g, '');
+  const expected = `${syllabusId}::${variant}::${code}`;
+  const emptyVariant = `${syllabusId}::::${code}`;
+  return norm === expected || (variant === 'asosiy' && norm === emptyVariant);
+}
+
 /** O'qituvchi: mavzu bo'yicha videolar (embed uchun) */
 export async function fetchTopicVideos(params: {
   syllabusId: number;
@@ -31,20 +48,78 @@ export async function fetchTopicVideos(params: {
 }): Promise<TopicVideo[]> {
   const token = await getBackendAccessToken();
   if (!token) return [];
+  const variantLabel = params.variantLabel.trim() || 'asosiy';
   const query = new URLSearchParams({
     syllabus_id: String(params.syllabusId),
-    variant_label: params.variantLabel,
+    variant_label: variantLabel,
     topic_code: params.topicCode,
   });
-  try {
-    const data = await httpJson<TopicVideo[]>(
-      `${apiBaseUrl()}/v1/topic-videos/?${query.toString()}`,
-      { headers: authHeaders(token), timeoutMs: 20000 },
-    );
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+  // Xato yutilmaydi: ilgari tarmoq xatosi bo'sh ro'yxat bo'lib qaytardi va
+  // o'qituvchi "videolarim o'chib ketdi" deb o'ylardi.
+  const data = await httpJson<TopicVideo[]>(
+    `${apiBaseUrl()}/v1/topic-videos/?${query.toString()}`,
+    { headers: authHeaders(token), timeoutMs: 20000 },
+  );
+  const rows = Array.isArray(data) ? data : [];
+  return rows.filter((row) => matchesTopic(row, params.syllabusId, variantLabel, params.topicCode));
+}
+
+/** O'qituvchi: mavzuga YouTube video qo'shadi (taqdimot yuklagani kabi). */
+export async function createTopicVideo(payload: {
+  syllabusId: number;
+  variantLabel: string;
+  topicCode: string;
+  topic: string;
+  title?: string;
+  youtubeUrl: string;
+}): Promise<TopicVideo> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  return httpJson<TopicVideo>(`${apiBaseUrl()}/v1/topic-videos/`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: {
+      syllabus_id: payload.syllabusId,
+      variant_label: payload.variantLabel.trim() || 'asosiy',
+      topic_code: payload.topicCode,
+      topic: payload.topic,
+      title: payload.title || '',
+      youtube_url: payload.youtubeUrl,
+    },
+    timeoutMs: 20000,
+  });
+}
+
+/** O'qituvchi: o'zi qo'shgan videoni o'chiradi (server boshqasinikini rad etadi). */
+export async function deleteTopicVideo(id: number): Promise<void> {
+  const token = await getBackendAccessToken();
+  if (!token) throw new Error('no-backend-token');
+  await httpJson<unknown>(`${apiBaseUrl()}/v1/topic-videos/${Number(id)}/`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+    timeoutMs: 20000,
+  });
+}
+
+/** YouTube havolasidan video ID (server ham xuddi shunday tekshiradi). */
+/** Video havolasi qabul qilinadimi (2026-11-19): YouTube yoki boshqa sayt (Google Drive, Vimeo, Telegram,
+ *  mover.uz, Rutube, .mp4) — http(s) havola. Aniq tekshiruv serverda. */
+export function videoUrlOk(url: string): boolean {
+  const s = url.trim();
+  return Boolean(youtubeIdFromUrl(s)) || /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}\/\S+$/i.test(s);
+}
+
+export const VIDEO_PROVIDER_LABEL: Record<string, string> = {
+  youtube: 'YouTube', gdrive: 'Google Drive', vimeo: 'Vimeo', rutube: 'Rutube', mover: 'mover.uz',
+  telegram: 'Telegram', file: 'Video fayl', link: 'Havola',
+};
+
+export function youtubeIdFromUrl(url: string): string {
+  const s = url.trim();
+  const m =
+    s.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/) ||
+    s.match(/^([A-Za-z0-9_-]{11})$/);
+  return m ? m[1] : '';
 }
 
 /** Admin: barcha videolar */

@@ -17,6 +17,15 @@ export type LiveTestSessionPayload = {
 
 export type StudentLiveTestSessionPayload = Omit<LiveTestSessionPayload, 'questions'> & {
   questions: StudentTestQuestion[];
+  /** Testga ajratilgan vaqt, soniya (0 — chegarasiz; eski server — undefined). */
+  timeLimitSec?: number;
+  /** Test tili (savollardan, server aniqlaydi): 'ru' | 'en' | 'uz' | ''. */
+  language?: string;
+  /** Mavzu nomi test tilida (tarjima bo'lmasa — asl nom). */
+  topicDisplay?: string;
+  /** "monitor" — savol monitorda, telefonda faqat variantlar (2026-11-12). */
+  mode?: 'monitor';
+  questionCount?: number;
 };
 
 export function stripQuestionsForStudent(questions: TestQuestion[]): StudentTestQuestion[] {
@@ -35,6 +44,31 @@ export type LiveTestSubmissionRow = {
   lastName: string;
   answers: number[];
   submittedAt: number;
+  /** Server hisoblagan ball — sessiyaning o'z kaliti bo'yicha (eski serverda yo'q). */
+  correct?: number;
+  total?: number;
+  /** Test ochiq paytida (2026-10-21): topshirdimi yoki hali yechmoqdami, nechta javob. Ball yo'q. */
+  status?: 'submitted' | 'in_progress' | 'time_over';
+  answered?: number;
+  /** Yechayotgan talabaning qolgan vaqti, soniya (2026-10-22). */
+  secondsLeft?: number | null;
+  /** Tahlilda (2026-10-22): test sahifasidan chiqishlar, tashqarida o'tgan vaqt, testga ketgan vaqt. */
+  awayCount?: number;
+  awaySec?: number;
+  durationSec?: number;
+  /** `left_app` | `fast` | `same_answers` */
+  flags?: string[];
+  /** Bir xil xato javob bergan talabalar. */
+  sameAs?: string[];
+};
+
+/** Talaba telefonida natija — o'qituvchi testni tahlilga yopgandan keyin. */
+export type LiveTestMyResult = {
+  ready: boolean;
+  submitted: boolean;
+  score?: number;
+  total?: number;
+  questions?: { question: string; options: string[]; correctIndex: number; answer: number; explanation: string }[];
 };
 
 export type LiveTestFinalizeResult = {
@@ -54,17 +88,63 @@ export function isPublicStudentTestUrl(): boolean {
   return p.get('mode') === 'student' && sid.length > 0;
 }
 
-export function getLiveTestParticipantKey(sessionKey: string): string {
-  const storageKey = `${PARTICIPANT_KEY_PREFIX}${sessionKey}`;
+/** `owner` — kirgan talaba: bitta telefondan ikki talaba yechsa, ular aralashmaydi. */
+export function getLiveTestParticipantKey(sessionKey: string, owner = ''): string {
+  const storageKey = `${PARTICIPANT_KEY_PREFIX}${sessionKey}${owner ? `:${owner}` : ''}`;
   try {
-    const existing = sessionStorage.getItem(storageKey);
-    if (existing) return existing;
+    // localStorage: sahifa yangi oynada qayta ochilsa ham talaba O'SHA
+    // ishtirokchi bo'lib qoladi. Ilgari kalit sessionStorage'da edi — har
+    // yangi oyna serverda alohida bo'sh qoralama ochardi va test yopilganda
+    // u ikkinchi "talaba" bo'lib 0 ball bilan qo'shilardi (2026-10-09).
+    const existing = localStorage.getItem(storageKey) || (owner ? null : sessionStorage.getItem(storageKey));
+    if (existing) {
+      localStorage.setItem(storageKey, existing);
+      return existing;
+    }
     const created = `lp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    sessionStorage.setItem(storageKey, created);
+    localStorage.setItem(storageKey, created);
     return created;
   } catch {
     return `lp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   }
+}
+
+const ANSWERS_PREFIX = 'imentor-live-test-answers-';
+
+/** Talaba belgilagan javoblar shu qurilmada saqlanadi — sahifa yangilansa ham yo'qolmaydi. */
+export function saveLocalLiveTestAnswers(sessionKey: string, answers: number[], owner = ''): void {
+  try {
+    localStorage.setItem(`${ANSWERS_PREFIX}${sessionKey}:${owner}`, JSON.stringify(answers));
+  } catch {
+    /* xotira to'lgan yoki yopiq — serverdagi qoralama baribir bor */
+  }
+}
+
+export function loadLocalLiveTestAnswers(sessionKey: string, questionCount: number, owner = ''): number[] | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`${ANSWERS_PREFIX}${sessionKey}:${owner}`) || 'null');
+    if (!Array.isArray(raw) || raw.length !== questionCount) return null;
+    return raw.map((v) => (Number.isInteger(v) && v >= 0 ? v : -1));
+  } catch {
+    return null;
+  }
+}
+
+export function clearLocalLiveTestAnswers(sessionKey: string, owner = ''): void {
+  try {
+    localStorage.removeItem(`${ANSWERS_PREFIX}${sessionKey}:${owner}`);
+  } catch {
+    /* ahamiyatsiz */
+  }
+}
+
+/** Ikki javob ro'yxati bir xilmi (holatni keraksiz yangilamaslik uchun). */
+export function sameAnswers(a: number[], b: number[]): boolean {
+  return a === b || (a.length === b.length && a.every((x, i) => x === b[i]));
+}
+
+export function countAnswered(answers: number[]): number {
+  return answers.filter((a) => a >= 0).length;
 }
 
 function apiBaseUrl(): string {
@@ -72,20 +152,71 @@ function apiBaseUrl(): string {
   return env?.VITE_API_BASE_URL?.trim() || '/api';
 }
 
-function mapSubmissionRows(
-  rows: Array<{
-    first_name: string;
-    last_name: string;
-    answers: number[];
-    submitted_at: string;
-  }>
-): LiveTestSubmissionRow[] {
+type ServerSubmissionRow = {
+  first_name: string;
+  last_name: string;
+  answers: number[];
+  correct?: number | null;
+  total?: number;
+  submitted_at: string | null;
+  status?: 'submitted' | 'in_progress' | 'time_over';
+  answered?: number;
+  seconds_left?: number | null;
+  away_count?: number;
+  away_sec?: number;
+  duration_sec?: number;
+  flags?: string[];
+  same_as?: string[];
+};
+
+function mapSubmissionRows(rows: ServerSubmissionRow[]): LiveTestSubmissionRow[] {
   return rows.map((r) => ({
     firstName: r.first_name,
     lastName: r.last_name,
     answers: Array.isArray(r.answers) ? r.answers : [],
-    submittedAt: Date.parse(r.submitted_at),
+    submittedAt: r.submitted_at ? Date.parse(r.submitted_at) : 0,
+    ...(typeof r.correct === 'number' && typeof r.total === 'number' ? { correct: r.correct, total: r.total } : {}),
+    ...(r.status ? { status: r.status, answered: r.answered ?? 0, total: r.total } : {}),
+    ...(r.seconds_left !== undefined ? { secondsLeft: r.seconds_left } : {}),
+    ...(Array.isArray(r.flags)
+      ? {
+          flags: r.flags,
+          sameAs: Array.isArray(r.same_as) ? r.same_as : [],
+          awayCount: r.away_count ?? 0,
+          awaySec: r.away_sec ?? 0,
+          durationSec: r.duration_sec ?? 0,
+        }
+      : {}),
   }));
+}
+
+/** Talaba: o'z natijasi va savollar tahlili (test yopilmaguncha `ready: false`). */
+export async function fetchMyLiveTestResult(sessionKey: string): Promise<LiveTestMyResult | null> {
+  const token = await getBackendAccessToken();
+  if (!token) return null;
+  const data = await httpJson<{
+    ready: boolean;
+    submitted: boolean;
+    score?: number;
+    total?: number;
+    questions?: { question: string; options: string[]; correct_index: number; answer: number; explanation: string }[];
+  }>(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/my-result/`, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeoutMs: 15000,
+  });
+  return {
+    ready: Boolean(data.ready),
+    submitted: Boolean(data.submitted),
+    score: data.score,
+    total: data.total,
+    questions: (data.questions || []).map((q) => ({
+      question: q.question,
+      options: Array.isArray(q.options) ? q.options : [],
+      correctIndex: q.correct_index,
+      answer: q.answer,
+      explanation: q.explanation || '',
+    })),
+  };
 }
 
 /** O‘qituvchi: sessiyani serverga yozadi (talaba QR boshqa qurilmada ochishi uchun). */
@@ -155,22 +286,45 @@ export async function fetchLiveTestSessionFromServer(
       created_at_ms: number;
       is_closed?: boolean;
       closed_at_ms?: number | null;
+      time_limit_sec?: number;
+      language?: string;
+      topic_display?: string;
+      mode?: string;
+      question_count?: number;
     }>(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/`, {
       timeoutMs: 30000,
     });
-    if (!data?.questions?.length) return null;
+    // Monitor rejimida savollar telefonga berilmaydi (2026-11-12) — ro'yxat bo'sh keladi.
+    const monitor = data?.mode === 'monitor';
+    if (!data?.questions?.length && !monitor) return null;
     return {
       topic: data.topic,
       questions: stripQuestionsForStudent(data.questions),
       createdAt: data.created_at_ms,
       isClosed: Boolean(data.is_closed),
       closedAtMs: data.closed_at_ms ?? null,
+      ...(typeof data.time_limit_sec === 'number' ? { timeLimitSec: data.time_limit_sec } : {}),
+      ...(data.language ? { language: data.language } : {}),
+      ...(data.topic_display ? { topicDisplay: data.topic_display } : {}),
+      ...(monitor ? { mode: 'monitor' as const, questionCount: data.question_count ?? 0 } : {}),
     };
   } catch (e) {
     if (e instanceof HttpError && e.status === 404) return null;
     throw e;
   }
 }
+
+export type LiveTestDraftResult = {
+  /** Serverda saqlangan javoblar (boshqa qurilma yoki oldingi oynadan). */
+  answers: number[];
+  /** Talaba allaqachon topshirgan yoki test yopilganda avtomatik topshirilgan. */
+  alreadySubmitted: boolean;
+  /** Vaqt chegarasi (2026-10-22): tugash payti va server soati — telefon soati noto'g'ri bo'lsa ham. */
+  deadlineMs: number | null;
+  serverNowMs: number | null;
+  /** Vaqt tugagan — javoblar endi o'zgarmaydi. */
+  expired: boolean;
+};
 
 /** Talaba: draft javoblarni serverga saqlaydi (JWT majburiy). */
 export async function upsertLiveTestDraftOnServer(
@@ -181,10 +335,16 @@ export async function upsertLiveTestDraftOnServer(
     lastName: string;
     answers: number[];
   }
-): Promise<void> {
+): Promise<LiveTestDraftResult> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  await httpJson(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/drafts/`, {
+  const data = await httpJson<{
+    answers?: number[];
+    already_submitted?: boolean;
+    deadline_ms?: number | null;
+    server_now_ms?: number | null;
+    expired?: boolean;
+  }>(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/drafts/`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: {
@@ -195,26 +355,65 @@ export async function upsertLiveTestDraftOnServer(
     },
     timeoutMs: 15000,
   });
+  return {
+    answers: Array.isArray(data?.answers) ? data.answers : [],
+    alreadySubmitted: Boolean(data?.already_submitted),
+    deadlineMs: typeof data?.deadline_ms === 'number' ? data.deadline_ms : null,
+    serverNowMs: typeof data?.server_now_ms === 'number' ? data.server_now_ms : null,
+    expired: Boolean(data?.expired),
+  };
 }
 
 /** Talaba: javoblarni serverga yuboradi (JWT majburiy). */
+/** Topshiriqni qayta yuborish oralig'i (ms): jami ~20 soniya — server qayta ishga tushishiga yetadi. */
+export const SUBMIT_RETRY_MS = [1500, 4000, 8000, 8000];
+
+/** Vaqtinchalik xato: server yo'q (502/503/504), tarmoq uzilgan yoki so'rov vaqti tugagan. */
+export function isTransientError(e: unknown): boolean {
+  if (e instanceof HttpError) return e.status === 0 || e.status === 502 || e.status === 503 || e.status === 504;
+  return e instanceof TypeError;
+}
+
 export async function submitLiveTestOnServer(
   sessionKey: string,
-  body: { participantKey?: string; firstName: string; lastName: string; answers: number[] }
+  body: {
+    participantKey?: string;
+    firstName: string;
+    lastName: string;
+    answers: number[];
+    started_at_ms?: number;
+    duration_sec?: number;
+  }
 ): Promise<void> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  await httpJson(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/submissions/`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: {
-      participant_key: body.participantKey || '',
-      first_name: body.firstName,
-      last_name: body.lastName,
-      answers: body.answers,
-    },
-    timeoutMs: 30000,
-  });
+  const send = () =>
+    httpJson(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/submissions/`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        participant_key: body.participantKey || '',
+        first_name: body.firstName,
+        last_name: body.lastName,
+        answers: body.answers,
+        started_at_ms: body.started_at_ms,
+        duration_sec: body.duration_sec,
+      },
+      timeoutMs: 30000,
+    });
+  // Server qayta ishga tushayotgan payt (502/503) yoki tarmoq uzilishi — bir necha marta
+  // qayta yuboriladi (2026-10-23: yangilash paytida bir daqiqada 80 ta topshiriq 502 oldi).
+  // Takror yuborish xavfsiz: server ikkinchisini "allaqachon topshirilgan" deb qabul qiladi.
+  for (const wait of SUBMIT_RETRY_MS) {
+    try {
+      await send();
+      return;
+    } catch (e) {
+      if (!isTransientError(e)) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  await send();
 }
 
 export type StudentMySubmissionRow = {
@@ -228,7 +427,8 @@ export type StudentMySubmissionRow = {
   firstName: string;
   lastName: string;
   answers: number[];
-  score: number;
+  /** O'qituvchi testni tahlilga yopmaguncha `null` (2026-10-21). */
+  score: number | null;
   total: number;
   submittedAt: number;
   isClosed: boolean;
@@ -249,8 +449,9 @@ export async function fetchMyLiveTestSubmissions(): Promise<StudentMySubmissionR
       first_name: string;
       last_name: string;
       answers: number[];
-      score?: number;
+      score?: number | null;
       total?: number;
+      result_ready?: boolean;
       submitted_at: string;
       is_closed: boolean;
     }>
@@ -269,7 +470,8 @@ export async function fetchMyLiveTestSubmissions(): Promise<StudentMySubmissionR
     firstName: r.first_name,
     lastName: r.last_name,
     answers: Array.isArray(r.answers) ? r.answers : [],
-    score: r.score ?? 0,
+    // Eski server `result_ready` yubormaydi — u holda ball darhol ko'rinadi.
+    score: r.result_ready === false || r.score == null ? null : r.score,
     total: r.total ?? 0,
     submittedAt: Date.parse(r.submitted_at),
     isClosed: Boolean(r.is_closed),
@@ -284,12 +486,7 @@ export async function finalizeLiveTestSessionOnServer(sessionKey: string): Promi
     is_closed: boolean;
     closed_at_ms?: number | null;
     auto_submitted: number;
-    submissions: Array<{
-      first_name: string;
-      last_name: string;
-      answers: number[];
-      submitted_at: string;
-    }>;
+    submissions: ServerSubmissionRow[];
   }>(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/finalize/`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
@@ -308,14 +505,8 @@ export async function fetchLiveTestSubmissionsFromServer(sessionKey: string): Pr
   const token = await getBackendAccessToken();
   if (!token) return [];
   try {
-    const rows = await httpJson<
-      Array<{
-        first_name: string;
-        last_name: string;
-        answers: number[];
-        submitted_at: string;
-      }>
-    >(`${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/submissions/`, {
+    const rows = await httpJson<ServerSubmissionRow[]>(
+      `${apiBaseUrl()}/v1/live-tests/${encodeURIComponent(sessionKey)}/submissions/`, {
       headers: { Authorization: `Bearer ${token}` },
       timeoutMs: 20000,
     });

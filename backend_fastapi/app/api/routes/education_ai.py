@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import json
+import queue
+import threading
+import logging
+import time
+import os
+import re
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, require_roles
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.core.throttling import throttle_education_ai, throttle_image_safety, _redis
 from app.schemas.education_ai import (
     EducationAiBookReferencesRequest,
     EducationAiBookReferencesResponse,
@@ -16,15 +26,83 @@ from app.schemas.education_ai import (
     EducationAiCaseContextResponse,
     EducationAiCompletionRequest,
     EducationAiCompletionResponse,
+    EducationAiImageSafetyRequest,
+    EducationAiImageSafetyResponse,
+    EducationAiLectureContextRequest,
+    EducationAiLectureContextResponse,
 )
 from app.services import book_retrieval as rag
+from app.services import image_safety
+from app.services import protocol_library as protocols
 from app.services import external_literature as extlit
 from app.services import openai_client as oai
 from app.services.education_ai_utils import clip_education_messages
+from app.services.file_storage import media_root
 
 router = APIRouter()
+logger = logging.getLogger("imentor.education_ai")
+
+AI_CACHE_TTL_SECONDS = 60 * 60 * 24 * 14
+AI_MAX_OUTPUT_TOKENS = oai.ECONOMY_MAX_OUTPUT_TOKENS
+AI_STREAM_MAX_OUTPUT_TOKENS = oai.ECONOMY_MAX_OUTPUT_TOKENS
 
 STAFF_ROLES = ("admin", "klinika_admin", "hodim")
+
+
+def _economy_model(requested: str, settings, purpose: str | None = None) -> str:
+    """iMentor ommaviy ishlatiladi: AI generatsiyalar eng arzon modelda yuradi.
+
+    Istisno — test savollari (`openai_client.model_for`): model so'rovdan
+    emas, VAZIFADAN tanlanadi, ya'ni brauzer qimmatroq model so'ray olmaydi.
+    """
+    from app.services.openai_client import model_for
+
+    return model_for(purpose)
+
+
+def _clamped_tokens(value: int, *, stream: bool = False) -> int:
+    limit = AI_STREAM_MAX_OUTPUT_TOKENS if stream else AI_MAX_OUTPUT_TOKENS
+    return max(256, min(int(value or limit), limit))
+
+
+def _cache_key(auth: AuthContext, payload: EducationAiCompletionRequest, messages: list[dict], *, stream: bool = False) -> str:
+    body = {
+        "stream": stream,
+        "version": 2,
+        "owner": auth.user.username,
+        "model": _economy_model(payload.model, None, payload.purpose),
+        "purpose": payload.purpose,
+        "messages": messages,
+        "subject_code": payload.subject_code.strip(),
+        "topic_query": payload.topic_query.strip(),
+        "response_format": payload.response_format,
+        "temperature": round(float(payload.temperature or 0.35), 2),
+        "max_tokens": _clamped_tokens(payload.max_tokens, stream=stream),
+    }
+    raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "education_ai:cache:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _cache_get(key: str) -> dict | None:
+    try:
+        raw = _redis().get(key)
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
+def _cache_set(key: str, value: dict) -> None:
+    try:
+        _redis().setex(key, AI_CACHE_TTL_SECONDS, json.dumps(value, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _validated_messages(messages):
+    try:
+        return clip_education_messages(messages)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _release_db(db: Session) -> None:
@@ -43,12 +121,92 @@ def _release_db(db: Session) -> None:
         pass
 
 
+def _protocol_message(db: Session, subject_code: str, topic_query: str, api_key: str) -> tuple[str, list[dict]]:
+    """Kafedra protokollari (milliy klinik protokol, SanPin, SSV buyrug'i) — majburiy manba.
+
+    Kafedra "javoblar bizning davolash protokollarimizga to'g'ri kelmayapti" deb
+    shikoyat qilgan (2026-09-24). Endi kafedrada protokol bo'lsa, u darslik
+    parchalaridan OLDIN qo'yiladi va ziddiyatda ustun deb ko'rsatiladi.
+    """
+    if not subject_code or not topic_query:
+        return "", []
+    try:
+        dept_id = rag.resolve_book_department_id(db, subject_code)
+        if not protocols.has_protocols(db, dept_id):
+            return "", []
+        chunks = protocols.retrieve(db, department_id=dept_id, queries=[topic_query], api_key=api_key)
+    except Exception:  # noqa: BLE001 — protokol topilmasa generatsiya to'xtamaydi
+        logger.exception("protokol konteksti olinmadi")
+        return "", []
+    block = protocols.context_block(chunks)
+    refs = [{"title": c["title"], "kind": "protocol"} for c in chunks]
+    return block, refs
+
+
+#: Test yaratishni so'ray oladigan eng eski brauzer versiyasi (2026-10-21, xarajat).
+#: Eski build testni savollar bazasisiz, har safar to'liq generatsiya bilan yaratadi
+#: (testga ~3 generatsiya + 2.5 tekshiruv chaqiruvi) va "yangilang" bannerini
+#: e'tiborsiz qoldirgan oynalar kun bo'yi shunday ishlardi. `IMENTOR_MIN_CLIENT=0` — o'chirish.
+MIN_CLIENT = int(os.environ.get("IMENTOR_MIN_CLIENT") or 5)
+
+
+def require_current_client(request: Request, purpose: str) -> None:
+    if MIN_CLIENT <= 0 or not (purpose or "").startswith("test_generate"):
+        return
+    try:
+        client = int(request.headers.get("x-imentor-client") or 0)
+    except ValueError:
+        client = 0
+    if client < MIN_CLIENT:
+        raise HTTPException(
+            status_code=426,
+            detail="iMentor yangilandi — test yaratish uchun sahifani yangilang (F5).",
+        )
+
+
+#: Xarajat tahlili uchun so'rov namunalari (2026-10-22). Papka yo'q bo'lsa — hech narsa
+#: yozilmaydi (odatiy holat). Yoqish: media YONIDA (ichida emas) `prompt_samples/` papkasini
+#: ochish; har maqsaddan ko'pi bilan PROMPT_SAMPLE_LIMIT ta namuna, keyin papka o'chiriladi.
+#: 2026-10-23: papka media ichida edi — nginx `/media/` ni ochiq beradi, namunalarda esa
+#: o'qituvchilarning to'liq so'rovlari bor.
+PROMPT_SAMPLE_LIMIT = 12
+
+
+def _sample_prompt(payload, messages: list[dict], model: str, username: str = "") -> None:
+    try:
+        folder = Path(media_root()).resolve().parent / "prompt_samples"
+        if not folder.is_dir():
+            return
+        purpose = re.sub(r"[^a-z0-9_]", "", (payload.purpose or "chat").lower())[:40] or "chat"
+        # Papkadagi LIMIT fayli bilan ko'proq namuna (bir test yaratilishidagi chaqiruvlar zanjiri uchun).
+        try:
+            limit = int((folder / "LIMIT").read_text().strip())
+        except (OSError, ValueError):
+            limit = PROMPT_SAMPLE_LIMIT
+        if len(list(folder.glob(f"{purpose}-*.json"))) >= limit:
+            return
+        sample = {"purpose": purpose, "model": model, "max_tokens": getattr(payload, "max_tokens", None),
+                  "temperature": getattr(payload, "temperature", None),
+                  "response_format": getattr(payload, "response_format", None), "messages": messages,
+                  # Kim (xesh) va qachon — bitta test yaratilishidagi chaqiruvlarni guruhlash uchun.
+                  "who": hashlib.sha1(username.encode()).hexdigest()[:10] if username else "",
+                  "at": dt.datetime.now(dt.timezone.utc).isoformat()}
+        name = f"{purpose}-{dt.datetime.now(dt.timezone.utc):%H%M%S%f}.json"
+        (folder / name).write_text(json.dumps(sample, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001 — tahlil yordamchisi so'rovni hech qachon to'xtatmaydi
+        pass
+
+
 @router.post("/education-ai/completion/", response_model=EducationAiCompletionResponse)
 def education_ai_completion(
     payload: EducationAiCompletionRequest,
+    request: Request,
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    _: None = Depends(throttle_education_ai),
 ) -> EducationAiCompletionResponse:
+    require_current_client(request, payload.purpose or "")
+    started = time.monotonic()
     settings = get_settings()
     api_key = settings.openai_api_key.strip()
     if not api_key:
@@ -57,37 +215,150 @@ def education_ai_completion(
             detail="OpenAI API kaliti serverda sozlanmagan.",
         )
 
-    messages = clip_education_messages(payload.messages)
+    messages = _validated_messages(payload.messages)
     if not messages:
         raise HTTPException(status_code=400, detail="Xabarlar bo'sh.")
 
     subject_code = payload.subject_code.strip()
     topic_query = payload.topic_query.strip()
     book_references: list[dict] = []
-    if subject_code and topic_query:
+    book_fragments: list[dict] = []
+    strict_done = False
+    if subject_code and topic_query and (payload.purpose or "") in rag.STRICT_TEST_PURPOSES:
+        # Test — FAQAT yuklangan kitob va protokol parchalaridan, har savol parcha raqami bilan (2026-11-18).
+        # Avval mavzuga tegishli parchalar saralanadi; ular kam bo'lsa — avvalgi (yumshoq) tartib.
+        candidates = rag.retrieve_book_context(db, subject_code, topic_query, top_k=rag.STRICT_BOOK_TOP_K)
+        proto_chunks: list[dict] = []
+        if candidates:
+            try:
+                dept_id = rag.resolve_book_department_id(db, subject_code)
+                if protocols.has_protocols(db, dept_id):
+                    proto_chunks = protocols.retrieve(db, department_id=dept_id, queries=[topic_query], api_key=api_key)
+            except Exception:  # noqa: BLE001 — protokol topilmasa ham test yoziladi
+                logger.exception("protokol konteksti olinmadi")
+        # Saralash — AI chaqiruvi (2–4 s): shu vaqt bazaga ulanish band turmasin.
+        _release_db(db)
+        chunks = rag.relevant_chunks(api_key, topic_query, candidates)
+        if len(chunks) >= rag.MIN_RELEVANT_FRAGMENTS:
+            strict_message, book_fragments = rag.strict_fragments_message(chunks, proto_chunks)
+            if strict_message:
+                messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": strict_message}] + [m for m in messages if m.get("role") != "system"]
+                book_references = rag.book_references_from_chunks(chunks)
+                strict_done = True
+    if subject_code and topic_query and not strict_done:
         chunks = rag.retrieve_book_context(db, subject_code, topic_query)
         context_message = rag.format_book_context_message(chunks)
         if context_message:
-            messages = [{"role": "system", "content": context_message}] + messages
+            messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": context_message}] + [m for m in messages if m.get("role") != "system"]
             book_references = rag.book_references_from_chunks(chunks)
+        protocol_block, protocol_refs = _protocol_message(db, subject_code, topic_query, api_key)
+        if protocol_block:
+            # Protokol darslikdan KEYIN qo'shiladi — ya'ni modelga oxirgi va eng kuchli ko'rsatma.
+            messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": protocol_block}] + [m for m in messages if m.get("role") != "system"]
+            book_references = protocol_refs + book_references
+    messages = _validated_messages(messages)
 
     _release_db(db)
 
-    model = payload.model.strip() or settings.openai_chat_model
+    model = _economy_model(payload.model, settings, payload.purpose)
+    _sample_prompt(payload, messages, model, auth.user.username)
+    prepared = time.monotonic()
     try:
         content = oai.generate_openai_chat(
             api_key,
             messages=messages,
             model=model,
-            max_tokens=payload.max_tokens,
-            temperature=payload.temperature,
-            timeout_sec=280,
+            max_tokens=_clamped_tokens(payload.max_tokens),
+            temperature=min(float(payload.temperature or 0.35), 0.7),
+            timeout_sec=oai.timeout_for(payload.purpose),
             response_format=payload.response_format,
+            usage_kind=payload.purpose or "chat",
         )
     except oai.OpenAiClientError as e:
+        logger.info("AI_TIMING purpose=%s user=%s rag=%.1f ai=%.1f status=error", payload.purpose or "chat",
+                    auth.user.username, prepared - started, time.monotonic() - prepared)
         raise HTTPException(status_code=502, detail=str(e))
+    # Bosqich vaqtlari (2026-11-19, "test yaratish aylanib turibdi"): o'qituvchi ketma-ketligini shu qatorlardan
+    # tiklab, qaysi bosqich cho'zilganini ko'rish mumkin (kitob saralash `rag`, model javobi `ai`).
+    logger.info("AI_TIMING purpose=%s user=%s rag=%.1f ai=%.1f chars=%d", payload.purpose or "chat", auth.user.username,
+                prepared - started, time.monotonic() - prepared, len(content or ""))
 
-    return EducationAiCompletionResponse(content=content, book_references=book_references)
+    return EducationAiCompletionResponse(content=content, book_references=book_references,
+                                         book_fragments=book_fragments)
+
+
+IMAGE_SAFETY_MAX_CHARS = 1_500_000
+
+
+@router.post("/education-ai/image-safety/", response_model=EducationAiImageSafetyResponse)
+def education_ai_image_safety(
+    payload: EducationAiImageSafetyRequest,
+    auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    _: None = Depends(throttle_image_safety),
+) -> EducationAiImageSafetyResponse:
+    """Slayd rasmini odob bo'yicha tekshirish (`image_safety`). Brauzer har
+    rasmni slaydga qo'yishdan OLDIN shu yerdan o'tkazadi."""
+    for image in [*payload.images, *payload.thumbs]:
+        if not image.startswith("data:image/") or len(image) > IMAGE_SAFETY_MAX_CHARS:
+            raise HTTPException(status_code=400, detail="Rasm data:image/... ko'rinishida va 1.5 MB dan kichik bo'lsin.")
+    api_key = get_settings().openai_api_key.strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI API kaliti serverda sozlanmagan.")
+    results = image_safety.check_images(api_key, payload.images, payload.topic.strip(), payload.thumbs)
+    for r in results:
+        if not r.get("safe"):
+            logger.warning(
+                "image_safety: rasm rad etildi user=%s sexual=%s context=%r",
+                auth.user.username, r.get("sexual"), payload.context[:120],
+            )
+        elif r.get("relevant") is False:
+            logger.info("image_safety: mavzuga mos emas context=%r", payload.context[:120])
+    return EducationAiImageSafetyResponse(results=results)
+
+
+#: Oqimda shu soniyadan ko'p jimlik bo'lsa mijozga SSE izoh (": ping")
+#: yuboriladi. Host nginx 300 s jim ulanishni uzadi; OpenAI'ga qayta urinish
+#: (ulanish + kutish + pauza) shu oraliqda ko'rinmas o'tishi kerak.
+STREAM_KEEPALIVE_SECONDS = 15
+
+
+def _with_keepalive(make_stream):
+    """Oqimni fon oqimida o'qiydi: ("text", bo'lak), jimlikda ("ping", None),
+    xatoda ("error", xabar) qaytaradi."""
+    q: queue.Queue = queue.Queue()
+    stop = threading.Event()
+
+    def worker():
+        try:
+            stream = make_stream()
+            for delta in stream:
+                if stop.is_set():
+                    # Mijoz ketdi — OpenAI oqimi yopiladi, token behuda sarflanmaydi.
+                    stream.close()
+                    return
+                q.put(("text", delta))
+            q.put(("done", None))
+        except oai.OpenAiClientError as e:
+            q.put(("error", str(e)))
+        except Exception as e:  # noqa: BLE001 — oqim osilib qolmasin
+            logger.warning("AI stream worker xatosi", exc_info=True)
+            q.put(("error", str(e) or "AI stream failed. Please retry."))
+
+    threading.Thread(target=worker, daemon=True).start()
+    try:
+        while True:
+            try:
+                kind, value = q.get(timeout=STREAM_KEEPALIVE_SECONDS)
+            except queue.Empty:
+                yield "ping", None
+                continue
+            if kind == "done":
+                return
+            yield kind, value
+            if kind == "error":
+                return
+    finally:
+        stop.set()
 
 
 @router.post("/education-ai/completion/stream/")
@@ -95,6 +366,7 @@ def education_ai_completion_stream(
     payload: EducationAiCompletionRequest,
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    _: None = Depends(throttle_education_ai),
 ) -> StreamingResponse:
     """`/education-ai/completion/` bilan bir xil, lekin javobni SSE orqali
     oqim (stream) sifatida qaytaradi — frontend matnni generatsiya bo'lgan
@@ -107,7 +379,7 @@ def education_ai_completion_stream(
             detail="OpenAI API kaliti serverda sozlanmagan.",
         )
 
-    messages = clip_education_messages(payload.messages)
+    messages = _validated_messages(payload.messages)
     if not messages:
         raise HTTPException(status_code=400, detail="Xabarlar bo'sh.")
 
@@ -118,29 +390,54 @@ def education_ai_completion_stream(
         chunks = rag.retrieve_book_context(db, subject_code, topic_query)
         context_message = rag.format_book_context_message(chunks)
         if context_message:
-            messages = [{"role": "system", "content": context_message}] + messages
+            messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": context_message}] + [m for m in messages if m.get("role") != "system"]
             book_references = rag.book_references_from_chunks(chunks)
+        protocol_block, protocol_refs = _protocol_message(db, subject_code, topic_query, api_key)
+        if protocol_block:
+            # Protokol darslikdan KEYIN qo'shiladi — ya'ni modelga oxirgi va eng kuchli ko'rsatma.
+            messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": protocol_block}] + [m for m in messages if m.get("role") != "system"]
+            book_references = protocol_refs + book_references
+    messages = _validated_messages(messages)
 
     # Stream javobida `Depends(get_db)` tozalanishi butun oqim tugagunicha
     # kechikadi — ulanishni shu yerda qo'lda qaytaramiz.
     _release_db(db)
 
-    model = payload.model.strip() or settings.openai_chat_model
+    # Model vazifadan tanlanadi (oddiy completion bilan bir xil). Ilgari bu yerda
+    # brauzer yuborgan nom ishlatilardi — ma'ruza doim nano'da qolardi.
+    model = _economy_model(payload.model, settings, payload.purpose)
+    _sample_prompt(payload, messages, model, auth.user.username)
+
+    stream_key = _cache_key(auth, payload, messages, stream=True)
+    # Generatsiya keshlanmaydi: aks holda "Qayta yaratish" 14 kun davomida
+    # o'sha ma'ruzani qaytarardi (o'qituvchi yomon matnni almashtira olmasdi).
+    use_cache = not (payload.purpose or "").endswith("_generate")
 
     def _gen():
-        try:
-            for delta in oai.stream_openai_chat(
-                api_key,
-                messages=messages,
-                model=model,
-                max_tokens=payload.max_tokens,
-                temperature=payload.temperature,
-                timeout_sec=280,
-            ):
-                yield f"data: {json.dumps({'delta': delta})}\n\n"
-        except oai.OpenAiClientError as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        cached = _cache_get(stream_key) if use_cache else None
+        if cached and cached.get("content"):
+            yield f"data: {json.dumps({'delta': cached['content']})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'book_references': book_references})}\n\n"
             return
+        parts = []
+        for kind, value in _with_keepalive(lambda: oai.stream_openai_chat(
+            api_key,
+            messages=messages,
+            model=model,
+            max_tokens=payload.max_tokens,
+            temperature=payload.temperature,
+            usage_kind=payload.purpose or "chat_stream",
+        )):
+            if kind == "ping":
+                yield ": ping\n\n"
+            elif kind == "error":
+                yield f"data: {json.dumps({'error': value})}\n\n"
+                return
+            else:
+                parts.append(value)
+                yield f"data: {json.dumps({'delta': value})}\n\n"
+        if parts and use_cache:
+            _cache_set(stream_key, {"content": "".join(parts)})
         yield f"data: {json.dumps({'done': True, 'book_references': book_references})}\n\n"
 
     return StreamingResponse(
@@ -160,6 +457,7 @@ def education_ai_book_references(
     payload: EducationAiBookReferencesRequest,
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    _: None = Depends(throttle_education_ai),
 ) -> EducationAiBookReferencesResponse:
     subject_code = payload.subject_code.strip()
     queries = [str(q or "") for q in payload.queries][:40]
@@ -200,11 +498,101 @@ def _english_search_keywords(api_key: str, model: str, topic: str) -> str:
         return topic
 
 
+#: `prefer_books` da tashqi manba o'tkazib yuboriladigan eng kam kitob parchasi soni.
+MIN_BOOK_SOURCES_FOR_BOOK_ONLY = 3
+
+#: Ma'ruza: har reja bandi uchun nechta kitob parchasi va nechta jurnal maqolasi.
+LECTURE_BOOK_CHUNKS_PER_SECTION = 3
+LECTURE_JOURNALS = 4
+
+
+@router.post("/education-ai/lecture-context/", response_model=EducationAiLectureContextResponse)
+def education_ai_lecture_context(
+    payload: EducationAiLectureContextRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    _: None = Depends(throttle_education_ai),
+) -> EducationAiLectureContextResponse:
+    """Ma'ruza manbalari (2026-10-21), AI matn yozmaydi — faqat qidiruv.
+
+    Rektor talabi: avval mavzu rejasi, keyin HAR reja bandi bo'yicha batafsil
+    matn; har fakt kitobdan, sahifasi bilan; xalqaro jurnaldan olingani
+    havola bilan. Ilgari butun mavzu uchun bitta qidiruv bo'lardi — ko'p bo'lim
+    manbasiz qolardi. Endi har band alohida qidiriladi, takror parcha bir
+    marta (birinchi bandda) beriladi.
+    """
+    settings = get_settings()
+    api_key = settings.openai_api_key.strip()
+    topic = payload.topic.strip()
+    subject_code = payload.subject_code.strip()
+    plan = [str(p or "").strip()[:200] for p in payload.plan if str(p or "").strip()][:14]
+
+    sections: list[dict] = []
+    protocols_out: list[dict] = []
+    if subject_code:
+        queries = [f"{topic}. {item}" for item in plan] or [topic]
+        try:
+            per_query = rag.retrieve_book_context_many(
+                db, subject_code, queries, top_k=LECTURE_BOOK_CHUNKS_PER_SECTION
+            )
+        except Exception:  # noqa: BLE001 — manba topilmasa ma'ruza baribir yoziladi
+            logger.exception("ma'ruza: kitob parchalari olinmadi")
+            per_query = []
+        seen: set[str] = set()
+        n = 0
+        for item, chunks in zip(plan or [topic], per_query or [[] for _ in queries]):
+            rows = []
+            for c in chunks or []:
+                text = str((c or {}).get("text") or "").strip()
+                key = text[:160]
+                if not text or key in seen:
+                    continue
+                seen.add(key)
+                n += 1
+                page = rag._real_page(c.get("page"))
+                rows.append({
+                    "id": f"K{n}",
+                    "type": "book",
+                    "title": rag.clean_book_title(str(c.get("book_title") or "")) or str(c.get("book_title") or ""),
+                    "page": str(page) if page else "",
+                    "text": text[:900],
+                })
+            sections.append({"title": item, "sources": rows})
+        if api_key:
+            try:
+                dept_id = rag.resolve_book_department_id(db, subject_code)
+                if protocols.has_protocols(db, dept_id):
+                    for i, c in enumerate(protocols.retrieve(db, department_id=dept_id, queries=queries[:6],
+                                                             api_key=api_key)[:4], 1):
+                        protocols_out.append({"id": f"P{i}", "title": c.get("title", ""),
+                                              "text": str(c.get("text") or "").strip()[:900]})
+            except Exception:  # noqa: BLE001
+                logger.exception("ma'ruza: protokollar olinmadi")
+    else:
+        sections = [{"title": item, "sources": []} for item in plan]
+
+    _release_db(db)
+
+    journals: list[dict] = []
+    if payload.journals:
+        keywords = _english_search_keywords(api_key, settings.openai_fast_model, topic) if api_key else topic
+        try:
+            found = extlit.dedupe_external_sources(extlit.search_pubmed(keywords, retmax=6, prefer_core=True))
+        except Exception:  # noqa: BLE001
+            found = []
+        for i, e in enumerate([x for x in found if x.get("url")][:LECTURE_JOURNALS], 1):
+            journals.append({"id": f"J{i}", "title": e.get("title", ""), "journal": e.get("journal", ""),
+                             "year": str(e.get("year", "") or ""), "url": e.get("url", ""),
+                             "text": str(e.get("abstract") or "")[:900]})
+    return EducationAiLectureContextResponse(sections=sections, protocols=protocols_out, journals=journals)
+
+
 @router.post("/education-ai/case-context/", response_model=EducationAiCaseContextResponse)
 def education_ai_case_context(
     payload: EducationAiCaseContextRequest,
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(require_roles(*STAFF_ROLES)),
+    _: None = Depends(throttle_education_ai),
 ) -> EducationAiCaseContextResponse:
     """Klinik keys generatsiyasi uchun RAG kontekst: kitob chunk'lari
     (mavjud bo'lsa) + PubMed/Semantic Scholar'dan REAL maqolalar — barchasi
@@ -220,7 +608,7 @@ def education_ai_case_context(
 
     if subject_code and api_key:
         try:
-            chunks = rag.retrieve_book_context(db, subject_code, topic, top_k=6)
+            chunks = rag.retrieve_book_context(db, subject_code, topic, top_k=8)
         except Exception:
             chunks = []
         for c in chunks:
@@ -241,17 +629,27 @@ def education_ai_case_context(
     # DB kerak emas, ulanishni pool'ga qaytaramiz.
     _release_db(db)
 
-    keywords = topic
-    if api_key:
-        keywords = _english_search_keywords(api_key, settings.openai_fast_model, topic)
+    # Kitob yetarli (kamida MIN_BOOK_SOURCES_FOR_BOOK_ONLY) topilgan bo'lsa va fan bemorsiz bo'lsa,
+    # tashqi jurnal qidirilmaydi: bu OpenAI chaqiruvini ham, PubMed/Scholar so'rovlarini ham tejaydi.
+    book_count = sum(1 for s in sources if s.get("type") == "book")
+    skip_external = payload.prefer_books and book_count >= MIN_BOOK_SOURCES_FOR_BOOK_ONLY
+    # 2026-11-18 (kafedralar: "biz yuklagan kitoblardan yaratsin, ortiqcha ochiq manbalar kerak emas"):
+    # keysga PubMed / Semantic Scholar maqolalari endi qo'shilmaydi — faqat kafedra kitoblari.
+    # Qaytarish: `.env` IMENTOR_CASE_EXTERNAL_SOURCES=1.
+    if os.environ.get("IMENTOR_CASE_EXTERNAL_SOURCES", "0") != "1":
+        skip_external = True
 
-    # Kitob (ichki) manbalar bilan bir qatorda tashqi internetdan ham (PubMed,
-    # Semantic Scholar, Wikipedia) REAL manbalar yig'iladi — foydalanuvchi
-    # so'roviga ko'ra endi faqat "ichki adabiyot" bilan cheklanmaydi.
-    pubmed = extlit.search_pubmed(keywords, retmax=5)
-    scholar = extlit.search_semantic_scholar(keywords, limit=5)
-    wikipedia = extlit.search_wikipedia(keywords, limit=3)
-    external = extlit.dedupe_external_sources(pubmed + scholar + wikipedia)
+    external: list[dict] = []
+    if not skip_external:
+        keywords = topic
+        if api_key:
+            keywords = _english_search_keywords(api_key, settings.openai_fast_model, topic)
+
+        # Kitob (yuklangan darslik) + xalqaro jurnallar (PubMed Lancet/NEJM/JAMA/BMJ/Cochrane).
+        # Wikipedia keys uchun olinmaydi — saviya past va mavzuga mos kelmasligi mumkin.
+        pubmed = extlit.search_pubmed(keywords, retmax=8, prefer_core=True)
+        scholar = extlit.search_semantic_scholar(keywords, limit=4)
+        external = extlit.dedupe_external_sources(pubmed + scholar)
 
     for e in external:
         if e["type"] == "pubmed":

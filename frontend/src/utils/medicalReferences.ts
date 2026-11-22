@@ -10,8 +10,10 @@ export interface MedicalReference {
   /** Darslik sahifalari ("114" yoki "114-118, 220"). Faqat kitob manbalarida. */
   pages?: string;
   note?: string;
-  /** Keys matnidagi [n] iqtibos raqami (manba ro'yxati bilan moslash uchun). */
   citeIndex?: number;
+  /** Ko'rinish: kitob vs jurnal gipersilkasi. */
+  /** `protocol` — kafedra kutubxonasidagi me'yoriy hujjat (protokol, SanPin, standart): jurnal emas. */
+  kind?: 'book' | 'protocol' | 'pubmed' | 'scholar' | 'wikipedia' | 'journal';
 }
 
 const TRUSTED_HOSTS = [

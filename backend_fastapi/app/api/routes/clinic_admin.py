@@ -22,7 +22,7 @@ from app.schemas.clinical_group import (
     ClinicalGroupPaymentOut,
     ClinicalGroupPaymentPatch,
 )
-from app.services import auth_service, clinical_group_service as svc
+from app.services import auth_service, clinical_group_service as svc, user_security
 from app.services.pagination import paginate
 
 router = APIRouter()
@@ -81,19 +81,38 @@ def _require_clinic(db: Session, auth: AuthContext) -> ClinicalGroup:
 
 
 def _provision_user(
-    db: Session, phone: str, password: str, role: str, first_name: str, last_name: str
+    db: Session, phone: str, password: str, role: str, first_name: str, last_name: str,
+    *, clinic: ClinicalGroup | None = None,
 ) -> tuple[User, bool]:
+    """Hisob ochadi yoki yangilaydi.
+
+    `clinic` berilsa (klinika administratori chaqiradi) — MAVJUD hisob faqat shu klinikaning
+    a'zosi bo'lsa va admin bo'lmasa o'zgartiriladi (2026-10-23 auditi: klinika administratori
+    istalgan telefon raqamini yozib, o'qituvchi yoki bosh admin parolini almashtira olardi).
+    """
     user = auth_service.get_user_by_username(db, phone)
     created = user is None
+    if user is not None and clinic is not None:
+        member = db.execute(
+            select(ClinicalGroupMember).where(
+                ClinicalGroupMember.clinic_id == clinic.id, ClinicalGroupMember.owner_key == phone
+            )
+        ).scalar_one_or_none()
+        current = auth_service.resolve_user_role_from_db(db, user)
+        if member is None or user.is_superuser or current in ("admin", "klinika_admin"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bu raqam bilan hisob allaqachon bor va u klinikangiz xodimi emas. Administratorga murojaat qiling.",
+            )
     if user is None:
         user = auth_service.create_user(db, phone, password, first_name, last_name)
     else:
         user.password = hash_password(password)
+        user_security.revoke_tokens(db, user)  # eski parol bilan ochilgan sessiyalar yopiladi
         user.first_name = first_name or user.first_name
         user.last_name = last_name or user.last_name
-    role_to_set = role
-    if role_to_set == "admin" and phone not in auth_service.demo_admin_phone_allowlist():
-        role_to_set = "hodim"
+    # Klinika administratori admin tayinlay olmaydi (2026-11-17, D3).
+    role_to_set = "hodim" if role == "admin" else role
     auth_service.set_user_role_group(db, user, role_to_set)
     return user, created
 
@@ -185,7 +204,8 @@ def clinic_admin_create_member(
     if len(digits) != 12 or not digits.startswith("998"):
         raise HTTPException(status_code=400, detail="Telefon 998XXXXXXXXX formatida bo'lishi kerak.")
 
-    user, _ = _provision_user(db, digits, payload.password, payload.app_role, payload.first_name, payload.last_name)
+    user, _ = _provision_user(db, digits, payload.password, payload.app_role, payload.first_name, payload.last_name,
+                              clinic=clinic)
     member = svc.upsert_clinic_member(
         db,
         clinic,
@@ -272,8 +292,10 @@ def clinic_admin_delete_member(
 
     svc.deactivate_clinic_member(db, clinic, member.owner_key)
     user = auth_service.get_user_by_username(db, member.owner_key)
-    if user is not None and not user.is_superuser:
-        db.delete(user)
+    # Hisob o'chirilmaydi, faqat yopiladi (2026-10-23): butunlay o'chirish uning materiallari va
+    # natijalarini ham olib ketishi mumkin edi; admin va boshqa rollarga umuman tegilmaydi.
+    if user is not None and not user.is_superuser and auth_service.resolve_user_role_from_db(db, user) == "hodim":
+        user.is_active = False
     db.commit()
 
 

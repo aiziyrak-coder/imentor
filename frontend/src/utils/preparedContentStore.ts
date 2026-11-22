@@ -1,7 +1,7 @@
 import { getCurrentLocalUser } from './localStaffAuth';
 import { HttpError, httpJson } from '../api/httpClient';
 import { getBackendAccessToken } from './backendAuth';
-import { topicNormLookupKeys } from './syllabusTopicContext';
+import { topicNormLookupKeys, topicNormsOverlap } from './syllabusTopicContext';
 import type { SyllabusTopic } from '../services/aiService';
 import type { SyllabusTopicContext } from './syllabusTopicContext';
 
@@ -22,8 +22,13 @@ export type PreparedContentSummary = {
   topicNorm?: string;
   createdAt: number;
   source: 'local' | 'cloud';
-  /** Kim yaratgan — Baza ro'yxatida ko'rsatiladi. */
+  /** Kim yaratgan — versiyalar ro'yxatida ko'rsatiladi. */
   author?: string;
+  /** Faqat server `can_delete: true` desa o'chirish tugmasi chiqadi (bulutdagi yozuvlarda). */
+  canDelete?: boolean;
+  /** Bo'sh bo'lmasa — material eskirgan (masalan klinik bo'lmagan fanga bemor
+   *  ssenariysi bilan yozilgan). Tarixda ko'rinadi, lekin avtomatik ochilmaydi. */
+  retiredReason?: string;
 };
 
 const CLOUD_ID_PREFIX = 'cloud_';
@@ -55,7 +60,12 @@ async function requireAuthToken(): Promise<string> {
   return token;
 }
 
-/** data:URL rasmlar JSON ni shishiradi — PPTXda allaqachon bor, bazaga yozilmaydi. */
+/**
+ * data:URL rasmlar JSON ni shishiradi, shuning uchun bazaga yozilmaydi.
+ * Lekin `imageSourceUrl` SAQLANADI — saqlangan taqdimot qayta ochilganda
+ * rasm o\'sha havoladan tortiladi. Ilgari havola ham qolmagani uchun
+ * saqlangan deck butunlay rasmsiz chiqardi.
+ */
 function stripHeavyMediaFromPayload(payload: unknown): unknown {
   if (!payload || typeof payload !== 'object') return payload;
   const deck = payload as { slides?: unknown };
@@ -119,6 +129,19 @@ async function postWithRetry(
   }
 }
 
+/** Material saqlandi/yangilandi/o'chirildi — "Mening fanlarim"dagi
+ * tayyorlik nuqtalari shu hodisa bilan yangilanadi (sahifa fonda ochiq
+ * turadi, aks holda nuqtalar eskiligicha qolardi). */
+export const PREPARED_CONTENT_CHANGED_EVENT = 'imentor:prepared-content-changed';
+
+function notifyPreparedContentChanged(): void {
+  try {
+    window.dispatchEvent(new Event(PREPARED_CONTENT_CHANGED_EVENT));
+  } catch {
+    /* SSR / test muhiti */
+  }
+}
+
 /** Asosiy saqlash — FastAPI `/v1/prepared-content/` (Postgres). localStorage ishlatilmaydi.
  * Qaytaradi: yaratilgan yozuvning Baza id'si (`cloud_<n>`) — chaqiruvchi uni
  * keyinroq yangilashi (PATCH) yoki fayl bilan bog'lashi mumkin. Server id
@@ -149,30 +172,50 @@ export async function savePreparedContent(
       topic_code: meta?.topicCode?.trim() || '',
       payload: lightPayload,
   });
+  notifyPreparedContentChanged();
   return created?.id != null ? cloudId(created.id) : null;
 }
 
+/** PATCH natijasi (2026-11-17 audit):
+ *  - `updated`   — yozuv yangilandi;
+ *  - `not_found` — bu yozuvni yangilab bo'lmaydi: id Bazaniki emas, yozuv yo'q (404)
+ *                  yoki boshqa muallifniki (403) — chaqiruvchi O'Z nusxasini yaratadi;
+ *  - `failed`    — tarmoq/server xatosi yoki sessiya yo'q. Yangi nusxa YARATILMAYDI
+ *                  (aks holda har uzilishda Bazada takror versiya paydo bo'lardi) —
+ *                  foydalanuvchiga xabar beriladi va u qayta urinadi. */
+export type PreparedContentPatchResult =
+  | { status: 'updated' }
+  | { status: 'not_found' }
+  | { status: 'failed'; error: unknown };
+
 /** Mavjud yozuvning payload'ini almashtirish — Bazada nusxa ko'paymasligi uchun.
  * Masalan test avval asosiy tilda saqlanadi, tarjimalar tayyor bo'lgach
- * SHU yozuv yangilanadi. */
-export async function updatePreparedContentPayload(
+ * SHU yozuv yangilanadi.
+ *
+ * Ilgari har qanday xatoda `false` qaytarardi va chaqiruvchilar buni "yozuv
+ * yo'q" deb tushunib YANGI nusxa yaratardi — tarmoq uzilishi takror versiyaga
+ * aylanardi. Endi "topilmadi" va "yiqildi" ajratiladi. */
+export async function patchPreparedContentPayload(
   id: string,
   payload: unknown,
-): Promise<boolean> {
+): Promise<PreparedContentPatchResult> {
   const numericId = parseCloudNumericId(id);
-  if (!numericId) return false;
-  const token = await getBackendAccessToken();
-  if (!token) return false;
+  if (!numericId) return { status: 'not_found' };
   try {
+    const token = await getBackendAccessToken();
+    if (!token) return { status: 'failed', error: new Error('Tizimga kiring.') };
     await httpJson(`${apiBaseUrl()}/v1/prepared-content/${numericId}/`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${token}` },
       body: { payload: stripHeavyMediaFromPayload(payload) },
       timeoutMs: 60_000,
     });
-    return true;
-  } catch {
-    return false;
+    notifyPreparedContentChanged();
+    return { status: 'updated' };
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 0;
+    if (status === 404 || status === 403) return { status: 'not_found' };
+    return { status: 'failed', error };
   }
 }
 
@@ -200,6 +243,8 @@ type MineRow = {
   topic_norm?: string;
   author_display_name?: string;
   created_at: string;
+  can_delete?: boolean;
+  retired_reason?: string;
 };
 
 const MINE_PAGE_SIZE = 300;
@@ -212,6 +257,12 @@ const MINE_MAX_PAGES = 20;
 async function fetchMineRows(
   kind: PreparedContentKind,
   topicNorms?: string[],
+  options?: {
+    shared?: boolean;
+    syllabusId?: number;
+    topicCode?: string;
+    variantLabel?: string;
+  },
 ): Promise<PreparedContentSummary[]> {
   const token = await getBackendAccessToken();
   if (!token) return [];
@@ -223,6 +274,10 @@ async function fetchMineRows(
       page: String(page),
       page_size: String(MINE_PAGE_SIZE),
     });
+    if (options?.shared) params.set('shared', '1');
+    if (options?.syllabusId) params.set('syllabus_id', String(options.syllabusId));
+    if (options?.topicCode) params.set('topic_code', options.topicCode);
+    if (options?.variantLabel) params.set('variant_label', options.variantLabel);
     for (const norm of topicNorms || []) params.append('topic_norm', norm);
     const data = await httpJson<{ results?: MineRow[]; count?: number }>(
       `${apiBaseUrl()}/v1/prepared-content/mine/?${params.toString()}`,
@@ -239,6 +294,8 @@ async function fetchMineRows(
         author: r.author_display_name || '',
         createdAt: new Date(r.created_at).getTime(),
         source: 'cloud' as const,
+        canDelete: r.can_delete === true,
+        retiredReason: r.retired_reason || '',
       });
     }
     // Backend `paginate` javobi: {count, page, page_size, results} — `next` yo'q,
@@ -260,35 +317,57 @@ export async function listAllPreparedForKindSynced(
   }
 }
 
-/** Mavzu bo'yicha FastAPI tarix — filtrlash SERVERDA, aniq `topic_norm`
- * tenglik bo'yicha. `topicNormLookupKeys` eski (sarlavha) kalitni ham
- * qaytaradi, shuning uchun eski yozuvlar ham topiladi.
- *
- * Ilgari bu yerda "includes" bilan taxminiy solishtirish bor edi va bir
- * mavzuning Bazasiga nomi o'xshash boshqa mavzular materiallari aralashib
- * ketardi. */
+/** Ro'yxat natijasi: `ok: false` — Bazaga yetib bo'lmadi (tarmoq/server).
+ * Bu "material yo'q" EMAS — chaqiruvchi keshni o'chirmasligi va bo'sh
+ * "hali saqlanmagan" ro'yxat o'rniga xato + "Qayta urinish" ko'rsatishi kerak. */
+export type PreparedListResult =
+  | { ok: true; items: PreparedContentSummary[]; error?: undefined }
+  | { ok: false; items: PreparedContentSummary[]; error: unknown };
+
+/** Xatoni bo'sh ro'yxatga aylantiradigan eski ko'rinish — faqat AI konteksti kabi
+ * "bo'lsa yaxshi" joylar uchun. Foydalanuvchiga ro'yxat ko'rsatadigan joylar
+ * `listPreparedForTopicResult` ishlatadi (xato ≠ bo'sh). */
 export async function listPreparedForTopicSynced(
   kind: PreparedContentKind,
   topic: SyllabusTopic | SyllabusTopicContext | string,
+  options?: { shared?: boolean },
 ): Promise<PreparedContentSummary[]> {
+  return (await listPreparedForTopicResult(kind, topic, options)).items;
+}
+
+/** Mavzu bo'yicha FastAPI tarix — filtrlash SERVERDA, aniq `topic_norm`
+ * tenglik bo'yicha. Faqat tuzilmali kalit (`fan::variant::kod`) — sarlavha
+ * bo'yicha qidiruv fanlarni aralashtirardi. */
+export async function listPreparedForTopicResult(
+  kind: PreparedContentKind,
+  topic: SyllabusTopic | SyllabusTopicContext | string,
+  options?: { shared?: boolean },
+): Promise<PreparedListResult> {
   const wantedKeys = (
     typeof topic === 'string' ? [normTopic(topic)] : topicNormLookupKeys(topic)
   )
     .map((k) => k.trim().toLowerCase())
-    .filter(Boolean);
-  if (!wantedKeys.length) return [];
+    .filter((k) => k.includes('::'));
+  const syllabusId =
+    typeof topic === 'object' && topic && 'syllabusId' in topic ? topic.syllabusId : undefined;
+  const topicCode =
+    typeof topic === 'object' && topic?.id
+      ? topic.id.trim().toLowerCase().replace(/\s+/g, '')
+      : '';
+  const variantLabel =
+    typeof topic === 'object' && topic && 'variantLabel' in topic ? topic.variantLabel || '' : '';
+  if (!wantedKeys.length && !(syllabusId && topicCode)) return { ok: true, items: [] };
   try {
-    const rows = await fetchMineRows(kind, wantedKeys);
-    // Ikkilamchi himoya: server filtrni qo'llamagan bo'lsa ham (eski build)
-    // ro'yxat ANIQ kalitlar bo'yicha qisqartiriladi.
-    const wanted = new Set(wantedKeys);
-    return rows.filter((r) =>
-      [r.topicNorm || '', normTopic(r.topic)]
-        .map((k) => k.trim().toLowerCase())
-        .some((k) => k && wanted.has(k)),
-    );
-  } catch {
-    return [];
+    const rows = await fetchMineRows(kind, wantedKeys, {
+      ...options,
+      syllabusId,
+      topicCode,
+      variantLabel,
+    });
+    if (!wantedKeys.length) return { ok: true, items: rows };
+    return { ok: true, items: rows.filter((r) => topicNormsOverlap(r.topicNorm || '', wantedKeys)) };
+  } catch (error) {
+    return { ok: false, items: [], error };
   }
 }
 
@@ -326,6 +405,7 @@ export async function deletePreparedContent(kind: PreparedContentKind, id: strin
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
+  notifyPreparedContentChanged();
   void kind;
 }
 
@@ -338,26 +418,190 @@ export async function loadLatestPreparedContent<T>(
     typeof topic === 'string' ? [normTopic(topic)] : topicNormLookupKeys(topic)
   )
     .map((k) => k.toLowerCase())
-    .filter(Boolean);
-  if (!lookupKeys.length) return null;
+    .filter((k) => k.includes('::'));
+  const syllabusId =
+    typeof topic === 'object' && topic && 'syllabusId' in topic ? topic.syllabusId : undefined;
+  const topicCode =
+    typeof topic === 'object' && topic?.id
+      ? topic.id.trim().toLowerCase().replace(/\s+/g, '')
+      : '';
+  if (!lookupKeys.length && !(syllabusId && topicCode)) return null;
 
   try {
     const token = await getBackendAccessToken();
     if (!token) return null;
-    for (const wantedTopic of lookupKeys) {
-      const data = await httpJson<{
-        id?: number;
-        payload?: unknown;
-        created_at?: string;
-      } & CloudRow>(
-        `${apiBaseUrl()}/v1/prepared-content/?kind=${encodeURIComponent(kind)}&topic_norm=${encodeURIComponent(wantedTopic)}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      // FastAPI LatestOut: { payload } | Django full row — ikkalasi ham
-      if (data.payload == null) continue;
-      return data.payload as T;
-    }
+    const params = new URLSearchParams({ kind });
+    if (lookupKeys[0]) params.set('topic_norm', lookupKeys[0]);
+    if (syllabusId) params.set('syllabus_id', String(syllabusId));
+    if (topicCode) params.set('topic_code', topicCode);
+    const data = await httpJson<{
+      id?: number;
+      payload?: unknown;
+      created_at?: string;
+    } & CloudRow>(
+      `${apiBaseUrl()}/v1/prepared-content/?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (data.payload == null) return null;
+    return data.payload as T;
+  } catch {
     return null;
+  }
+}
+
+/** Translate just the requested language and keep the complete result on the server. */
+export async function translatePreparedContent<T>(id: string, language: 'uz' | 'ru' | 'en'): Promise<T> {
+  const numericId = parseCloudNumericId(id);
+  if (!numericId) throw new Error('Save the material before translating.');
+  const token = await requireAuthToken();
+  const result = await httpJson<{ payload: T }>(`${apiBaseUrl()}/v1/prepared-content/${numericId}/translate/${language}/`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, timeoutMs: 300_000,
+  });
+  return result.payload;
+}
+
+/** O'qituvchi AI tarjimasini tekshirib tasdiqlaydi (yoki tasdiqni bekor qiladi). Yangi payload qaytadi. */
+export async function reviewPreparedTranslation<T>(
+  id: string,
+  language: 'uz' | 'ru' | 'en',
+  reviewed: boolean,
+): Promise<T> {
+  const numericId = parseCloudNumericId(id);
+  if (!numericId) throw new Error('Save the material first.');
+  const token = await requireAuthToken();
+  const result = await httpJson<{ payload: T }>(
+    `${apiBaseUrl()}/v1/prepared-content/${numericId}/translation-review/${language}/`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: { reviewed },
+    },
+  );
+  return result.payload;
+}
+
+export type QuestionPoolTopic = { code: string; title: string; type?: string };
+export type QuestionPool = {
+  plan: { current: QuestionPoolTopic | null; taught: QuestionPoolTopic[]; later: QuestionPoolTopic[] };
+  questions: Array<{
+    question: string;
+    options: string[];
+    correctOptionIndex: number;
+    explanation: string;
+    optionExplanations?: string[];
+    references?: unknown[];
+    level?: 'hard' | 'medium' | 'easy' | null;
+    link?: string | null;
+  }>;
+  /** Mavzu bankidagi yaroqli savollar soni va "to'la" chegarasi (2026-10-26): to'la bo'lsa test AI'siz. */
+  bank_size?: number;
+  bank_target?: number;
+  /** Har testda yangi yoziladigan savollar soni (2026-10-26: 2 ta, qolgan 8 tasi bankdan). */
+  new_questions?: number;
+  /** Claude banki yozilmoqda (2026-11-20): shu vaqtgacha (ISO) OpenAI chaqirilmay bank kutiladi. */
+  bank_pending_until?: string | null;
+};
+
+/**
+ * Test uchun o'tilgan/o'tilmagan mavzular va shu mavzuda avval yaratilgan
+ * savollar zaxirasi (2026-10-21). Xato bo'lsa `null` — test oddiy yo'l bilan
+ * (to'liq AI) yaratiladi, o'qituvchi hech narsa sezmaydi.
+ */
+/** Keyslar zaxirasi: shu mavzuda boshqa o'qituvchilar avval yaratgan keyslar (2026-10-22). */
+export type CasePool = {
+  cases: Record<'profilaktika' | 'davolash' | 'tashxis', Array<Record<string, unknown>>>;
+  references: Array<Record<string, unknown>>;
+};
+
+/**
+ * Institut banki (2026-10-22, "bir mavzuga bir marta"): shu mavzuga tayyor ma'ruza yoki
+ * taqdimot — avval o'qituvchining o'zi, keyin hamkasbi, keyin o'xshash nomli mavzu.
+ * Topilmasa `null` — AI yozadi.
+ */
+export type BankItem = {
+  id: number;
+  /** AYNAN shu mavzudagi o'z materiali (nusxa kerak emas). */
+  own: boolean;
+  /** Shu sillabus mavzusidanmi (false — o'xshash nomli boshqa mavzudan). */
+  exact?: boolean;
+  author: string;
+  topic: string;
+  created_at: string | null;
+  payload: Record<string, unknown>;
+};
+
+export async function fetchBankItem(
+  kind: 'lecture' | 'presentation',
+  ctx: { syllabusId?: number; id?: string | number; title?: string; variantLabel?: string } | null | undefined,
+  language: 'uz' | 'ru' | 'en',
+): Promise<BankItem | null> {
+  try {
+    const token = await getBackendAccessToken();
+    if (!token || !ctx?.syllabusId || !ctx.id) return null;
+    const params = new URLSearchParams({
+      kind,
+      language,
+      syllabus_id: String(ctx.syllabusId),
+      topic_code: String(ctx.id),
+      title: ctx.title || '',
+      // Semestr varianti (2026-10-23): 10-semestrning L1 mavzusi 9-semestrnikiga berilmasin.
+      variant_label: ctx.variantLabel || '',
+    });
+    const data = await httpJson<{ item: BankItem | null }>(`${apiBaseUrl()}/v1/prepared-content/bank/?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 20_000,
+    });
+    return data?.item ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchCasePool(
+  ctx: { syllabusId?: number; topicCode?: string; subjectCode?: string; topicNorm?: string; title?: string },
+  language: 'uz' | 'ru' | 'en',
+): Promise<CasePool | null> {
+  try {
+    const token = await getBackendAccessToken();
+    const hasTopic = (ctx.syllabusId && ctx.topicCode) || (ctx.subjectCode && ctx.topicNorm);
+    if (!token || !hasTopic) return null;
+    const params = new URLSearchParams({ language });
+    if (ctx.syllabusId && ctx.topicCode) {
+      params.set('syllabus_id', String(ctx.syllabusId));
+      params.set('topic_code', ctx.topicCode);
+    }
+    if (ctx.subjectCode && ctx.topicNorm) {
+      params.set('subject_code', ctx.subjectCode);
+      params.set('topic_norm', ctx.topicNorm);
+    }
+    // O'xshash nomli boshqa sillabus mavzusi ham qidiriladi (2026-10-22).
+    if (ctx.title) params.set('title', ctx.title.slice(0, 300));
+    return await httpJson<CasePool>(`${apiBaseUrl()}/v1/prepared-content/case-pool/?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 20_000,
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchQuestionPool(
+  ctx: { syllabusId: number; topicCode: string; variantLabel?: string },
+  language: 'uz' | 'ru' | 'en',
+): Promise<QuestionPool | null> {
+  try {
+    const token = await getBackendAccessToken();
+    if (!token || !ctx.syllabusId || !ctx.topicCode) return null;
+    const params = new URLSearchParams({
+      syllabus_id: String(ctx.syllabusId),
+      topic_code: ctx.topicCode,
+      variant: ctx.variantLabel || '',
+      language,
+    });
+    return await httpJson<QuestionPool>(`${apiBaseUrl()}/v1/prepared-content/question-pool/?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeoutMs: 20_000,
+    });
   } catch {
     return null;
   }

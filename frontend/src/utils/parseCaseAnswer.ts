@@ -1,4 +1,5 @@
-/** Keys yechimi matnini a–e bo'limlarga va adabiyotlar ro'yxatiga ajratadi. */
+/** Keys yechimi matnini bo'limlarga va adabiyotlar ro'yxatiga ajratadi.
+ *  Yangi format: sarlavha (harfsiz). Eski format: a) ... e). */
 
 export type CaseAnswerSectionKey = 'a' | 'b' | 'c' | 'd' | 'e';
 
@@ -10,7 +11,6 @@ export type CaseAnswerSection = {
 
 export type ParsedCaseAnswer = {
   sections: CaseAnswerSection[];
-  /** Bo'limlarga ajralmagan qoldiq (eski format). */
   leftover: string;
   bibliography: string;
 };
@@ -18,7 +18,30 @@ export type ParsedCaseAnswer = {
 const REFS_HEADING_RE =
   /(?:^|\n)\s*(?:FOYDALANILGAN\s+ADABIYOTLAR|ИСПОЛЬЗОВАННАЯ\s+ЛИТЕРАТУРА|REFERENCES\s+USED)\s*:?\s*(?:\n|$)/i;
 
-const SECTION_RE = /^([a-e])\)\s*(.+)$/i;
+const LETTER_RE = /^([a-e])\)\s*(.+)$/i;
+
+const HEADING_PATTERNS: { key: CaseAnswerSectionKey; re: RegExp }[] = [
+  { key: 'a', re: /^(?:#{1,3}\s*)?(klinik\s+(?:tashxis|xulosa)|asosiy\s+xulosa|xulosa|clinical\s+(?:diagnosis|impression)|main\s+conclusion|клиническ|главн)/i },
+  { key: 'b', re: /^(?:#{1,3}\s*)?(differensial|boshqa\s+tushuntirish|muqobil|differential|other\s+explanation|дифференциал|друг)/i },
+  { key: 'c', re: /^(?:#{1,3}\s*)?(qo'?shimcha\s+tekshiruv|keyingi\s+tekshiruv|qanday\s+tekshirish|tekshirish\s+qadam|additional\s+invest|how\s+to\s+check|дополнительн|как проверить)/i },
+  { key: 'd', re: /^(?:#{1,3}\s*)?(davolash|taktika|qanday\s+yechish|yechim|management|how\s+to\s+solve|лечение|тактика|как решить)/i },
+  { key: 'e', re: /^(?:#{1,3}\s*)?(amaliy\s+tavsiya|kuzatuv|xatolikni\s+oldini|oldini\s+olish|recommendation|prevent|практическ|прогноз|не допустить)/i },
+];
+
+function matchHeading(line: string): { key: CaseAnswerSectionKey; title: string } | null {
+  const trimmed = line.trim().replace(/^#{1,3}\s*/, '');
+  if (!trimmed || trimmed.length > 90) return null;
+  const letter = trimmed.match(LETTER_RE);
+  if (letter) {
+    return { key: letter[1].toLowerCase() as CaseAnswerSectionKey, title: letter[2].trim() };
+  }
+  for (const p of HEADING_PATTERNS) {
+    if (p.re.test(trimmed) && trimmed.split(/\s+/).length <= 10) {
+      return { key: p.key, title: trimmed };
+    }
+  }
+  return null;
+}
 
 export function parseCaseAnswer(raw: string): ParsedCaseAnswer {
   const text = (raw || '').replace(/\r\n/g, '\n').trim();
@@ -38,14 +61,10 @@ export function parseCaseAnswer(raw: string): ParsedCaseAnswer {
   const preamble: string[] = [];
 
   for (const line of lines) {
-    const m = line.trim().match(SECTION_RE);
-    if (m) {
+    const heading = matchHeading(line);
+    if (heading) {
       if (current) sections.push(current);
-      current = {
-        key: m[1].toLowerCase() as CaseAnswerSectionKey,
-        title: m[2].trim(),
-        body: '',
-      };
+      current = { key: heading.key, title: heading.title, body: '' };
       continue;
     }
     if (current) {

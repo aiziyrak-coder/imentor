@@ -24,18 +24,28 @@ type BackendTokenBundle = {
   photo_url?: string;
   student_id?: string;
   group_name?: string;
+  /** Ikki rolli odam (2026-10-28): ["hodim", "student"] — kirgandan keyin qaysi biri bilan davom etishi so'raladi. */
+  roles?: string[];
+  /** Shu kirishda rol tanlab bo'lingan — tanlov ekrani qayta chiqmaydi. */
+  role_chosen?: boolean;
 };
 
-/** Server hali `startuper` qaytarsa — mahalliy sessiyada hodim. */
+/** Noma'lum rol — mahalliy sessiyada hodim. */
 function normalizeBackendRole(role: string | undefined | null): UserRole {
   if (role === 'admin' || role === 'hodim' || role === 'student') return role;
-  if (role === 'startuper') return 'hodim';
   return 'hodim';
 }
 
 type CachedBundle = BackendTokenBundle & {
   accessExpMs: number;
   refreshExpMs: number;
+  /**
+   * Qurilma soati serverdan qancha farq qiladi (ms, server − qurilma). 2026-11-16: sinf doskalarining
+   * Windows soati noto'g'ri — 15 kun oldinda bo'lsa yangi token ham «eskirgan» deb topilib, o'qituvchi
+   * QR'dan keyin darhol tizimdan chiqib ketardi (telefonda «Kompyuter ulandi», doskada QR); 13 soat
+   * oldinda bo'lsa har so'rovda «kirish muddati tugagan» chiqardi. Muddat endi server vaqti bilan tekshiriladi.
+   */
+  clockSkewMs?: number;
 };
 
 const TOKEN_KEY = 'salomatlik-backend-jwt-v1';
@@ -74,15 +84,38 @@ function apiBaseUrl(): string {
   return env?.VITE_API_BASE_URL?.trim() || '/api';
 }
 
-function decodeJwtExpMs(token: string): number {
+function decodeJwtClaim(token: string, claim: 'exp' | 'iat'): number {
   try {
     const parts = token.split('.');
     if (parts.length < 2) return 0;
-    const payload = JSON.parse(atob(parts[1]));
-    return typeof payload?.exp === 'number' ? payload.exp * 1000 : 0;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload?.[claim] === 'number' ? payload[claim] * 1000 : 0;
   } catch {
     return 0;
   }
+}
+
+function decodeJwtExpMs(token: string): number {
+  return decodeJwtClaim(token, 'exp');
+}
+
+/** Ikki daqiqadan kichik farq — tarmoq kechikishi, e'tiborga olinmaydi. */
+const SKEW_IGNORE_MS = 2 * 60_000;
+
+/**
+ * Yangi olingan tokenning `iat` (server chiqargan vaqt) bilan qurilma soati orasidagi farq.
+ * Faqat token YANGI bo'lganda o'lchanadi; eski tokenni qayta yozishda oldingi qiymat saqlanadi.
+ */
+export function measureClockSkew(access: string, deviceNowMs: number): number {
+  const iat = decodeJwtClaim(access, 'iat');
+  if (!iat) return 0;
+  const skew = iat - deviceNowMs;
+  return Math.abs(skew) < SKEW_IGNORE_MS ? 0 : skew;
+}
+
+/** Server vaqti bo'yicha «hozir» — token muddatlarini shu bilan solishtiramiz. */
+function serverNow(cached: CachedBundle | null): number {
+  return Date.now() + (cached?.clockSkewMs || 0);
 }
 
 function readCached(): CachedBundle | null {
@@ -99,11 +132,14 @@ function readCached(): CachedBundle | null {
 function writeCached(bundle: BackendTokenBundle): CachedBundle {
   const role = normalizeBackendRole(bundle.role);
   syncCurrentUserRoleFromServer(role);
+  const prev = readCached();
+  const fresh = !prev || prev.access !== bundle.access;
   const next: CachedBundle = {
     ...bundle,
     role,
     accessExpMs: decodeJwtExpMs(bundle.access),
     refreshExpMs: decodeJwtExpMs(bundle.refresh),
+    clockSkewMs: fresh ? measureClockSkew(bundle.access, Date.now()) : prev?.clockSkewMs || 0,
   };
   localStorage.setItem(TOKEN_KEY, JSON.stringify(next));
   return next;
@@ -165,6 +201,35 @@ export async function performOnlineTestStudentLogin(input: {
   });
 }
 
+/** Talaba seansi — parol bilan ham, yuz bilan ham bir xil (`ot_<ID>`, guruh tokendan). */
+function establishStudentSession(bundle: BackendTokenBundle, fallbackId: string): LocalStaffUser {
+  const sid = String(bundle.student_id || fallbackId);
+  const now = Date.now();
+  const firstName = bundle.first_name || '';
+  const lastName = bundle.last_name || '';
+  const displayName = `${firstName} ${lastName}`.trim() || sid;
+  return establishLocalSessionFromProfile({
+    uid: `ot_${sid}`,
+    displayName,
+    firstName,
+    lastName,
+    phoneDisplay: sid,
+    phoneDigits: sid,
+    faculty: '',
+    department: '',
+    direction: '',
+    email: `${sid}@onlinetest.local`,
+    password: '',
+    role: 'student',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now,
+    onlineTestStudentId: sid,
+    studyGroup: bundle.group_name || '',
+    participantKind: 'student',
+  });
+}
+
 export async function loginStudentWithOnlineTest(
   studentId: string,
   password: string,
@@ -175,30 +240,7 @@ export async function loginStudentWithOnlineTest(
     const bundle = await performOnlineTestStudentLogin({ id: sid, password });
     if (bundle.role !== 'student') throw new Error('wrong-password');
     writeCached(bundle);
-    const now = Date.now();
-    const firstName = bundle.first_name || '';
-    const lastName = bundle.last_name || '';
-    const displayName = `${firstName} ${lastName}`.trim() || sid;
-    return establishLocalSessionFromProfile({
-      uid: `ot_${bundle.student_id || sid}`,
-      displayName,
-      firstName,
-      lastName,
-      phoneDisplay: sid,
-      phoneDigits: sid,
-      faculty: '',
-      department: '',
-      direction: '',
-      email: `${sid}@onlinetest.local`,
-      password: '',
-      role: 'student',
-      createdAt: now,
-      updatedAt: now,
-      lastActiveAt: now,
-      onlineTestStudentId: bundle.student_id || sid,
-      studyGroup: bundle.group_name || '',
-      participantKind: 'student',
-    });
+    return establishStudentSession(bundle, sid);
   } catch (err) {
     if (err instanceof HttpError) {
       if (err.status === 401) throw new Error('wrong-password');
@@ -228,8 +270,9 @@ function buildLocalUserFromBackendLogin(
   existing?: LocalStaffUser | null,
 ): LocalStaffUser {
   // Xodim ID bilan kirilganda ham shu qiymat `phoneDigits` maydonida saqlanadi
-  // (u serverdagi `username` bilan bir xil bo'lishi shart).
-  const digits = normalizeStaffLogin(phoneInput);
+  // (u serverdagi `username` bilan bir xil bo'lishi shart). Ikki rolli odamning hisobi
+  // `ot_<Talaba ID>` — o'qituvchi bo'lib davom etganda ham login o'zgarmaydi (2026-10-28).
+  const digits = phoneInput.startsWith('ot_') ? phoneInput : normalizeStaffLogin(phoneInput);
   const now = Date.now();
   const firstName = existing?.firstName || bundle.first_name || '';
   const lastName = existing?.lastName || bundle.last_name || '';
@@ -287,10 +330,193 @@ export async function loginStaffWithBackendFallback(
   } catch (err) {
     if (err instanceof HttpError) {
       if (err.status === 401) throw new Error('wrong-password');
+      if (err.status === 403) {
+        // Server qaysi login bilan kirish kerakligini aytishi mumkin — matni saqlanadi.
+        const detail = (err.body as { detail?: unknown } | null)?.detail;
+        throw Object.assign(new Error('account-disabled'), {
+          detail: typeof detail === 'string' ? detail : '',
+        });
+      }
       if (err.status === 409) throw new Error('already-exists');
     }
     throw err;
   }
+}
+
+/**
+ * JSHSHIR yoki pasport bilan kirish — PAROLSIZ (2026-10-02).
+ *
+ * Xodim ham, talaba ham shu yo'ldan kiradi; serverda roli aniqlanadi va
+ * yuz orqali kirishdagi kabi bitta "bundle" qaytadi.
+ */
+export async function loginWithIdentity(input: {
+  pinfl?: string;
+  passportSeries?: string;
+  passportNumber?: string;
+  /** Talaba ID yoki Xodim ID — institut bergan raqam. */
+  instituteId?: string;
+}): Promise<LocalStaffUser> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/v1/auth/id-login/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pinfl: input.pinfl || '',
+        passport_series: input.passportSeries || '',
+        passport_number: input.passportNumber || '',
+        institute_id: input.instituteId || '',
+      }),
+    });
+  } catch {
+    throw new FaceLoginError(0, '');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === 'string') detail = body.detail;
+    } catch {
+      /* matnsiz javob */
+    }
+    throw new FaceLoginError(res.status, detail);
+  }
+  const bundle = (await res.json()) as BackendTokenBundle;
+  writeCached(bundle);
+  if (bundle.role === 'student') return establishStudentSession(bundle, bundle.username);
+  const existing = findStoredUserByPhone(bundle.username);
+  return establishLocalSessionFromProfile(
+    buildLocalUserFromBackendLogin(bundle.username, '', bundle, existing),
+  );
+}
+
+/** Ikki rolli odamning rollari — faqat o'qituvchi va talaba, server bergan tartibda. */
+function choosable(cached: CachedBundle | null): UserRole[] {
+  const roles = (cached?.roles || []).filter((r): r is UserRole => r === 'hodim' || r === 'student');
+  return roles.length > 1 ? roles : [];
+}
+
+/** Kirgandan keyin tanlov kutilmoqda: ikki rolli odam hali "talaba / o'qituvchi" ni tanlamagan. */
+export function pendingRoleChoice(): UserRole[] {
+  const cached = readCached();
+  return cached && !cached.role_chosen ? choosable(cached) : [];
+}
+
+/** Ikki rolli odamning rollari (yon menyudagi "Profilni almashtirish" tugmasi uchun). */
+export function choosableRoles(): UserRole[] {
+  return choosable(readCached());
+}
+
+/** Tanlov ekrani holati o'zgardi — ilova qayta chiziladi (yon menyu, profil, telefon sahifasi). */
+export const ROLE_CHOICE_EVENT = 'imentor:role-choice';
+
+/** Tanlov ekranini qayta ochish — ikki rolli odam boshqa profilga o'tmoqchi. */
+export function resetRoleChoice(): void {
+  const cached = readCached();
+  if (!cached) return;
+  writeCached({ ...cached, role_chosen: false });
+  window.dispatchEvent(new Event(ROLE_CHOICE_EVENT));
+}
+
+/**
+ * Ikki rolli odam tanlagan profil bilan davom etish (2026-10-28). Server yangi token beradi —
+ * rol u yerda ham bazadan tekshiriladi; mahalliy sessiya shu rolga o'tadi.
+ */
+export async function chooseSessionRole(role: UserRole): Promise<LocalStaffUser | null> {
+  const cached = readCached();
+  if (!cached) return null;
+  if (role === cached.role) {
+    writeCached({ ...cached, role_chosen: true });
+    return getCurrentLocalUser();
+  }
+  const token = await getBackendAccessToken();
+  if (!token) return null;
+  const bundle = await httpJson<BackendTokenBundle>(`${apiBaseUrl()}/v1/auth/switch-role/`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: { role },
+  });
+  writeCached({ ...bundle, role_chosen: true });
+  if (bundle.role === 'student') return establishStudentSession(bundle, bundle.username.replace(/^ot_/, ''));
+  const existing = findStoredUserByPhone(bundle.username);
+  return establishLocalSessionFromProfile(buildLocalUserFromBackendLogin(bundle.username, '', bundle, existing));
+}
+
+/** Yuz orqali kirish xatosi: `status` — server javobi (0 — tarmoq), `detail` — foydalanuvchiga matn. */
+export class FaceLoginError extends Error {
+  status: number;
+  detail: string;
+
+  constructor(status: number, detail: string) {
+    super(`face-login-${status}`);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** Yuz orqali kirish: ketma-ket olingan 2 kadr (JPEG) serverga yuboriladi. */
+export async function loginWithFaceFrames(frames: Blob[]): Promise<LocalStaffUser> {
+  const form = new FormData();
+  frames.forEach((frame, i) => form.append('frames', frame, `frame-${i}.jpg`));
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/v1/auth/face-login/`, { method: 'POST', body: form });
+  } catch {
+    throw new FaceLoginError(0, '');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === 'string') detail = body.detail;
+    } catch {
+      /* matnsiz javob */
+    }
+    throw new FaceLoginError(res.status, detail);
+  }
+  const bundle = (await res.json()) as BackendTokenBundle;
+  writeCached(bundle);
+  if (bundle.role === 'student') return establishStudentSession(bundle, bundle.username);
+  const existing = findStoredUserByPhone(bundle.username);
+  return establishLocalSessionFromProfile(
+    buildLocalUserFromBackendLogin(bundle.username, '', bundle, existing),
+  );
+}
+
+/** JSHSHIR: 14 ta raqam (bo'sh joylarsiz). */
+export function isPinfl(value: string): boolean {
+  return /^\d{14}$/.test(value.replace(/\s+/g, ''));
+}
+
+/** JSHSHIR bilan kirish (parolsiz): server cam.fermi.uz'dan tasdiq oladi, hisob bo'lmasa ochadi. */
+export async function loginWithPinfl(pinflInput: string): Promise<LocalStaffUser> {
+  const pinfl = pinflInput.replace(/\s+/g, '');
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/v1/auth/pinfl-login/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinfl }),
+    });
+  } catch {
+    throw new FaceLoginError(0, '');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === 'string') detail = body.detail;
+    } catch {
+      /* matnsiz javob */
+    }
+    throw new FaceLoginError(res.status, detail);
+  }
+  const bundle = (await res.json()) as BackendTokenBundle;
+  writeCached(bundle);
+  const existing = findStoredUserByPhone(bundle.username);
+  return establishLocalSessionFromProfile(
+    buildLocalUserFromBackendLogin(bundle.username, '', bundle, existing),
+  );
 }
 
 /** Ro‘yxatdan o‘tish: avval server, keyin mahalliy profil. */
@@ -363,14 +589,23 @@ export async function syncCurrentUserPasswordToBackend(
 ): Promise<void> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  await httpJson(`${apiBaseUrl()}/v1/auth/change-password/`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: {
-      current_password: currentPassword,
-      new_password: newPassword,
+  const resp = await httpJson<{ ok?: boolean; access?: string; refresh?: string }>(
+    `${apiBaseUrl()}/v1/auth/change-password/`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+      },
     },
-  });
+  );
+  // 2026-11-17: parol almashganda server ESKI sessiyalarni yopadi va shu qurilma uchun yangi
+  // tokenlar qaytaradi — ularni saqlamasak, foydalanuvchi keyingi so'rovda tizimdan chiqib ketardi.
+  const cached = readCached();
+  if (resp?.access && cached) {
+    writeCached({ ...cached, access: resp.access, refresh: resp.refresh || cached.refresh });
+  }
 }
 
 /** Bir vaqtda ketayotgan refresh so'rovlari bittaga birlashtiriladi.
@@ -389,7 +624,7 @@ function refreshAccessToken(cached: CachedBundle): Promise<CachedBundle | null> 
 
 async function doRefreshAccessToken(cached: CachedBundle): Promise<CachedBundle | null> {
   if (!cached.refresh) return null;
-  const now = Date.now();
+  const now = serverNow(cached);
   const leewayMs = 30_000;
   if (cached.refreshExpMs > 0 && cached.refreshExpMs - leewayMs <= now) {
     notifyUnauthorized();
@@ -413,6 +648,9 @@ async function doRefreshAccessToken(cached: CachedBundle): Promise<CachedBundle 
       refresh: resp.refresh || cached.refresh,
       role: cached.role,
       username: cached.username,
+      // Ikki rolli odamning tanlovi token yangilanganda ham saqlansin.
+      roles: cached.roles,
+      role_chosen: cached.role_chosen,
     });
   } catch (err) {
     // Faqat HAQIQIY autentifikatsiya xatosida sessiyani yopamiz. Tarmoq
@@ -474,11 +712,22 @@ export async function syncSessionRoleFromServer(): Promise<UserRole | null> {
   return role;
 }
 
+/** Saqlangan, muddati o'tmagan token — yangilamaydi va chiqarib yubormaydi (xato hisobotlari uchun). */
+export function peekBackendAccessToken(): string | null {
+  const cached = readCached();
+  return cached?.access && cached.accessExpMs > serverNow(cached) ? cached.access : null;
+}
+
+/** Joriy kirgan hisob logini (tarmoqsiz) — qurilmadagi keshni o'qituvchiga bog'lash uchun. */
+export function peekBackendUsername(): string {
+  return readCached()?.username || '';
+}
+
 export async function getBackendAccessToken(): Promise<string | null> {
-  const now = Date.now();
   const leewayMs = 30_000;
   const cached = readCached();
   if (!cached) return null;
+  const now = serverNow(cached);
 
   const localUser = getCurrentLocalUser();
   if (localUser && normalizeUserRole(localUser) !== cached.role) {
@@ -490,7 +739,7 @@ export async function getBackendAccessToken(): Promise<string | null> {
   }
   if (cached.refresh) {
     const refreshed = await refreshAccessToken(cached);
-    if (refreshed?.access && refreshed.accessExpMs - Date.now() > 0) {
+    if (refreshed?.access && refreshed.accessExpMs - serverNow(refreshed) > 0) {
       return refreshed.access;
     }
     // Refresh o'tmadi. Agar sabab tarmoq/server bo'lsa, `refreshAccessToken`

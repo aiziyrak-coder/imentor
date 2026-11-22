@@ -28,6 +28,7 @@ export type TopicHandoutItem = {
   can_delete: boolean;
   sort_order: number;
   created_at: string;
+  language?: 'uz' | 'ru' | 'en' | string;
 };
 
 function apiBaseUrl(): string {
@@ -61,6 +62,16 @@ export function revokeHandoutBlobUrl(id: number): void {
   }
 }
 
+/** Joriy mavzuda yo'q tarqatmalarning fayllarini xotiradan bo'shatadi. */
+export function pruneHandoutBlobCache(keepIds: number[]): void {
+  const keep = new Set(keepIds);
+  for (const [id, url] of [...handoutBlobCache]) {
+    if (keep.has(id)) continue;
+    URL.revokeObjectURL(url);
+    handoutBlobCache.delete(id);
+  }
+}
+
 export function resolveHandoutFileUrl(fileUrl: string): string {
   if (!fileUrl) return '';
   try {
@@ -80,8 +91,15 @@ export function normHandoutTopic(topic: string | SyllabusTopic | SyllabusTopicCo
   return resolveTopicNorm(topic) || normTopicKey(topic.title);
 }
 
+export function handoutLanguage(item: TopicHandoutItem | { language?: string } | null | undefined): 'uz' | 'ru' | 'en' {
+  const raw = (item?.language || 'uz').trim().toLowerCase();
+  if (raw === 'ru' || raw === 'en') return raw;
+  return 'uz';
+}
+
 export async function fetchHandoutsForTopic(
   topic: string | SyllabusTopic | SyllabusTopicContext,
+  language?: string,
 ): Promise<TopicHandoutItem[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
@@ -96,10 +114,12 @@ export async function fetchHandoutsForTopic(
   const params = new URLSearchParams();
   if (typeof topic !== 'string' && isTopicContextComplete(topic)) {
     params.set('syllabus_id', String(topic.syllabusId));
-    params.set('variant_label', topic.variantLabel);
+    params.set('variant_label', topic.variantLabel || 'asosiy');
     params.set('topic_code', topic.id);
   }
   for (const key of lookupKeys) params.append('topic_norm', key);
+  const lang = (language || '').trim().toLowerCase();
+  if (lang === 'uz' || lang === 'ru' || lang === 'en') params.set('language', lang);
   const res = await fetchWithTimeout(`${apiBaseUrl()}/v1/handouts/?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -116,27 +136,34 @@ export async function fetchHandoutsForTopic(
     throw new HttpError(`HTTP ${res.status}`, res.status, data);
   }
   const rows = Array.isArray(data) ? (data as TopicHandoutItem[]) : [];
-  return rows.filter((row) => handoutMatchesTopic(row, topic));
+  const wanted = lang === 'ru' || lang === 'en' || lang === 'uz' ? lang : '';
+  return rows.filter((row) => {
+    if (!handoutMatchesTopic(row, topic)) return false;
+    if (!wanted) return true;
+    return handoutLanguage(row) === wanted;
+  });
 }
 
 export async function uploadHandout(params: {
   topic: string | SyllabusTopic | SyllabusTopicContext;
   file: File;
   title?: string;
+  language?: string;
 }): Promise<TopicHandoutItem> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const displayTopic =
-    typeof params.topic === 'string' ? params.topic.trim() : params.topic.title.trim();
+    const displayTopic =
+    typeof params.topic === 'string' ? params.topic.trim() : String(params.topic.title ?? '').trim();
   const form = new FormData();
-  form.append('topic', displayTopic);
+  form.append('topic', displayTopic.slice(0, 1000) || 'mavzu');
   if (typeof params.topic !== 'string' && isTopicContextComplete(params.topic)) {
     form.append('syllabus_id', String(params.topic.syllabusId));
-    form.append('variant_label', params.topic.variantLabel);
+    form.append('variant_label', params.topic.variantLabel || 'asosiy');
     form.append('topic_code', params.topic.id);
   }
   form.append('topic_norm', normHandoutTopic(params.topic));
   form.append('file', params.file);
+  form.append('language', (params.language || 'uz').trim().toLowerCase() || 'uz');
   if (params.title?.trim()) form.append('title', params.title.trim());
 
   const res = await fetch(`${apiBaseUrl()}/v1/handouts/`, {
@@ -183,11 +210,20 @@ export async function deleteHandout(id: number): Promise<void> {
 export async function fetchAdminHandouts(): Promise<TopicHandoutItem[]> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const data = await httpJson<TopicHandoutItem[] | PagedResponse<TopicHandoutItem>>(
-    `${apiBaseUrl()}/v1/admin/handouts/?page_size=500`,
-    { headers: { Authorization: `Bearer ${token}` }, timeoutMs: 30000 },
-  );
-  return unwrapPagedResults(data);
+  const all: TopicHandoutItem[] = [];
+  let page = 1;
+  for (;;) {
+    const data = await httpJson<TopicHandoutItem[] | PagedResponse<TopicHandoutItem>>(
+      `${apiBaseUrl()}/v1/admin/handouts/?page=${page}&page_size=2000`,
+      { headers: { Authorization: `Bearer ${token}` }, timeoutMs: 30000 },
+    );
+    const rows = unwrapPagedResults(data);
+    all.push(...rows);
+    const total = data && !Array.isArray(data) ? Number(data.count) || 0 : rows.length;
+    if (Array.isArray(data) || rows.length === 0 || all.length >= total || page >= 20) break;
+    page += 1;
+  }
+  return all;
 }
 
 export async function uploadAdminHandout(params: {
@@ -196,34 +232,72 @@ export async function uploadAdminHandout(params: {
   topicCode: string;
   topic: string;
   title?: string;
+  language?: string;
   file: File;
 }): Promise<TopicHandoutItem> {
   const token = await getBackendAccessToken();
   if (!token) throw new Error('no-backend-token');
-  const form = new FormData();
-  form.append('topic', params.topic.trim());
-  form.append('syllabus_id', String(params.syllabusId));
-  form.append('variant_label', params.variantLabel);
-  form.append('topic_code', params.topicCode);
-  form.append('file', params.file);
-  if (params.title?.trim()) form.append('title', params.title.trim());
-
-  const res = await fetch(`${apiBaseUrl()}/v1/admin/handouts/`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
-  const text = await res.text();
-  let data: unknown = null;
-  if (text) {
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
+      const buf = await params.file.arrayBuffer();
+      const copy = new File([buf], params.file.name || `tarqatma-${params.language || 'uz'}.jpg`, {
+        type: params.file.type || 'application/octet-stream',
+      });
+      const form = new FormData();
+      form.append('topic', String(params.topic ?? '').trim().slice(0, 1000) || 'mavzu');
+      form.append('syllabus_id', String(params.syllabusId));
+      form.append('variant_label', params.variantLabel || 'asosiy');
+      form.append('topic_code', String(params.topicCode ?? '').trim().slice(0, 32));
+      form.append('file', copy);
+      form.append('language', (params.language || 'uz').trim().toLowerCase() || 'uz');
+      if (params.title?.trim()) form.append('title', params.title.trim().slice(0, 1000));
+
+      const res = await fetchWithTimeout(
+        `${apiBaseUrl()}/v1/admin/handouts/`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        },
+        120_000,
+      );
+      const text = await res.text();
+      let data: unknown = null;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = text;
+        }
+      }
+      if (res.status >= 200 && res.status < 300) {
+        if (data && typeof data === 'object' && data !== null && 'id' in data) {
+          return data as TopicHandoutItem;
+        }
+        return {
+          id: Date.now(),
+          owner_key: '',
+          author_name: '',
+          topic: String(params.topic ?? ''),
+          topic_norm: '',
+          title: copy.name,
+          kind: 'image',
+          file_name: copy.name,
+          file_size: copy.size,
+          file_url: '',
+          can_delete: true,
+          sort_order: 0,
+          created_at: new Date().toISOString(),
+          language: params.language || 'uz',
+        };
+      }
+      lastErr = new HttpError(`HTTP ${res.status}`, res.status, data);
+    } catch (err) {
+      lastErr = err;
     }
   }
-  if (!res.ok) throw new HttpError(`HTTP ${res.status}`, res.status, data);
-  return data as TopicHandoutItem;
+  throw lastErr instanceof Error ? lastErr : new Error('handout-upload-failed');
 }
 
 export async function deleteAdminHandout(id: number): Promise<void> {

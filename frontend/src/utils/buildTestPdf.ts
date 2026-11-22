@@ -5,13 +5,15 @@ import type { MedicalReference, TestQuestion, TestSession } from '../services/ai
 import { scoreToGrade } from './testGrading';
 import { renderHtmlToPdf } from './htmlToPdf';
 import { catalogPdfVerificationFooter, type CatalogPdfMeta } from './catalogPdfVerification';
-import { stripOptionLetterPrefix } from './testOptionText';
+import { stripOptionLabels } from './testOptionText';
 
 export interface TestSubmissionRow {
   firstName: string;
   lastName: string;
   answers: number[];
   submittedAt: number;
+  /** Server hisoblagan ball — bo'lsa, PDF shuni yozadi (ekrandagi jadval bilan bir xil). */
+  correct?: number;
 }
 
 function t(lang: AppLanguage, key: UiTextKey, params?: Record<string, string | number>): string {
@@ -59,7 +61,7 @@ function buildQuestionsHtml(session: TestSession, lang: AppLanguage, meta?: Cata
       const options = q.options
         .map(
           (opt, optIdx) =>
-            `<p style="margin:6px 0 6px 12px;font-size:14px;color:#1f2937;">${optionLetter(optIdx)}) ${escapeHtml(stripOptionLetterPrefix(opt, optIdx))}</p>`
+            `<p style="margin:6px 0 6px 12px;font-size:14px;color:#1f2937;">${optionLetter(optIdx)}) ${escapeHtml(stripOptionLabels(q.options)[optIdx])}</p>`
         )
         .join('');
       return `
@@ -96,7 +98,7 @@ function buildAnswerKeyHtml(session: TestSession, lang: AppLanguage, meta?: Cata
             ? 'margin:6px 0 6px 12px;padding:8px 10px;border-radius:8px;background:#ecfdf5;border:1px solid #34d399;font-size:14px;color:#065f46;font-weight:600;'
             : 'margin:6px 0 6px 12px;font-size:14px;color:#374151;';
           const marker = isCorrect ? ' ✓' : '';
-          return `<p style="${style}">${optionLetter(optIdx)}) ${escapeHtml(stripOptionLetterPrefix(opt, optIdx))}${marker}</p>`;
+          return `<p style="${style}">${optionLetter(optIdx)}) ${escapeHtml(stripOptionLabels(q.options)[optIdx])}${marker}</p>`;
         })
         .join('');
       const refs = referencesBlock(q.references, t(lang, 'pdf.questionReferences'));
@@ -135,7 +137,7 @@ function buildResultsHtml(session: TestSession, submissions: TestSubmissionRow[]
   const locale = localeForLanguage(lang);
   const total = session.questions.length;
   const sorted = [...submissions].sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-  const scores = sorted.map((s) => calculateScore(s.answers, session.questions));
+  const scores = sorted.map((s) => s.correct ?? calculateScore(s.answers, session.questions));
   const grades = scores.map((score) => scoreToGrade(score, total));
   const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '—';
   const avgGrade = grades.length

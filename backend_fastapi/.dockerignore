@@ -1,0 +1,11 @@
+# Backend image'iga kerak bo'lmagan narsalar (2026-11-17, hajm auditi).
+# Testlar serverga yuborilmaydi va image ichida ishlatilmaydi; media — volume (image'dagi nusxa ko'rinmaydi).
+tests/
+.pytest_cache/
+**/__pycache__/
+**/*.pyc
+node_modules/
+media/
+.env
+.env.*
+*.log

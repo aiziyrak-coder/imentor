@@ -17,8 +17,9 @@ import {
 import { motion } from 'motion/react';
 import { fetchAdminCatalogStats, type CatalogStats } from '../../utils/contentCatalogApi';
 import { fetchStaffDirectory } from '../../utils/staffDirectoryApi';
-import { fetchAdminSyllabusCatalogStats, type SyllabusCatalogStats } from '../../utils/syllabusApi';
+import { fetchAcademicCatalog } from '../../utils/academicCatalogApi';
 import { fetchAdminLiveTestStats, type AdminLiveTestStatRow } from '../../utils/liveTestApi';
+import { fetchAdminSyllabusCatalogStats, type SyllabusCatalogStats } from '../../utils/syllabusApi';
 import { useUiText } from '../../i18n/useUiText';
 import {
   DonutChart,
@@ -80,29 +81,68 @@ export default function AdminDashboardHome() {
   const { t, language } = useUiText();
   const [loading, setLoading] = useState(true);
   const [staffCount, setStaffCount] = useState(0);
+  const [teacherCount, setTeacherCount] = useState(0);
   const [todayLogins, setTodayLogins] = useState(0);
   const [stats, setStats] = useState<CatalogStats | null>(null);
   const [catalogStats, setCatalogStats] = useState<SyllabusCatalogStats | null>(null);
   const [liveTestStats, setLiveTestStats] = useState<AdminLiveTestStatRow[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const [staff, catalogContentStats, syllabusStats, testStats] = await Promise.all([
-        fetchStaffDirectory().catch(() => []),
-        fetchAdminCatalogStats().catch(() => null),
-        fetchAdminSyllabusCatalogStats().catch(() => null),
-        fetchAdminLiveTestStats().catch(() => []),
+      const [staffRes, catalogRes, syllabusRes, testRes, academicRes] = await Promise.allSettled([
+        fetchStaffDirectory(),
+        fetchAdminCatalogStats(),
+        fetchAdminSyllabusCatalogStats(),
+        fetchAdminLiveTestStats(),
+        fetchAcademicCatalog(),
       ]);
+
+      const staff = staffRes.status === 'fulfilled' ? staffRes.value : [];
+      const catalogContentStats = catalogRes.status === 'fulfilled' ? catalogRes.value : null;
+      const syllabusStats = syllabusRes.status === 'fulfilled' ? syllabusRes.value : null;
+      const testStats = testRes.status === 'fulfilled' ? testRes.value : [];
+      const academicCatalog = academicRes.status === 'fulfilled' ? academicRes.value : null;
+
+      if (
+        staffRes.status === 'rejected' &&
+        catalogRes.status === 'rejected' &&
+        syllabusRes.status === 'rejected'
+      ) {
+        setLoadError(t('admin.error.loadFailed'));
+      }
+
       setStaffCount(staff.length);
+      setTeacherCount(staff.filter((s) => String(s.role || '') === 'hodim').length);
       setTodayLogins(staff.filter((s) => isToday(s.last_login)).length);
       setStats(catalogContentStats);
-      setCatalogStats(syllabusStats);
+      const apiKafedra = (academicCatalog?.kafedralar || []).filter((k) => (k.name || '').trim()).length;
+      if (syllabusStats) {
+        setCatalogStats({
+          ...syllabusStats,
+          departments_count: apiKafedra || syllabusStats.departments_count,
+        });
+      } else if (apiKafedra) {
+        setCatalogStats({
+          departments_count: apiKafedra,
+          subjects_count: 0,
+          subjects_total: 0,
+          variants_count: 0,
+          topics_count: 0,
+          by_department: [],
+        });
+      } else {
+        setCatalogStats(syllabusStats);
+      }
       setLiveTestStats(testStats);
+    } catch {
+      setLoadError(t('admin.error.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -184,6 +224,12 @@ export default function AdminDashboardHome() {
         </button>
       </motion.div>
 
+      {loadError && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-800">
+          {loadError}
+        </div>
+      )}
+
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -229,7 +275,7 @@ export default function AdminDashboardHome() {
         <KpiCard
           label={t('admin.registeredUsers')}
           value={staffCount}
-          hint={`${todayLogins} ${t('admin.todayLogins').toLowerCase()}`}
+          hint={`${teacherCount} ${t('admin.hodimRole')} · ${todayLogins} ${t('admin.todayLogins').toLowerCase()}`}
           icon={Users}
           gradient="bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900 border-slate-200/80"
           delay={0}
@@ -279,7 +325,9 @@ export default function AdminDashboardHome() {
               centerLabel={t('admin.dashboardTotalContent')}
             />
           ) : (
-            <p className="text-[13px] text-slate-400 py-8 text-center">{t('admin.dashboardLoading')}</p>
+            <p className="text-[13px] text-slate-400 py-8 text-center">
+              {loading ? t('admin.dashboardLoading') : t('admin.dashboardNoContentStats')}
+            </p>
           )}
           {totals ? (
             <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
@@ -313,7 +361,11 @@ export default function AdminDashboardHome() {
                 { key: 'all', label: t('admin.dashboardTotalContent'), value: totals.total_count, color: '#312e81' },
               ]}
             />
-          ) : null}
+          ) : (
+            <p className="text-[13px] text-slate-400 py-8 text-center">
+              {loading ? t('admin.dashboardLoading') : t('admin.dashboardNoContentStats')}
+            </p>
+          )}
           {totals ? (
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <div className="rounded-xl border border-slate-100 bg-white/70 px-2 py-2">

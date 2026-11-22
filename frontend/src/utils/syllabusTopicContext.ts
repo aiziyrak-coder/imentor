@@ -10,6 +10,8 @@ export interface SyllabusTopicContext extends SyllabusTopic {
   variantLabel: string;
   /** Fan o'qitilish tili — platforma va AI shu tilga o'tadi */
   instructionLanguage: AppLanguage;
+  /** Akademik katalog kafedra nomi — klinik/no-klinik domen uchun */
+  departmentName?: string;
 }
 
 const SELECTED_TOPIC_KEY = 'imentor-selected-topic-v2';
@@ -22,6 +24,7 @@ export function buildTopicContext(
   subjectCode: string,
   variantLabel: string,
   instructionLanguage: AppLanguage,
+  departmentName = '',
 ): SyllabusTopicContext {
   return {
     ...topic,
@@ -30,6 +33,7 @@ export function buildTopicContext(
     subjectCode,
     variantLabel,
     instructionLanguage,
+    departmentName,
   };
 }
 
@@ -49,6 +53,12 @@ export function topicNormForStorage(
   return `${ctx.syllabusId}::${variant}::${topicCode}`;
 }
 
+const STRUCTURED_NORM_RE = /^\d+::[^:]*::[a-zа-яё]{1,4}\d{1,3}$/i;
+
+export function isStructuredTopicNorm(value: string): boolean {
+  return STRUCTURED_NORM_RE.test((value || '').trim());
+}
+
 /** Eski yozuvlar — to'liq mavzu sarlavhasi bilan */
 export function topicNormLegacyTitleKey(
   ctx: Pick<SyllabusTopicContext, 'syllabusId' | 'variantLabel' | 'title'>,
@@ -58,28 +68,49 @@ export function topicNormLegacyTitleKey(
   return `${ctx.syllabusId}::${variant}::${title}`;
 }
 
-/** API so'rovida faqat shu mavzuga tegishli kalitlar (umumiy sarlavha kaliti yo'q) */
+export function parseTopicNormParts(value: string): { syllabusId: string; topicCode: string } | null {
+  const parts = (value || '').trim().toLowerCase().split('::');
+  if (parts.length < 3 || !/^\d+$/.test(parts[0] || '')) return null;
+  const topicCode = (parts[parts.length - 1] || '').trim();
+  if (!topicCode) return null;
+  return { syllabusId: parts[0], topicCode };
+}
+
+export function topicNormsOverlap(rowNorm: string, wanted: string[]): boolean {
+  const r = (rowNorm || '').trim().toLowerCase();
+  const keys = wanted.map((w) => w.trim().toLowerCase()).filter(Boolean);
+  if (keys.includes(r)) return true;
+  const rp = parseTopicNormParts(r);
+  if (!rp) return false;
+  return keys.some((w) => {
+    const wp = parseTopicNormParts(w);
+    return Boolean(wp && wp.syllabusId === rp.syllabusId && wp.topicCode === rp.topicCode);
+  });
+}
+
+/** Faqat tuzilmali kalitlar. Sarlavha bo'yicha qidiruv fanlarni aralashtiradi. */
 export function topicNormLookupKeys(topic: SyllabusTopic | SyllabusTopicContext | string): string[] {
   if (typeof topic === 'string') {
     const k = topic.trim().toLowerCase();
-    return k ? [k] : [];
+    return isStructuredTopicNorm(k) ? [k] : [];
   }
-  if (!topic?.title) return [];
-  if (!isTopicContextComplete(topic)) {
-    return [topicNormLegacy(topic.title)];
-  }
-  const ctx = topic;
+  if (!isTopicContextComplete(topic)) return [];
   const keys = new Set<string>();
   try {
-    keys.add(topicNormForStorage(ctx));
+    keys.add(topicNormForStorage(topic));
   } catch {
-    /* id yo'q */
+    return [];
   }
-  keys.add(topicNormLegacyTitleKey(ctx));
-  keys.add(
-    `${ctx.syllabusId}::${ctx.variantLabel.trim().toLowerCase()}::${ctx.title.trim().toLowerCase()}`,
-  );
-  return [...keys].filter(Boolean);
+  const variant = normTopicSegment(topic.variantLabel, 48);
+  const code = normTopicSegment(topic.id.replace(/\s+/g, ''), 16);
+  if (code) {
+    keys.add(`${topic.syllabusId}::asosiy::${code}`);
+    keys.add(`${topic.syllabusId}::::${code}`);
+    if (variant && variant !== 'asosiy') {
+      keys.add(`${topic.syllabusId}::${variant}::${code}`);
+    }
+  }
+  return [...keys];
 }
 
 export function handoutMatchesTopic(
@@ -87,7 +118,7 @@ export function handoutMatchesTopic(
   topic: SyllabusTopic | SyllabusTopicContext | string,
 ): boolean {
   const allowed = new Set(topicNormLookupKeys(topic).map((k) => k.toLowerCase()));
-  return allowed.has((row.topic_norm || '').trim().toLowerCase());
+  return topicNormsOverlap(row.topic_norm, [...allowed]);
 }
 
 /** Eski mavzular bilan moslik — kontekstsiz title */
@@ -161,7 +192,14 @@ export function loadPersistedSelectedTopic(): SyllabusTopicContext | null {
     if (!parsed?.id || !parsed?.title || parsed.syllabusId == null) return null;
     if (!parsed.variantLabel) parsed.variantLabel = '';
     if (!parsed.instructionLanguage) {
-      parsed.instructionLanguage = 'uz';
+      const title = parsed.title || '';
+      parsed.instructionLanguage = /[\u0400-\u04FF]/.test(title)
+        ? /[ўқғҳ]/i.test(title)
+          ? 'uz'
+          : 'ru'
+        : /\b(the|of|and|in|to|for|with)\b/i.test(title)
+          ? 'en'
+          : 'uz';
     }
     if (!parsed.subjectCode) {
       parsed.subjectCode = '';

@@ -9,13 +9,17 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, require_roles
 from app.core.db import get_db
+from app.core.throttling import throttle_login
 from app.core.security import create_access_token, create_refresh_token
 from app.models.device_pairing import DevicePairingSession
 from app.schemas.device_pairing import DevicePairConfirmRequest, DevicePairCreateOut, DevicePairStatusOut
 
 router = APIRouter()
 
-PAIRING_TTL_MINUTES = 4
+# 4 daqiqa kam edi: o'qituvchi telefonda parolini topib kirguncha QR eskirib
+# qolardi. Kodni faqat telefonda kirgan xodim tasdiqlay oladi, kompyuter esa
+# tokenni faqat o'z `desktop_secret`i bilan oladi — uzoqroq muddat xavfsiz.
+PAIRING_TTL_MINUTES = 10
 
 _SENSITIVE_PROFILE_KEYS = frozenset(
     {"password", "phoneDigits", "phone_digits", "access", "refresh", "token"}
@@ -53,7 +57,10 @@ def _expire_stale(db: Session) -> None:
 
 
 @router.post("/device-pair/create/", response_model=DevicePairCreateOut, status_code=201)
-def device_pair_create(db: Session = Depends(get_db)) -> DevicePairCreateOut:
+def device_pair_create(
+    db: Session = Depends(get_db),
+    _: None = Depends(throttle_login),
+) -> DevicePairCreateOut:
     _expire_stale(db)
     token = secrets.token_urlsafe(24)
     desktop_secret = secrets.token_urlsafe(32)
@@ -72,6 +79,7 @@ def device_pair_create(db: Session = Depends(get_db)) -> DevicePairCreateOut:
         desktop_secret=desktop_secret,
         expires_at=expires,
         qr_payload=f"imentor-pair:{token}",
+        expires_in=PAIRING_TTL_MINUTES * 60,
     )
 
 

@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Rektor hisobotidan chiqarilgan XODIMLAR — HEMIS ichki `employee_id` bo'yicha.",
+    "",
+    "Nega kerak: xodim ishdan bo'shagan, lekin HEMIS dars jadvalida uning",
+    "darslari qolib ketgan. Unga iMentor hisobi ochish to'g'ri emas (ishlamaydigan",
+    "odamga kirish huquqi berilgan bo'lardi), hisobsiz dars esa hisobotda",
+    "«hisobi bog'lanmagan» bo'lib turadi va rektorni chalg'itadi.",
+    "",
+    "Kalit sifatida `employee_id` olinadi, chunki dars yozuvida aynan shu turadi",
+    "(Xodim ID emas). Dars O'CHIRILMAYDI — faqat hisobotga qo'shilmaydi.",
+    "",
+    "Olib tashlash: kadrlar darslarni haqiqiy o'qituvchiga o'tkazgach, shu",
+    "yozuvni ro'yxatdan chiqarish kifoya."
+  ],
+  "staff": [
+    {
+      "employee_id": "1039",
+      "name": "SHAKIROV S. A.",
+      "hemis_status": "Bo‘shagan",
+      "reason": "Ishdan bo'shagan (xalqaro fakultet dekani), lekin jadvalda 32 darsi qolgan",
+      "since": "2026-10-13"
+    },
+    {
+      "employee_id": "993",
+      "name": "ZAYNALOVA X. A.",
+      "hemis_status": "Ishlamoqda",
+      "reason": "Epidemiologiya: monitorli xonada dars o'tmaydi; HEMIS'da darslari 'YKSH 1-xona' (MON-257) ga yozilgan, kadrlar HEMIS'dan olib tashlaydi (rektorat)",
+      "since": "2026-11-17"
+    },
+    {
+      "employee_id": "1560",
+      "name": "NOSIROV M. M.",
+      "hemis_status": "Ishlamoqda",
+      "reason": "Nevrologiya va psixiatriya: o'qituvchi xabari — xonasida iMentor (monitor) yo'q; rektorat chiqarishni so'radi",
+      "since": "2026-11-17"
+    },
+    {
+      "employee_id": "1627",
+      "name": "RASULOV F. M.",
+      "hemis_status": "Ishlamoqda",
+      "reason": "Anesteziologiya va reanimatologiya, Pediatriya-2: monitorli xonada dars o'tmaydi; rektorat chiqarishni so'radi",
+      "since": "2026-11-17"
+    },
+    {
+      "employee_id": "1048",
+      "name": "DADAJONOVA M. A.",
+      "hemis_status": "Ishlamoqda",
+      "reason": "Akusherlik va ginekologiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); dars o'taveradi, nazorat qilinmaydi (rektorat)",
+      "since": "2026-11-18"
+    },
+    {
+      "employee_id": "11",
+      "name": "HAMDAMOV H. O.",
+      "hemis_status": "Ishlamoqda",
+      "reason": "Normal anatomiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); hozircha nazorat qilinmaydi (rektorat)",
+      "since": "2026-11-18"
+    }
+  ]
+}

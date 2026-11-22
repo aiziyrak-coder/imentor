@@ -6,9 +6,13 @@ import {
   type StaffGeoDetail,
 } from '../utils/staffLocationGeo';
 import { isLikelyPhoneOrSmallTablet } from '../utils/deviceDetection';
+import { markGeoFailed, markGeoGranted, mayLocateAutomatically } from '../utils/geoConsent';
 
+// Server daqiqasiga 4 ta pingni qabul qiladi. 2026-10-23 gacha telefon har 20 soniyada
+// yuborardi, server esa 2/minut edi — pinglarning uchdan biri 429 bilan tashlanardi
+// (48 soatda 548 ta).
 function minSendIntervalMs(): number {
-  return isLikelyPhoneOrSmallTablet() ? 20_000 : 45_000;
+  return isLikelyPhoneOrSmallTablet() ? 30_000 : 45_000;
 }
 
 function watchOptions(): PositionOptions {
@@ -70,6 +74,7 @@ export function useStaffLocationTracking(
     };
 
     const send = (pos: GeolocationPosition, force: boolean) => {
+      markGeoGranted();
       const now = Date.now();
       if (!force && now - lastSentAt.current < minMs) return;
 
@@ -86,6 +91,7 @@ export function useStaffLocationTracking(
     };
 
     const onErr = (err: GeolocationPositionError) => {
+      markGeoFailed(err);
       if (silent) return;
       if (err.code === err.PERMISSION_DENIED && !deniedNotified.current) {
         deniedNotified.current = true;
@@ -101,29 +107,38 @@ export function useStaffLocationTracking(
       }
     };
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => send(pos, true),
-      onErr,
-      { ...watchOptions(), maximumAge: 0 },
-    );
-
-    watchId.current = navigator.geolocation.watchPosition(
-      (pos) => send(pos, false),
-      onErr,
-      watchOptions(),
-    );
+    // Ruxsat BIR MARTA so'raladi (2026-11-12): berilmagan bo'lsa, kuzatuv oyna ochmaydi — faqat
+    // "Ruxsat berish" tugmasi so'raydi. Ilgari har sahifa ochilganda va qaytganda iPhone qayta so'rardi.
+    let cancelled = false;
+    void mayLocateAutomatically().then((ok) => {
+      if (!ok || cancelled || !mounted.current) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => send(pos, true),
+        onErr,
+        { ...watchOptions(), maximumAge: 0 },
+      );
+      watchId.current = navigator.geolocation.watchPosition(
+        (pos) => send(pos, false),
+        onErr,
+        watchOptions(),
+      );
+    });
 
     const onVisibility = () => {
       if (document.visibilityState !== 'visible' || !mounted.current) return;
-      navigator.geolocation.getCurrentPosition(
-        (pos) => send(pos, true),
-        () => {},
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 25_000 },
-      );
+      void mayLocateAutomatically().then((ok) => {
+        if (!ok || cancelled) return;
+        navigator.geolocation.getCurrentPosition(
+          (pos) => send(pos, true),
+          (err) => markGeoFailed(err),
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 25_000 },
+        );
+      });
     };
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
+      cancelled = true;
       document.removeEventListener('visibilitychange', onVisibility);
       if (watchId.current != null) {
         navigator.geolocation.clearWatch(watchId.current);

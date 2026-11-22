@@ -1,0 +1,342 @@
+/*
+ * Rektor hisoboti — vizual til (2026-10-15).
+ *
+ * Rektor: "juda oddiy, sodda, ko'rimsiz — effektlar, infografika, ranglar
+ * yo'q, jozibador emas; zamonaviy, ideal qilib bering". Shu fayl butun
+ * hisobotning fon, yuza, harakat va jadval uslubini bir joyda beradi.
+ *
+ * Hamma sinf `rx-` bilan boshlanadi: o'qituvchi va talaba sahifalariga
+ * tegmaydi.
+ */
+
+.rx-app {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1100px 520px at 8% -8%, rgba(99, 102, 241, 0.13), transparent 60%),
+    radial-gradient(900px 480px at 96% 0%, rgba(14, 165, 233, 0.12), transparent 60%),
+    radial-gradient(800px 600px at 50% 110%, rgba(16, 185, 129, 0.07), transparent 60%),
+    #f3f5fb;
+}
+
+/* ------------------------------------------------------------------ header */
+.rx-header {
+  background:
+    radial-gradient(600px 180px at 12% 0%, rgba(129, 140, 248, 0.35), transparent 70%),
+    radial-gradient(520px 180px at 88% 0%, rgba(56, 189, 248, 0.25), transparent 70%),
+    linear-gradient(120deg, #0b1027 0%, #1e1b4b 48%, #0f172a 100%);
+  box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.8);
+}
+
+/* ------------------------------------------------------------------ yuzalar */
+.rx-card {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 22px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 18px 40px -26px rgba(30, 41, 59, 0.28);
+}
+
+.rx-lift {
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 220ms ease;
+}
+.rx-lift:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.05),
+    0 26px 50px -24px rgba(30, 41, 59, 0.38);
+}
+
+/* Qorong'i "hero" yuza: eng muhim raqam shu yerda. */
+.rx-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 26px;
+  color: #fff;
+  background:
+    radial-gradient(520px 260px at 0% 0%, rgba(129, 140, 248, 0.45), transparent 70%),
+    radial-gradient(460px 260px at 100% 100%, rgba(45, 212, 191, 0.28), transparent 70%),
+    linear-gradient(135deg, #111536 0%, #24206b 55%, #0f2a4a 100%);
+  box-shadow: 0 30px 60px -34px rgba(30, 27, 75, 0.85);
+}
+.rx-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 18px 18px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 85%);
+  pointer-events: none;
+}
+.rx-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.rx-glass {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ------------------------------------------------------------------ harakat */
+@keyframes rx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes rx-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes rx-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes rx-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(52, 211, 153, 0);
+  }
+}
+@keyframes rx-dash {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes rx-shimmer {
+  from {
+    background-position: -400px 0;
+  }
+  to {
+    background-position: 400px 0;
+  }
+}
+
+.rx-rise {
+  animation: rx-rise 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--rx-delay, 0ms);
+}
+.rx-bar {
+  transform-origin: left center;
+  animation: rx-grow-x 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--rx-delay, 0ms);
+}
+.rx-col {
+  transform-origin: center bottom;
+  animation: rx-grow-y 800ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--rx-delay, 0ms);
+}
+.rx-live {
+  animation: rx-pulse 2s infinite;
+}
+/* Chiziqli grafik chap tomondan "chizilib" chiqadi. */
+.rx-draw {
+  stroke-dasharray: 2400;
+  stroke-dashoffset: 2400;
+  animation: rx-dash 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.rx-skeleton {
+  background: linear-gradient(90deg, #eef1f7 0px, #f8fafc 120px, #eef1f7 240px);
+  background-size: 800px 100%;
+  animation: rx-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rx-rise,
+  .rx-bar,
+  .rx-col,
+  .rx-live,
+  .rx-skeleton {
+    animation: none !important;
+  }
+  .rx-draw {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+  .rx-lift:hover {
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------ jadval */
+.rx-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.rx-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.rx-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+.rx-table tbody tr {
+  transition: background-color 150ms ease;
+}
+.rx-table tbody tr:hover {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.05), rgba(14, 165, 233, 0.03));
+}
+.rx-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.rx-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Ingichka aylantirish chizig'i — ichki ro'yxatlar uchun. */
+.rx-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.rx-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+.rx-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* iOS uslubi (2026-11-15): oq, katta radius, yengil soya; bosilganda biroz kichrayadi. */
+.ios-card {
+  background: #fff;
+  border-radius: 22px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+}
+.ios-tile {
+  background: #f5f6f8;
+  border-radius: 16px;
+}
+.ios-press { transition: transform .15s ease, background-color .15s ease; }
+.ios-press:hover { background-color: #f8fafc; }
+.ios-press:active { transform: scale(0.985); }
+
+/* Past ekranli noutbuklar (1280x600, 1024x680): bosh sahifa baribir bitta ekranga sig'sin (2026-11-15). */
+@media (min-width: 1024px) and (max-height: 720px) {
+  .ios-row { padding-top: 0.45rem !important; padding-bottom: 0.45rem !important; }
+  .ios-kpi { padding: 0.55rem 0.8rem !important; }
+  .ios-hero-pad { padding: 0.85rem 1.1rem !important; gap: 1rem !important; }
+  .ios-sum { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+}
+
+/* Bosh sahifa ekranni to'ldiradi (2026-11-15): header ~68px + filtrlar ~78px + chekkalar. */
+@media (min-width: 1024px) {
+  .ios-fill { min-height: calc(100vh - 176px); }
+}
+
+/* Past ekranda xulosa kartasi ixcham: ikonka matn yonida (1366x657 ham bitta ekran). */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .ios-ins { flex-direction: row !important; flex-wrap: wrap; align-items: center !important; padding: 0.8rem 1rem !important; }
+  .ios-ins-icon { width: 2.5rem !important; height: 2.5rem !important; }
+  .ios-ins-text { margin-top: 0 !important; margin-left: 0.75rem; flex: 1 1 0; min-width: 0; font-size: 15px !important; }
+  .ios-ins-act { width: 100%; padding-top: 0.35rem !important; margin-top: 0 !important; }
+}
+
+/* Past ekranda vidjet ixcham (2026-11-15): halqa/raqam chapda, izoh o'ngda, halqa 70%. */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .ios-widget { display: grid !important; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto 1fr;
+                column-gap: 0.9rem; row-gap: 0.1rem; align-items: center; padding: 0.6rem 0.9rem !important; }
+  .ios-widget-head { grid-column: 1 / -1; }
+  .ios-widget-mid { padding: 0 !important; zoom: 0.58; }
+  .ios-widget-cap { text-align: left !important; }
+}
+
+/* Butun ekranli asosiy karta (2026-11-15): past ekranda halqa va plitkalar ixcham. */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .ios-big-ring { zoom: 0.62; }
+  .ios-big-tile { padding: 0.75rem 1rem !important; }
+  .ios-big-num { font-size: 40px !important; }
+  .ios-big-hint { display: none !important; }
+  .ios-big-head { padding-top: 0.7rem !important; padding-bottom: 0.7rem !important; }
+  .ios-big-head h2 { font-size: 24px !important; }
+  .ios-big-body { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+}
+@media (max-width: 640px) {
+  .ios-big-ring { zoom: 0.78; }
+}
+
+/* 5-variant (2026-11-15): past ekranda halqa kichikroq. */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .ios-v5-ring { zoom: 0.72; }
+  .ios-v5-body { padding-top: 0.25rem !important; padding-bottom: 0.25rem !important; }
+  .ios-v5-row { padding-top: 0.55rem !important; padding-bottom: 0.55rem !important; }
+}
+
+/* Sahifa scrollsiz (2026-11-15): kompyuterda blok balandligi ANIQ — uzun kafedralar ro'yxati
+   kartani cho'zmasin, o'z ichida aylansin. */
+@media (min-width: 1024px) {
+  .ios-fit { height: calc(100vh - 176px); grid-template-rows: minmax(0, 1fr); }
+}
+
+/* Rektor maketi (2026-11-15): banner balandligi; past ekranda ixcham. */
+.rx-banner { height: 150px; }
+@media (min-height: 940px) { .rx-banner { height: 180px; } }
+@media (min-width: 1024px) and (max-height: 820px) {
+  .rx-banner { height: 64px; }
+  .rx-banner h1 { font-size: 22px !important; }
+  .rx-banner-sub { display: none; }
+  .rx-dash-ring { zoom: 0.62; }
+  .rx-sum { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+  .rx-sum > span:first-child { display: none; }
+  .rx-cat { padding: 0.65rem 0.9rem !important; }
+  .rx-cat-num { font-size: 30px !important; }
+  .rx-cat-bars { height: 2rem !important; }
+  .rx-low { min-height: 0 !important; padding: 0.8rem 1rem !important; }
+  .rx-kpi-row { padding-top: 0.2rem !important; padding-bottom: 0.2rem !important; }
+  .rx-kpi-row > span:first-child { width: 1.75rem !important; height: 1.75rem !important; }
+  .rx-kpi-val { font-size: 18px !important; }
+  .rx-kpi-title { margin-bottom: 0.2rem !important; font-size: 15px !important; }
+  .rx-banner { height: 56px; }
+}
+
+/* O'qituvchi/talaba oynasi o'rtada ochiladi (2026-11-15). */
+@keyframes rx-pop-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
+.rx-pop { animation: rx-pop-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) { .rx-pop { animation: none; } }
+
+/* Dars dalolatnomasini chop etish (2026-11-16): faqat oyna ichi, butun uzunligi bilan. */
+@media print {
+  body * { visibility: hidden !important; }
+  .rx-print-root, .rx-print-root * { visibility: visible !important; }
+  .rx-print-overlay { position: static !important; display: block !important; padding: 0 !important; }
+  .rx-print-root { position: absolute !important; left: 0; top: 0; width: 100% !important; max-width: none !important;
+    height: auto !important; max-height: none !important; overflow: visible !important; box-shadow: none !important;
+    border-radius: 0 !important; background: #fff !important; animation: none !important; }
+  .rx-print-scroll { overflow: visible !important; height: auto !important; }
+  .rx-no-print { display: none !important; }
+  .rx-print-block, .rx-print-root section { break-inside: avoid; }
+}

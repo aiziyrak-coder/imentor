@@ -603,7 +603,8 @@ def _aware_utc(when: dt.datetime) -> dt.datetime:
     return when if when.tzinfo is not None else when.replace(tzinfo=dt.timezone.utc)
 
 
-def _attach_modules(lessons: list, raw: dict[int, dict], mods: dict[int, dict], schedule: list | None = None) -> None:
+def _attach_modules(lessons: list, raw: dict[int, dict], mods: dict[int, dict], schedule: list | None = None,
+                    kin: list | None = None) -> None:
     """`raw[id]["modules"]` — shu dars (sikl bo'lsa — butun sikl) bo'yicha test/keys holati.
 
     `schedule` — o'sha kunlarning hali tugamagan darslari ham (2026-11-19): sikl davom etayotgan bo'lsa
@@ -614,8 +615,14 @@ def _attach_modules(lessons: list, raw: dict[int, dict], mods: dict[int, dict], 
         if x.id in raw:
             raw[x.id]["modules"] = {**blank, **(mods.get(x.id) or {}), "cycle": 0}
     measured = {x.id for x in lessons}
-    extra = [x for x in (schedule or []) if x.id not in measured]
-    for chain in lesson_blocks([*lessons, *extra]):
+    # `kin` — siklning hisobotda baholanmaydigan turdagi paralari ("Klinik mashg'ulot", 2026-11-23): sikl ular
+    # bilan yig'iladi, tugagan bo'lsa "ochiq" hisoblanmaydi.
+    now = dt.datetime.now(dt.timezone.utc)
+    kin = [x for x in (kin or []) if x.id not in measured]
+    measured |= {x.id for x in kin if _scheduled(x)[1] <= now}
+    seen = measured | {x.id for x in kin}
+    extra = [x for x in (schedule or []) if x.id not in seen]
+    for chain in lesson_blocks([*lessons, *kin, *extra]):
         if len(chain) < 2:
             continue
         rows = [mods.get(x.id) or blank for x in chain]
@@ -723,6 +730,22 @@ def _apply_blocks(lessons: list, raw: dict[int, dict]) -> None:
             row["block_size"] = len(chain)
 
 
+def _cycle_kin(db: Session, lessons: list) -> list:
+    """Shu o'qituvchilarning shu kunlardagi BAHOLANMAYDIGAN turdagi darslari (klinik mashg'ulot va h.k.) —
+    faqat siklni to'g'ri yig'ish uchun: 1-para "Amaliy", 2–3-para "Klinik mashg'ulot" bo'lsa ham bitta sikl."""
+    if not lessons:
+        return []
+    try:
+        days = [x.lesson_date for x in lessons]
+        teachers = {x.teacher_username for x in lessons if x.teacher_username}
+        ids = {x.id for x in lessons}
+        rows = _lessons(db, min(days), max(days), pending=True, all_types=True)
+        return [x for x in rows if x.teacher_username in teachers and x.id not in ids]
+    except Exception:  # noqa: BLE001 — hisobot sikl qo'shnilarisiz ham ishlasin
+        logging.getLogger(__name__).exception("sikl qo‘shnilari olinmadi")
+        return []
+
+
 def measure_map(db: Session, lessons: list[HemisLesson], *, schedule: list | None = None) -> dict[int, dict]:
     """Har dars uchun XOM o'lchovlar: soniya, talaba, qoplama, dalil.
 
@@ -741,10 +764,11 @@ def measure_map(db: Session, lessons: list[HemisLesson], *, schedule: list | Non
     # lekin rektor kartasida "kirib chiqqan" darsda ham test/keys yaratilgani ko'rinadi.
     if raw:
         # Sikl butunligicha: o'tilgan darsning sikldagi qo'shnilari ham o'lchanadi.
-        chained = {x.id for c in lesson_blocks(lessons) if any(y.id in raw for y in c) for x in c}
-        mods = _module_raw(db, [x for x in lessons if x.id in chained or x.id in raw])
+        kin = _cycle_kin(db, lessons)
+        chained = {x.id for c in lesson_blocks([*lessons, *kin]) if any(y.id in raw for y in c) for x in c}
+        mods = _module_raw(db, [x for x in [*lessons, *kin] if x.id in chained or x.id in raw])
         if mods is not None:
-            _attach_modules(lessons, raw, mods, schedule)
+            _attach_modules(lessons, raw, mods, schedule, kin)
     return raw
 
 

@@ -521,7 +521,11 @@ def module_check(db: Session, day: dt.date, block: Block, now: dt.datetime) -> d
     `{"defer": True}` — 1–2-parada yaratmay 3-parada yaratsa ham to'g'ri. Muammo yo'q bo'lsa — None.
     """
     teacher_lessons = [x for x in lr._lessons(db, day, day, pending=True) if x.teacher_username == block.teacher]
-    chain = next((c for c in lr.lesson_blocks(teacher_lessons) if any(x.id in block.lesson_ids for x in c)), None)
+    # Sikl BARCHA dars turlari bilan yig'iladi (2026-11-23 shikoyati: "siklda test va keys 1 marta, nega 1-parada
+    # ogohlantirish?"). HEMIS siklning 1-parasini "Amaliy", qolganlarini "Klinik mashg'ulot" deb yozadi — faqat
+    # baholanadigan turlar olinganda sikl uzilib, 1-para yakka dars bo'lib baholanardi (4 kunda 26 ta noto'g'ri post).
+    every = [x for x in lr._lessons(db, day, day, pending=True, all_types=True) if x.teacher_username == block.teacher]
+    chain = next((c for c in lr.lesson_blocks(every) if any(x.id in block.lesson_ids for x in c)), None)
     if chain and len(chain) > 1:
         last = max(chain, key=lambda x: lr._scheduled(x)[1])
         if last.id not in block.lesson_ids:

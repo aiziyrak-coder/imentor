@@ -23,7 +23,7 @@ import logging
 import re
 from collections import defaultdict
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.models.content import AcademicDepartment, CourseSyllabus, StaffCourseSelection
@@ -149,6 +149,14 @@ def sync(db: Session, *, education_year: int | str = "", dry_run: bool = False) 
     group_curriculum = {str(g.get("id")): str(g.get("_curriculum")) for g in groups if g.get("_curriculum")}
     group_specialty = {str(g.get("id")): _clean((g.get("specialty") or {}).get("name")) for g in groups}
     teachers = teacher_map(db, hemis_client.teachers())
+    # Zaxira (2026-11-23): dars jadvali sinxroni (`core_hemislesson`) bog'lagan xodimlar — hisobi ismi
+    # boshqacha yozilgan yoki Xodim ID hisobi nofaol bo'lganlar ham fanlarini olsin (Xoliqova O. Y.).
+    for emp, login in db.execute(text(
+        "select distinct on (employee_id) employee_id, teacher_username from core_hemislesson "
+        "where employee_id <> '' and teacher_username <> '' order by employee_id, lesson_date desc"
+    )).all():
+        for key in (emp, int(emp) if str(emp).isdigit() else emp):
+            teachers.setdefault(key, login)
     courses = plan_courses(lessons, group_curriculum, teachers, group_specialty)
     deps = {
         d.hemis_id: d.id

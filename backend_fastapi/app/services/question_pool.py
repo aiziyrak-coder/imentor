@@ -247,8 +247,6 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
                 continue
             if no_lab and lab_question(str(q.get("question") or "")):
                 continue
-            if books_only and not q.get("grounded"):
-                continue
             seen.add(key)
             level = q.get("level") if q.get("level") in LEVELS else None
             item = {
@@ -268,7 +266,9 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
             out.append(item)
     (rng or random).shuffle(out)
     # Brauzer bankdan ro'yxat TARTIBIDA tanlaydi: to'g'ri javobi eng uzun bo'lmagan savollar oldinga.
-    out.sort(key=key_length_rank)
+    # 2026-11-23: kitobga tayangan savollar OLDINDA, yetmasa bazadagi boshqa savollar ham olinadi
+    # (ilgari ular butunlay tashlanardi — 123 savollik bankdan 0 qaytib, har test AI bilan yozilardi).
+    out.sort(key=lambda q: (books_only and not q.get("grounded"), key_length_rank(q)))
     return {"plan": plan, "questions": out[:MAX_POOL], "bank_size": len(bank), "bank_target": bank_target(),
             "new_questions": new_questions()}
 

@@ -398,7 +398,32 @@ def _issue_student(db: Session, user: User, student_id: str) -> LoginResponse:
     if auth_service.is_staff_account(db, user):
         _passwordless_allowed(db, user)
         return _issue(db, user, PASSWORDLESS_ROLE)
+    # 2026-11-23: admin talaba JSHSHIRini o'qituvchi hisobiga bog'lagan (magistrant-o'qituvchi) — Talaba ID
+    # bilan kirganda ham o'qituvchi bo'lib kiradi. Ilgari faqat JSHSHIR bilan kirganda ishlardi va ular
+    # odatdagidek Talaba ID bilan kirib, talaba kabinetida qolib ketardi.
+    staff = _admin_linked_staff(db, student_id)
+    if staff is not None:
+        _passwordless_allowed(db, staff)
+        return _issue(db, staff, PASSWORDLESS_ROLE)
     return _issue(db, user, "student", student_id)
+
+
+def _admin_linked_staff(db: Session, student_id: str) -> User | None:
+    from app.models.person_identity import PersonIdentity
+
+    sid = (student_id or "").strip()
+    if not sid:
+        return None
+    pinfls = db.execute(
+        select(PersonIdentity.pinfl).where(PersonIdentity.hemis_id == sid, PersonIdentity.pinfl != "")
+    ).scalars().all()
+    for pinfl in pinfls:
+        owner = staff_pinfl.admin_owner_for(db, pinfl)
+        if owner:
+            user = auth_service.get_user_by_username(db, owner)
+            if user is not None and user.is_active:
+                return user
+    return None
 
 
 def _issue(db: Session, user: User, role: str, student_id: str | None = None) -> LoginResponse:

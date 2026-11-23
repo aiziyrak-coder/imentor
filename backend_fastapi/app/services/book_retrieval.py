@@ -530,8 +530,15 @@ DEFAULT_SOURCE_FILTER_MODEL = "gpt-5.4-mini"
 
 def relevant_chunks(api_key: str, topic: str, chunks: list[dict]) -> list[dict]:
     """Mavzuga tegishli parchalar (arzon model saralaydi). Xato bo'lsa — bo'sh ro'yxat (qat'iy rejim yoqilmaydi)."""
+    return relevant_chunks_or_none(api_key, topic, chunks) or []
+
+
+def relevant_chunks_or_none(api_key: str, topic: str, chunks: list[dict]) -> list[dict] | None:
+    """`relevant_chunks` kabi, lekin saralab bo'lmasa (xato) — None; mos parcha yo'q bo'lsa — [].
+    2026-11-23: "Huqnalar" mavzusiga embedding churra (hernia) parchalarini berdi va slayd churra haqida
+    chiqdi — endi slayd/matn yaratishda ham parchalar mavzuga mosligi bo'yicha saralanadi."""
     if not chunks or not api_key:
-        return []
+        return None
     from app.services import openai_client as oai
 
     listed = "\n\n".join(
@@ -546,7 +553,10 @@ def relevant_chunks(api_key: str, topic: str, chunks: list[dict]) -> list[dict]:
                 "about the topic itself (its definition, classification, causes, mechanisms, features, diagnosis, "
                 "treatment, drugs or methods). Reject excerpts about another organ, disease, drug group, a "
                 "neighbouring topic, a special population not named in the topic, or a general introduction. "
-                "When unsure — reject. Excerpts may be in another language. Answer JSON {\"relevant\": [numbers]}.")},
+                "When unsure — reject. Excerpts may be in another language. The TOPIC is usually written in Uzbek "
+                "medical terminology: first translate it precisely (e.g. 'huqna' = enema, 'churra' = hernia) and "
+                "judge excerpts against that exact meaning, not a similar-sounding term. "
+                "Answer JSON {\"relevant\": [numbers]}.")},
                 {"role": "user", "content": f"TOPIC: {topic}\n\nEXCERPTS:\n{listed}"}],
             model=oai._env_model("OPENAI_SOURCE_FILTER_MODEL", DEFAULT_SOURCE_FILTER_MODEL), max_tokens=1200,
             temperature=0, response_format={"type": "json_object"},
@@ -556,7 +566,7 @@ def relevant_chunks(api_key: str, topic: str, chunks: list[dict]) -> list[dict]:
         picked = {int(x) for x in (_json.loads(raw).get("relevant") or []) if str(x).strip().isdigit()}
     except Exception:  # noqa: BLE001 — saralab bo'lmasa qat'iy rejim yo'q, test avvalgidek yoziladi
         logger.warning("test manbasi: parchalar saralanmadi", exc_info=True)
-        return []
+        return None
     return [c for i, c in enumerate(chunks, 1) if i in picked]
 
 

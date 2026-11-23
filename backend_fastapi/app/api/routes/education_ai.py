@@ -247,6 +247,14 @@ def education_ai_completion(
                 strict_done = True
     if subject_code and topic_query and not strict_done:
         chunks = rag.retrieve_book_context(db, subject_code, topic_query)
+        if chunks:
+            # Aloqasiz parchalar "FAQAT shulardan yoz" deb berilsa, butun slayd boshqa mavzuga ketadi
+            # (2026-11-23: "Huqnalar" -> churralar). Saralab bo'lmasa (None) — avvalgidek hammasi.
+            _release_db(db)
+            filtered = rag.relevant_chunks_or_none(api_key, topic_query, chunks)
+            if filtered is not None:
+                logger.info("RAG saralash: %d -> %d parcha (mavzu=%r)", len(chunks), len(filtered), topic_query[:80])
+                chunks = filtered
         context_message = rag.format_book_context_message(chunks)
         if context_message:
             messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": context_message}] + [m for m in messages if m.get("role") != "system"]
@@ -388,6 +396,14 @@ def education_ai_completion_stream(
     book_references: list[dict] = []
     if subject_code and topic_query:
         chunks = rag.retrieve_book_context(db, subject_code, topic_query)
+        if chunks:
+            # Aloqasiz parchalar "FAQAT shulardan yoz" deb berilsa, butun slayd boshqa mavzuga ketadi
+            # (2026-11-23: "Huqnalar" -> churralar). Saralab bo'lmasa (None) — avvalgidek hammasi.
+            _release_db(db)
+            filtered = rag.relevant_chunks_or_none(api_key, topic_query, chunks)
+            if filtered is not None:
+                logger.info("RAG saralash: %d -> %d parcha (mavzu=%r)", len(chunks), len(filtered), topic_query[:80])
+                chunks = filtered
         context_message = rag.format_book_context_message(chunks)
         if context_message:
             messages = [m for m in messages if m.get("role") == "system"] + [{"role": "system", "content": context_message}] + [m for m in messages if m.get("role") != "system"]

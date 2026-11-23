@@ -315,7 +315,12 @@ const UZ_MEDICAL_STYLE_RULE =
   'terms (qon bosimi, yurak qisqarishlari soni, nafas olish soni, umumiy qon tahlili, yallig‘lanish, qon ketishi), ' +
   'international terms in their accepted Uzbek spelling (gipertenziya, miokard infarkti, pnevmoniya, ' +
   'glomerulonefrit). Never translate Russian or English word by word, never invent words, keep Uzbek word order ' +
-  '(the verb at the end) and a formal scientific register. ';
+  '(the verb at the end) and a formal scientific register. ' +
+  // 2026-11-23: ingliz kitobi parchasidan "osmoles per kilogram of water" savolga aynan ko'chirilgan, PDF'dagi
+  // bo'g'in ko'chirish ("diffe rentiya") ham o'tgan.
+  'Book excerpts may be in English or Russian and contain PDF line-break artifacts: NEVER copy an English or ' +
+  'Russian phrase into the question or options (not even in quotes) — express it in Uzbek ("1 kg suvdagi ' +
+  'osmollar soni"); fix split words ("diffe rentiya" → "differensiya"); do not refer to the book ("darslikda"). ';
 /** Qiyinlik chegarasi (2026-10-21: "saviya past, USMLE 10+ qilish kerak"). */
 const DIFFICULTY_BAR_RULE =
   'DIFFICULTY BAR: NBME/USMLE level. Every question needs at least two reasoning steps (interpret the findings, ' +

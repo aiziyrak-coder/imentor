@@ -84,7 +84,15 @@ export function questionUsable(q: TestQuestion, language: AppLanguage): boolean 
   if ((q.question.match(/[?？]/g) || []).length > 1) return false;
   const flaws = questionFlaws(q);
   if (flaws.some((f) => UNGRADABLE.has(f) || f === 'ikki_savol')) return false;
+  if (language !== 'en' && hasEnglishPhrase([q.question, ...(q.options || [])].join(' '))) return false;
   return !anyUzbekLeftover([q.question, q.explanation, ...(q.options || [])], language);
+}
+
+/** O'zbek/rus savolda ko'chirilgan inglizcha ibora (2026-11-23: "osmoles per kilogram of water"). Bitta atama
+ * (pH, DNA) emas — kamida ikkita inglizcha yordamchi so'z. */
+const EN_GLUE = /\b(of|the|per|and|is|are|with|for|which|that|from)\b/gi;
+export function hasEnglishPhrase(text: string): boolean {
+  return (text.match(EN_GLUE) || []).length >= 2;
 }
 
 const STOP = new Set([

@@ -31,8 +31,27 @@ const LABELS: Record<AppLanguage, Record<LessonSection | 'title' | 'min' | 'sec'
     ready: 'ready' },
 };
 
-const keyFor = (t: SyllabusTopicContext) =>
-  `imentor-lesson-progress:${t.syllabusId}:${t.variantLabel}:${t.id}:${new Date().toISOString().slice(0, 10)}`;
+/** Para boshlanish vaqtlari (Toshkent). Hisoblagich har para uchun alohida (2026-11-23: bir mavzu 1-parada bir
+ * guruhga, 2-parada boshqasiga o'tilsa vaqt noldan boshlanmay, "21 daq / 10 daq" bo'lib qolardi). */
+const PARA_STARTS = ['08:00', '09:30', '11:00', '13:00', '14:30', '16:00', '17:30'];
+
+function paraSlot(now = new Date()): string {
+  const hm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false })
+    .format(now);
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(now);
+  // 10 daqiqa oldin ochilsa ham o'sha paraga yoziladi.
+  const [h, m] = hm.split(':').map(Number);
+  const mins = h * 60 + m + 10;
+  let slot = 0;
+  PARA_STARTS.forEach((s, i) => {
+    const [sh, sm] = s.split(':').map(Number);
+    if (mins >= sh * 60 + sm) slot = i + 1;
+  });
+  return `${day}:p${slot}`;
+}
+
+const keyFor = (t: SyllabusTopicContext, slot: string) =>
+  `imentor-lesson-progress:${t.syllabusId}:${t.variantLabel}:${t.id}:${slot}`;
 
 function load(key: string): Record<string, number> {
   try {
@@ -66,7 +85,13 @@ export default function LessonProgress({
   language: AppLanguage;
   onOpen?: (section: LessonSection) => void;
 }) {
-  const key = keyFor(topic);
+  // Para almashganda (sahifa ochiq qolsa ham) hisoblagich yangi paraga o'tadi.
+  const [slot, setSlot] = useState(() => paraSlot());
+  useEffect(() => {
+    const id = window.setInterval(() => setSlot(paraSlot()), 30000);
+    return () => window.clearInterval(id);
+  }, []);
+  const key = keyFor(topic, slot);
   const [spent, setSpent] = useState<Record<string, number>>(() => load(key));
   const [open, setOpen] = useState(false);
   const plan = PLANS[topic.type === 'lecture' ? 'lecture' : 'practical'];

@@ -54,7 +54,6 @@ def controlled_teachers(db: Session) -> frozenset[str]:
     with _lock:
         if _cache[1] and time.monotonic() - _cache[0] < TTL:
             return _cache[1]
-        from app.services import clinical_subjects
         from app.services import lesson_report_service as lr
 
         today = dt.datetime.now(dt.timezone(dt.timedelta(hours=5))).date()
@@ -63,8 +62,9 @@ def controlled_teachers(db: Session) -> frozenset[str]:
             "where monitor_id <> '' and teacher_username <> '' and lesson_date between :lo and :hi "
             "and coalesce(hemis_status, '') <> 'missing_from_hemis'"),
             {"lo": today - dt.timedelta(days=WINDOW_DAYS), "hi": today + dt.timedelta(days=WINDOW_DAYS)}).all()
-        out = {t for t, kind, subj, dep in rows
-               if lr.counts_lesson_type(kind) and clinical_subjects.is_clinical(subj, dep)}
+        # 2026-11-23 (foydalanuvchi qarori): klinik bo'lmagan fanlar (farmatsiya, boshqaruv va h.k.) ham —
+        # monitorli xonada amaliy darsi bo'lsa kiradi. Ilgari faqat klinik fanlar edi: 259 → 331 o'qituvchi.
+        out = {t for t, kind, subj, dep in rows if lr.counts_lesson_type(kind)}
         if not out:  # HEMIS bo'sh qolsa hammani bloklab qo'ymaslik
             log.warning("teacher_access: nazoratdagi o'qituvchilar ro'yxati bo'sh — cheklov qo'llanmadi")
             return frozenset()

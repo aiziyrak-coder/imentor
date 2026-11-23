@@ -33,6 +33,9 @@ router = APIRouter()
 MAX_FRAME_BYTES = 2 * 1024 * 1024
 # Institut kompyuterlari bitta NAT IP orqali chiqadi — ertalab ko'p o'qituvchi birdan kiradi.
 FACE_LOGIN_RATE = "240/minute"
+# Biometrikasi yo'q (yoki o'chirilgan) odam yuzini shu yerda ro'yxatdan o'tkazadi;
+# tasdiqlangan yuz sinxron bilan iMentor'ga keladi (scripts/sync_face_templates.py).
+ENROLL_URL = "https://cam.fermi.uz/royxatdan-otish"
 
 
 # Sinxron (def): face_api chaqiruvi 1-2 soniya bloklaydi — FastAPI uni threadpool'da
@@ -78,7 +81,10 @@ def face_login(
     if decision.status == "unknown":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Yuz tanilmadi. Kameraga to'g'ri qarab qayta urining yoki JSHSHIR/pasport bilan kiring.",
+            detail=(
+                "Yuz topilmadi. Kameraga to'g'ri qarab qayta urining. "
+                f"Yuzingiz hali ro'yxatdan o'tmagan bo'lsa, avval shu havola orqali ro'yxatdan o'ting: {ENROLL_URL}"
+            ),
         )
     if decision.status == "unlinked":
         raise HTTPException(
@@ -90,6 +96,21 @@ def face_login(
         )
 
     tpl = db.get(FaceTemplate, decision.template_id) if decision.template_id else None
+    # Admin talaba JSHSHIRini o'qituvchi hisobiga bog'lagan (magistrant-o'qituvchi, 2026-11-23) — yuz bilan
+    # kirganda ham o'qituvchi bo'lib kiradi. Ilgari faqat JSHSHIR/Talaba ID yo'lida ishlardi.
+    if decision.owner_key.startswith("ot_"):
+        from app.api.routes.auth import _admin_linked_staff
+
+        staff = _admin_linked_staff(db, decision.owner_key[3:])
+        if staff is not None:
+            role = auth_service.resolve_user_role_from_db(db, staff)
+            if role not in fl.FACE_LOGIN_ROLES:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                    detail="Bu hisobga yuz orqali kirib bo'lmaydi. JSHSHIR yoki pasport bilan kiring.")
+            auth_service.touch_last_login(db, staff)
+            record_activity_event(db, owner_key=staff.username, role=role, event_type="login", meta={"method": "face"})
+            db.commit()
+            return _login_response(db, staff, role)
     # `ot_` hisob xodim bo'lsa (2026-11-19: ikki rol o'chirildi) — xodim yo'li bilan; talabaga aylantirilmaydi.
     if decision.owner_key.startswith("ot_") and not auth_service.is_staff_account(
             db, auth_service.get_user_by_username(db, decision.owner_key)):

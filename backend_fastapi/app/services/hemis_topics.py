@@ -22,6 +22,7 @@ import datetime as dt
 import logging
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -59,6 +60,27 @@ def _type_of(code: str, name: str = "") -> tuple[str, str]:
     if "mustaqil" in low:
         return _TYPES["17"]
     return _TYPES["13"]
+
+
+#: HEMIS'ga bir vaqtdagi so'rovlar — ko'p bo'lsa u 502/504 qaytaradi.
+WORKERS = 8
+
+
+def _schedule_parallel(education_year: int | str = "") -> list[dict]:
+    """`schedule-list` ning ~400 sahifasi parallel (ketma-ket ~10 daqiqa edi)."""
+    params: dict = {"limit": hemis_client.PAGE_SIZE}
+    if education_year:
+        params["_education_year"] = education_year
+    first = hemis_client._get("/data/schedule-list", dict(params, page=1))
+    pages = int((first.get("pagination") or {}).get("pageCount") or 1)
+    if pages > hemis_client.MAX_PAGES:
+        raise hemis_client.HemisError(f"schedule-list: {pages} sahifa — chegaradan oshdi")
+    out = list(first.get("items") or [])
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        for data in pool.map(lambda p: hemis_client._get("/data/schedule-list", dict(params, page=p)),
+                             range(2, pages + 1)):
+            out.extend(data.get("items") or [])
+    return out
 
 
 def subject_code(curriculum: int | str, subject: int | str, semester: str) -> str:
@@ -144,7 +166,7 @@ def build_topics(items: list[dict], previous: list[dict] | None) -> list[dict]:
 
 
 def sync(db: Session, *, education_year: int | str = "", dry_run: bool = False) -> dict:
-    lessons = hemis_client.schedule(education_year)
+    lessons = _schedule_parallel(education_year)
     groups = list(hemis_client.iter_all("/data/group-list"))
     group_curriculum = {str(g.get("id")): str(g.get("_curriculum")) for g in groups if g.get("_curriculum")}
     group_specialty = {str(g.get("id")): _clean((g.get("specialty") or {}).get("name")) for g in groups}
@@ -169,12 +191,24 @@ def sync(db: Session, *, education_year: int | str = "", dry_run: bool = False) 
     stats = {"darslar": len(lessons), "fanlar": len(courses), "yangi": 0, "yangilandi": 0, "mavzusiz": 0,
              "tanlov_qoshildi": 0, "oqituvchisiz": 0}
     now = dt.datetime.now(dt.timezone.utc)
+
+    def fetch(key: tuple[str, str, str]) -> list[dict]:
+        curr, subj, sem = key
+        try:
+            got = list(hemis_client.iter_all(
+                "/data/curriculum-subject-topic-list", _curriculum=curr, _subject=subj, _semester=sem,
+            ))
+        except hemis_client.HemisError as exc:
+            logger.warning("HEMIS mavzulari olinmadi %s: %s", key, exc)
+            return []
+        return [i for i in got if str(i.get("_curriculum")) == curr and str((i.get("subject") or {}).get("id")) == subj
+                and str(i.get("_semester")) == sem]
+
+    # Tezlik (2026-11-23): 484 fan mavzulari ketma-ket ~20 daqiqa edi — parallel olinadi.
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        topic_items = dict(zip(courses, pool.map(fetch, list(courses))))
     for (curr, subj, sem), c in courses.items():
-        items = list(hemis_client.iter_all(
-            "/data/curriculum-subject-topic-list", _curriculum=curr, _subject=subj, _semester=sem,
-        ))
-        items = [i for i in items if str(i.get("_curriculum")) == curr and str((i.get("subject") or {}).get("id")) == subj
-                 and str(i.get("_semester")) == sem]
+        items = topic_items.get((curr, subj, sem)) or []
         if not items:
             stats["mavzusiz"] += 1
             continue

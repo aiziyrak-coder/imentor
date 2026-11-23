@@ -84,10 +84,11 @@ export function countTopicsByType(topics: SyllabusTopic[]): {
  */
 export function teacherVisibleTopics(topics: SyllabusTopic[] | null | undefined): SyllabusTopic[] {
   const list = topics ?? [];
-  const practical = list.filter((t) => t.type === 'practical');
-  if (practical.length) return practical;
-  const clinical = list.filter((t) => t.type === 'clinical');
+  // Faqat amaliy mashg'ulotlar (2026-11-23): amaliy/seminar, klinik va laboratoriya — HEMIS fanlarida
+  // bular bir fanda birga bo'ladi, ilgari amaliy bor bo'lsa laboratoriya va klinik yashirinardi.
+  const hands = list.filter((t) => t.type === 'practical' || t.type === 'clinical' || t.type === 'lab');
+  if (hands.length) return hands;
   // 2026-11-20: sillabusda mavzular turi noto'g'ri belgilangan (hammasi "ma'ruza") — o'qituvchi bo'sh sahifada
-  // qolmasin: amaliy ham, klinik ham bo'lmasa, mustaqil ta'limdan boshqa hamma mavzu ko'rsatiladi.
-  return clinical.length ? clinical : list.filter((t) => t.type !== 'independent');
+  // qolmasin: amaliy mavzu bo'lmasa, mustaqil ta'limdan boshqa hamma mavzu ko'rsatiladi.
+  return list.filter((t) => t.type !== 'independent');
 }

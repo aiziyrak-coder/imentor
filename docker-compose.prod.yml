@@ -11,6 +11,8 @@ x-backend-env: &backend-env
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
   DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in .env}
   DJANGO_BEHIND_PROXY: "True"
+  # 0 — hamma o'qituvchi kira oladi (2026-11-23); 1 — faqat monitorli xonada amaliy darsi borlar.
+  IMENTOR_TEACHER_ACCESS_ONLY_CONTROLLED: ${IMENTOR_TEACHER_ACCESS_ONLY_CONTROLLED:-1}
   DJANGO_DB_ENGINE: postgresql
   DJANGO_DB_NAME: ${POSTGRES_DB:-imentor}
   DJANGO_DB_USER: ${POSTGRES_USER:-imentor}

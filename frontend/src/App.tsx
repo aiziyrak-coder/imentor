@@ -86,6 +86,7 @@ import SyllabusView from './components/SyllabusView';
 import StaffTeachingSubjectsPicker from './components/staff/StaffTeachingSubjectsPicker';
 import { fetchMyCourseSelections } from './utils/syllabusApi';
 import TestQuestions from './components/TestQuestions';
+import LessonProgress, { isLessonSection } from './components/LessonProgress';
 import StudentMyTests from './components/StudentMyTests';
 import LectureNotes from './components/LectureNotes';
 import TopicVideos from './components/TopicVideos';
@@ -1255,7 +1256,16 @@ export default function App() {
                 <p className="text-sm font-medium">{translate(language, 'teachingSubjects.loading')}</p>
               </div>
             ) : (
-              mountedViews.map((view) => {
+              <>
+              {userRole === 'hodim' && selectedTopic && isLessonSection(activeView) && (
+                <LessonProgress
+                  topic={selectedTopic}
+                  section={activeView}
+                  language={language}
+                  onOpen={(s) => setActiveView(s as View)}
+                />
+              )}
+              {mountedViews.map((view) => {
                 const isActive = activeView === view;
                 return (
                   <motion.div
@@ -1268,7 +1278,8 @@ export default function App() {
                     <Suspense fallback={<LazyFallback />}>{renderContent(view)}</Suspense>
                   </motion.div>
                 );
-              })
+              })}
+              </>
             )}
           </div>
         </div>

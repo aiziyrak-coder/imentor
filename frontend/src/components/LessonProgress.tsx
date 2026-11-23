@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock } from 'lucide-react';
 import type { SyllabusTopicContext } from '../utils/syllabusTopicContext';
 import type { AppLanguage } from '../i18n/language';
+import { listPreparedForTopicResult, type PreparedContentKind } from '../utils/preparedContentStore';
 
 /**
  * Dars bo'limlari indikatori (2026-11-23, o'qituvchilar so'rovi: "taqdimotda, keys muhokamasida
@@ -70,16 +71,37 @@ export default function LessonProgress({
 
   useEffect(() => setSpent(load(key)), [key]);
 
-  // Har 5 soniyada joriy bo'limga vaqt qo'shiladi (sahifa ko'rinib turgan bo'lsa).
+  // Bo'lim uchun material shu mavzuda yaratilgan bo'lsa — bajarilgan (2026-11-23 shikoyati: faqat
+  // vaqt sanalib, ma'ruza/taqdimot/test tayyor bo'lsa ham "0/6" ko'rinardi). Bo'lim almashganda yangilanadi.
+  const [made, setMade] = useState<Partial<Record<LessonSection, boolean>>>({});
+  useEffect(() => {
+    let alive = true;
+    const kinds: Array<[LessonSection, PreparedContentKind]> = [
+      ['lectures', 'lecture'], ['presentation', 'presentation'], ['cases', 'case'], ['tests', 'test'],
+    ];
+    void Promise.all(
+      kinds.map(async ([s, k]) => {
+        const r = await listPreparedForTopicResult(k, topic).catch(() => null);
+        return [s, Boolean(r?.ok && r.items.length)] as const;
+      }),
+    ).then((rows) => {
+      if (alive) setMade(Object.fromEntries(rows));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [key, section, topic]);
+
+  // Har soniyada joriy bo'limga vaqt qo'shiladi (sahifa ko'rinib turgan bo'lsa); har 5 s saqlanadi.
   useEffect(() => {
     const id = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       setSpent((prev) => {
-        const next = { ...prev, [section]: (prev[section] || 0) + 5 };
-        save(key, next);
+        const next = { ...prev, [section]: (prev[section] || 0) + 1 };
+        if (next[section] % 5 === 0) save(key, next);
         return next;
       });
-    }, 5000);
+    }, 1000);
     return () => window.clearInterval(id);
   }, [key, section]);
 
@@ -88,10 +110,11 @@ export default function LessonProgress({
   const ratio = used / budget;
   const color = ratio >= 1 ? 'bg-red-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-emerald-500';
   const text = ratio >= 1 ? 'text-red-700' : ratio >= 0.8 ? 'text-amber-700' : 'text-emerald-700';
-  const mins = (s: number) => Math.floor(s / 60);
+  const mins = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const isDone = (s: LessonSection, m: number) => Boolean(made[s]) || (spent[s] || 0) >= m * 60 * 0.5;
   const doneCount = useMemo(
-    () => plan.filter(([s, m]) => (spent[s] || 0) >= m * 60 * 0.5).length,
-    [plan, spent],
+    () => plan.filter(([s, m]) => Boolean(made[s]) || (spent[s] || 0) >= m * 60 * 0.5).length,
+    [plan, spent, made],
   );
 
   return (
@@ -123,7 +146,7 @@ export default function LessonProgress({
           <ul className="border-t border-slate-100 px-3 py-2 space-y-1">
             {plan.map(([s, m]) => {
               const u = spent[s] || 0;
-              const done = u >= m * 60 * 0.5;
+              const done = isDone(s, m);
               return (
                 <li key={s}>
                   <button

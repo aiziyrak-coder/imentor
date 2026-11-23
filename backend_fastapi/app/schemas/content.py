@@ -15,6 +15,8 @@ class StaffCourseSelectionOut(BaseModel):
     selected_at: dt.datetime
     # O'qituvchi bu fanni Excel'dan o'zi yuklagan — "O'chirish" faqat shunda.
     is_own: bool = False
+    # Mavzulari HEMIS dan sinxronlangan fan (2026-11-23, `hemis_topics`).
+    is_hemis: bool = False
 
 
 class AdminStaffCourseSelectionOut(BaseModel):

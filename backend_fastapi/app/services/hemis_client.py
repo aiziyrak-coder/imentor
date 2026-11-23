@@ -27,7 +27,7 @@ RETRY_CODES = {429, 500, 502, 503, 504}
 RETRIES = 4
 RETRY_WAIT = 5
 # Bitta so'rovda kelishi mumkin bo'lgan eng ko'p sahifa — cheksiz aylanishdan himoya.
-MAX_PAGES = 400
+MAX_PAGES = 1000
 
 
 class HemisError(RuntimeError):

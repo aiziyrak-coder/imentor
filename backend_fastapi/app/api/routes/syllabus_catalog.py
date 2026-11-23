@@ -102,6 +102,7 @@ def _selection_out(sel: StaffCourseSelection) -> StaffCourseSelectionOut:
         variant_label=sel.variant_label,
         selected_at=sel.selected_at,
         is_own=bool(sel.syllabus.created_by) and sel.syllabus.created_by == sel.owner_key,
+        is_hemis=(sel.syllabus.subject_code or "").startswith("hemis-"),
     )
 
 

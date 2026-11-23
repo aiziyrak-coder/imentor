@@ -100,8 +100,10 @@ export default function SyllabusView({
         out.push(s);
       }
     }
-    return out;
+    // HEMIS fanlari tepada (2026-11-23): mavzular HEMIS bilan bir xil; eskilari pastda "eski" belgisi bilan.
+    return out.sort((a, b) => Number(Boolean(b.is_hemis)) - Number(Boolean(a.is_hemis)));
   })();
+  const hasHemisSubjects = mySubjects.some((s) => s.is_hemis);
 
   // Interfeys tili almashganda, tarjimasi yetishmayotgan fanlar uchun
   // serverdan tarjima so'raymiz (idempotent — bir necha o'qituvchi bir
@@ -549,6 +551,15 @@ export default function SyllabusView({
                           {t('ownSubjects.ownBadge')}
                         </span>
                       )}
+                      {sel.is_hemis ? (
+                        <span className="ml-1.5 whitespace-nowrap rounded bg-blue-50 px-1 py-px align-middle text-[9.5px] font-semibold text-blue-700">
+                          HEMIS
+                        </span>
+                      ) : hasHemisSubjects ? (
+                        <span className="ml-1.5 whitespace-nowrap rounded bg-slate-100 px-1 py-px align-middle text-[9.5px] font-semibold text-slate-500">
+                          {language === 'ru' ? 'старый' : language === 'en' ? 'old' : 'eski'}
+                        </span>
+                      ) : null}
                     </span>
                     {/* Nechta mavzuda material bor — fanni tanlamasdan turib
                         ko'rinadi. Ma'lumot kelmaguncha chiziq bo'sh turadi. */}

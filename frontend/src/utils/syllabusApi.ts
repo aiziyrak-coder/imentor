@@ -43,6 +43,8 @@ export type StaffCourseSelectionRow = {
   selected_at: string;
   /** O'qituvchi bu fanni Excel'dan o'zi yuklagan — faqat unga ko'rinadi, o'zi o'chira oladi. */
   is_own?: boolean;
+  /** Mavzulari HEMIS'dan sinxronlangan fan (2026-11-23). */
+  is_hemis?: boolean;
 };
 
 /** Admin ko'rinishi: fanga biriktirilgan o'qituvchi (owner_key bilan) */

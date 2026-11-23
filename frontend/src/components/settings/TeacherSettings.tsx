@@ -17,6 +17,8 @@ import {
   UserRound,
 } from 'lucide-react';
 import UserProfile from '../UserProfile';
+import LessonProgress from '../LessonProgress';
+import { AppLanguageContext, GlobalTopicContext } from '../../App';
 import AccountSecurityCard from './AccountSecurityCard';
 import StaffPageLayout from '../staff/StaffPageLayout';
 import StaffTeachingSubjectsPicker from '../staff/StaffTeachingSubjectsPicker';
@@ -277,12 +279,16 @@ function WorkplaceCard() {
 
 function ProfilePanel() {
   const s = useSettingsText();
+  const topic = React.useContext(GlobalTopicContext);
+  const { language } = React.useContext(AppLanguageContext);
   return (
     <Panel
       title={s.tabProfile}
       intro={s.profileIntro}
       howto={<HowTo steps={[s.profileStep1, s.profileStep2, s.profileStep3]} note={s.profileNote} />}
     >
+      {/* Bugungi dars rejasi (2026-11-23): dars sahifalarida xalaqit bermasin — faqat shu yerda. */}
+      {topic && <LessonProgress topic={topic} language={language} mode="card" />}
       <WorkplaceCard />
       <UserProfile embedded />
     </Panel>

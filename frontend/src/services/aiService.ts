@@ -3327,7 +3327,7 @@ export const aiService = {
     let lastFlawNote = '';
     /** Oxirgi AI javobi (qisqartirilgan) — bo'sh natijada jurnalga yozish uchun. */
     let lastRaw = '';
-    const generate = async (requestedCount: number, extraUser = ''): Promise<TestSession> => {
+    const generate = async (requestedCount: number, extraUser = '', partPlan?: TestPlan): Promise<TestSession> => {
       const variety = buildTestVarietyPrompt(topic, requestedCount, difficulty, domain);
       // Kesh (2026-10-22, xarajat): system xabari har chaqiruvda AYNAN bir xil bo'lishi kerak —
       // OpenAI uni keshlaydi va keyingi chaqiruvlarda 10 barobar arzon hisoblaydi (undan
@@ -3336,7 +3336,7 @@ export const aiService = {
       // Ilgari ular system o'rtasida turardi va keshga atigi ~11% tushardi.
       const taskRules =
         `${imaging ? IMAGING_TEST_RULE : ''}${morphology ? MORPHOLOGY_TEST_RULE : ''}${dental ? DENTAL_TEST_RULE : ''}` +
-        (plan ? `\n${buildTestPlanPrompt(plan, requestedCount, domain, isBasicPharmacology(scope))}\n` : '');
+        (plan ? `\n${buildTestPlanPrompt(partPlan ?? plan, requestedCount, domain, isBasicPharmacology(scope))}\n` : '');
       // ~640 token/savol: 3 zich jumla + 5–7 gaplik klinik explanation.
       const scaledMaxTokens = Math.min(16000, Math.ceil(requestedCount * 640) + 500);
       // OpenAI + server RAG: book_references completion javobidan olinadi.
@@ -3434,7 +3434,41 @@ export const aiService = {
      * takrorlar keyingi bosqichda (`dropDuplicateQuestions`) tushadi. Har yarmi o'z kitob parchalariga tayanadi.
      */
     const generateFast = async (requestedCount: number, extraUser = ''): Promise<TestSession> => {
-      if (plan || requestedCount < PARALLEL_TEST_MIN) return generate(requestedCount, extraUser);
+      if (requestedCount < PARALLEL_TEST_MIN) return generate(requestedCount, extraUser);
+      if (plan) {
+        // Reja rejimi ham parallel (2026-11-23: mavzu banki bo'sh bo'lsa 10+5 savol bitta so'rovda — 107–117 s).
+        // Darajalar va bog'lash bo'laklarga taqsimlanadi; har bo'lak o'z yo'nalishida yozadi.
+        const n = TEST_PART_NOTES.length;
+        const parts: Array<{ plan: TestPlan; count: number }> = Array.from({ length: n }, () => ({
+          plan: { ...plan, levels: { hard: 0, medium: 0, easy: 0 }, linked: 0, need: 0 },
+          count: 0,
+        }));
+        let k = 0;
+        (['hard', 'medium', 'easy'] as const).forEach((lvl) => {
+          for (let i = 0; i < plan.levels[lvl]; i += 1) {
+            const p = parts[k % n];
+            p.plan.levels[lvl] += 1;
+            p.count += 1;
+            k += 1;
+          }
+        });
+        for (let i = 0; i < plan.linked; i += 1) parts[i % n].plan.linked += 1;
+        // Ortiqcha (zaxira) savollar ham taqsimlanadi.
+        for (let i = 0; i < Math.max(0, requestedCount - k); i += 1) parts[(k + i) % n].count += 1;
+        parts.forEach((p) => {
+          p.plan.need = countOf(p.plan.levels);
+          p.plan.linked = Math.min(p.plan.linked, p.plan.need);
+        });
+        const live = parts.map((p, i) => ({ ...p, i })).filter((p) => p.count > 0);
+        const settled = await Promise.allSettled(
+          live.map((p) => generate(p.count, `${extraUser}${TEST_PART_NOTES[p.i]}\n\n`, p.plan)),
+        );
+        const okParts = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+        if (!okParts.length) return generate(requestedCount, extraUser);
+        const refsP = new Map<string, MedicalReference>();
+        for (const part of okParts) for (const ref of part.references || []) refsP.set(JSON.stringify(ref), ref);
+        return { ...okParts[0], questions: okParts.flatMap((x) => x.questions || []), references: [...refsP.values()] };
+      }
       // 2026-11-23 ("test yaratish juda uzoq"): yozish vaqti chiqish tokeniga bog'liq — 2 bo'lakda har biri
       // 40–67 s edi. 3 parallel bo'lak (har biri 3–4 savol) kutishni sezilarli qisqartiradi.
       const n = TEST_PART_NOTES.length;

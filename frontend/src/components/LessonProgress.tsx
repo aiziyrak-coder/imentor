@@ -79,11 +79,15 @@ export default function LessonProgress({
   section,
   language,
   onOpen,
+  mode = 'tracker',
 }: {
   topic: SyllabusTopicContext;
-  section: LessonSection;
+  section?: LessonSection;
   language: AppLanguage;
   onOpen?: (section: LessonSection) => void;
+  /** 2026-11-23 ("vaqt darsda xayolni olyapti"): `tracker` — dars sahifalarida KO'RINMAYDI, faqat vaqtni sanaydi;
+   * `card` — Profil sahifasidagi "Bugungi dars rejasi" kartasi. */
+  mode?: 'tracker' | 'card';
 }) {
   // Para almashganda (sahifa ochiq qolsa ham) hisoblagich yangi paraga o'tadi.
   const [slot, setSlot] = useState(() => paraSlot());
@@ -93,16 +97,22 @@ export default function LessonProgress({
   }, []);
   const key = keyFor(topic, slot);
   const [spent, setSpent] = useState<Record<string, number>>(() => load(key));
-  const [open, setOpen] = useState(false);
   const plan = PLANS[topic.type === 'lecture' ? 'lecture' : 'practical'];
   const L = LABELS[language] ?? LABELS.uz;
 
   useEffect(() => setSpent(load(key)), [key]);
+  // Kartada — trekker yozgan qiymatlarni qayta o'qib turadi.
+  useEffect(() => {
+    if (mode !== 'card') return undefined;
+    const id = window.setInterval(() => setSpent(load(key)), 5000);
+    return () => window.clearInterval(id);
+  }, [key, mode]);
 
   // Bo'lim uchun material shu mavzuda yaratilgan bo'lsa — bajarilgan (2026-11-23 shikoyati: faqat
   // vaqt sanalib, ma'ruza/taqdimot/test tayyor bo'lsa ham "0/6" ko'rinardi). Bo'lim almashganda yangilanadi.
   const [made, setMade] = useState<Partial<Record<LessonSection, boolean>>>({});
   useEffect(() => {
+    if (mode !== 'card') return undefined;
     let alive = true;
     const kinds: Array<[LessonSection, PreparedContentKind]> = [
       ['lectures', 'lecture'], ['presentation', 'presentation'], ['cases', 'case'], ['tests', 'test'],
@@ -118,10 +128,11 @@ export default function LessonProgress({
     return () => {
       alive = false;
     };
-  }, [key, section, topic]);
+  }, [key, mode, topic]);
 
   // Har soniyada joriy bo'limga vaqt qo'shiladi (sahifa ko'rinib turgan bo'lsa); har 5 s saqlanadi.
   useEffect(() => {
+    if (mode !== 'tracker' || !section) return undefined;
     const id = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       setSpent((prev) => {
@@ -131,77 +142,69 @@ export default function LessonProgress({
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [key, section]);
+  }, [key, section, mode]);
 
-  const budget = (plan.find(([s]) => s === section)?.[1] ?? 10) * 60;
-  const used = spent[section] || 0;
-  const ratio = used / budget;
-  const color = ratio >= 1 ? 'bg-red-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-emerald-500';
-  const text = ratio >= 1 ? 'text-red-700' : ratio >= 0.8 ? 'text-amber-700' : 'text-emerald-700';
   // "23 son" / "6 daq" (2026-11-23: "0:23" 23 daqiqa deb o'qilardi).
   const mins = (s: number) => (s < 60 ? `${s} ${L.sec}` : `${Math.floor(s / 60)} ${L.min}`);
-  // ✓ — faqat VAQT bajarilganda (ajratilganining yarmi). Material tayyorligi alohida belgi (2026-11-23:
-  // "galochka qo'yilgan, lekin 1 daqiqa ham bo'lmadi" — avval yaratilgan test ✓ qo'yardi).
+  // ✓ — faqat VAQT bajarilganda (ajratilganining yarmi). Material tayyorligi alohida belgi.
   const isDone = (s: LessonSection, m: number) => (spent[s] || 0) >= m * 60 * 0.5;
   const doneCount = useMemo(
     () => plan.filter(([s, m]) => (spent[s] || 0) >= m * 60 * 0.5).length,
     [plan, spent],
   );
 
+  if (mode === 'tracker') return null;
+
   return (
-    <div className="fixed right-3 bottom-[calc(6.5rem+env(safe-area-inset-bottom,0px))] md:bottom-12 z-40 print:hidden">
-      <div className="w-60 rounded-xl border border-slate-200 bg-white/95 shadow-lg backdrop-blur text-[11px]">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="w-full px-3 py-2 text-left"
-          aria-expanded={open}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1 font-semibold text-slate-700">
-              <Clock size={12} /> {L[section]}
-            </span>
-            <span className={`font-semibold tabular-nums ${text}`}>
-              {mins(used)} / {budget / 60} {L.min}
-            </span>
-          </div>
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-            <div className={`h-full ${color} transition-all`} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
-          </div>
-          {ratio >= 1 && <div className="mt-1 text-red-700">{L.over}</div>}
-          <div className="mt-1 text-slate-500">
-            {L.title}: {doneCount}/{plan.length}
-          </div>
-        </button>
-        {open && (
-          <ul className="border-t border-slate-100 px-3 py-2 space-y-1">
-            {plan.map(([s, m]) => {
-              const u = spent[s] || 0;
-              const done = isDone(s, m);
-              return (
-                <li key={s}>
-                  <button
-                    type="button"
-                    onClick={() => onOpen?.(s)}
-                    className={`flex w-full items-center justify-between rounded px-1 py-0.5 hover:bg-slate-50 ${s === section ? 'font-semibold' : ''}`}
-                  >
-                    <span className="flex items-center gap-1">
-                      {done ? <CheckCircle2 size={12} className="text-emerald-600" /> : <span className="inline-block h-3 w-3 rounded-full border border-slate-300" />}
-                      {L[s]}
-                      {made[s] && (
-                        <span className="rounded bg-blue-50 px-1 text-[9px] font-medium text-blue-700">{L.ready}</span>
-                      )}
-                    </span>
-                    <span className={`tabular-nums ${u > m * 60 ? 'text-red-600' : 'text-slate-500'}`}>
-                      {mins(u)} / {m} {L.min}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 text-[13px]">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-[17px] font-bold text-slate-900">
+          <Clock size={16} /> {L.title}
+        </h3>
+        <span className="text-slate-500">
+          {doneCount}/{plan.length} · {L.done.toLowerCase()}
+        </span>
       </div>
-    </div>
+      <p className="mt-1 text-slate-500">{topic.title}</p>
+      <ul className="mt-3 space-y-2">
+        {plan.map(([s, m]) => {
+          const u = spent[s] || 0;
+          const r = Math.min(1, u / (m * 60));
+          const over = u > m * 60;
+          return (
+            <li key={s}>
+              <button
+                type="button"
+                onClick={() => onOpen?.(s)}
+                className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-slate-50"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5">
+                    {isDone(s, m) ? (
+                      <CheckCircle2 size={14} className="text-emerald-600" />
+                    ) : (
+                      <span className="inline-block h-3.5 w-3.5 rounded-full border border-slate-300" />
+                    )}
+                    {L[s]}
+                    {made[s] && (
+                      <span className="rounded bg-blue-50 px-1 text-[10px] font-medium text-blue-700">{L.ready}</span>
+                    )}
+                  </span>
+                  <span className={`tabular-nums ${over ? 'text-red-600' : 'text-slate-500'}`}>
+                    {mins(u)} / {m} {L.min}
+                  </span>
+                </div>
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full ${over ? 'bg-red-500' : r >= 0.8 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${r * 100}%` }}
+                  />
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

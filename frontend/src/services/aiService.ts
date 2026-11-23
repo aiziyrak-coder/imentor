@@ -1859,8 +1859,9 @@ const REVIEW_CHUNK = 4;
 /** Shuncha va undan ko'p savol reja-siz yozilsa — ikki parallel so'rovga bo'linadi (2026-11-19, tezlik). */
 const PARALLEL_TEST_MIN = 8;
 const TEST_PART_NOTES = [
-  'QISM 1/2: savollar mavzuning ASOSIY jihatlariga qaratilsin — ta’rif, mexanizm/usul, asosiy belgilar va tasnif.',
-  'QISM 2/2: savollar mavzuning AMALIY jihatlariga qaratilsin — talqin, qiyosiy tashxis, asoratlar, taktika va xulosa.',
+  'QISM 1/3: savollar mavzuning ASOSIY jihatlariga qaratilsin — ta’rif, mexanizm/usul, asosiy belgilar va tasnif.',
+  'QISM 2/3: savollar mavzuning TALQIN jihatlariga qaratilsin — tekshiruv natijalari talqini, diagnostika, qiyosiy tashxis.',
+  'QISM 3/3: savollar mavzuning AMALIY jihatlariga qaratilsin — asoratlar, davolash/taktika, profilaktika va xulosa.',
 ];
 
 /** Generatsiya shu sondan kam savol bilan tugasa — test qaytarilmaydi. */
@@ -2341,7 +2342,7 @@ function optionExplanationSystem(
 /** Distraktor uzaytirish bir so'rovda shuncha savolni oladi; bo'laklar parallel. */
 const BALANCE_CHUNK = 4;
 /** Qoidadan o'tmagan savollar qayta so'raladi (haqiqiy savollarda: 2 urinishda 60%, 3 da 86% o'tdi). */
-const BALANCE_ATTEMPTS = 3;
+const BALANCE_ATTEMPTS = 2;
 
 /**
  * To'g'ri javob eng uzun variant bo'lmasin (2026-11-18, `utils/optionLength`).
@@ -3434,15 +3435,14 @@ export const aiService = {
      */
     const generateFast = async (requestedCount: number, extraUser = ''): Promise<TestSession> => {
       if (plan || requestedCount < PARALLEL_TEST_MIN) return generate(requestedCount, extraUser);
-      const first = Math.ceil(requestedCount / 2);
-      const parts = await Promise.allSettled([
-        generate(first, `${extraUser}${TEST_PART_NOTES[0]}
-
-`),
-        generate(requestedCount - first, `${extraUser}${TEST_PART_NOTES[1]}
-
-`),
-      ]);
+      // 2026-11-23 ("test yaratish juda uzoq"): yozish vaqti chiqish tokeniga bog'liq — 2 bo'lakda har biri
+      // 40–67 s edi. 3 parallel bo'lak (har biri 3–4 savol) kutishni sezilarli qisqartiradi.
+      const n = TEST_PART_NOTES.length;
+      const base = Math.floor(requestedCount / n);
+      const sizes = TEST_PART_NOTES.map((_, i) => base + (i < requestedCount % n ? 1 : 0));
+      const parts = await Promise.allSettled(
+        sizes.flatMap((size, i) => (size > 0 ? [generate(size, `${extraUser}${TEST_PART_NOTES[i]}\n\n`)] : [])),
+      );
       const ok = parts.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
       if (!ok.length) return generate(requestedCount, extraUser);
       const refs = new Map<string, MedicalReference>();

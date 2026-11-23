@@ -101,7 +101,14 @@ export default function SyllabusView({
       }
     }
     // HEMIS fanlari tepada (2026-11-23): mavzular HEMIS bilan bir xil; eskilari pastda "eski" belgisi bilan.
-    return out.sort((a, b) => Number(Boolean(b.is_hemis)) - Number(Boolean(a.is_hemis)));
+    // HEMIS fanlari nom bo'yicha: "Fan — N-semestr (Yo'nalish)" — bir fanning semestrlari ketma-ket turadi.
+    return out.sort(
+      (a, b) =>
+        Number(Boolean(b.is_hemis)) - Number(Boolean(a.is_hemis)) ||
+        (a.is_hemis && b.is_hemis
+          ? (a.syllabus.subject_name || '').localeCompare(b.syllabus.subject_name || '', 'uz', { numeric: true })
+          : 0),
+    );
   })();
   const hasHemisSubjects = mySubjects.some((s) => s.is_hemis);
 

@@ -69,7 +69,8 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
 
 
-def plan_courses(lessons: list[dict], group_curriculum: dict[str, str], teachers: dict) -> dict:
+def plan_courses(lessons: list[dict], group_curriculum: dict[str, str], teachers: dict,
+                 group_specialty: dict[str, str] | None = None) -> dict:
     """(reja, fan, semestr) → {name, semester_name, department_hemis_id, owners, lang}."""
     courses: dict[tuple[str, str, str], dict] = {}
     for les in lessons:
@@ -86,13 +87,34 @@ def plan_courses(lessons: list[dict], group_curriculum: dict[str, str], teachers
             "department_hemis_id": str((les.get("department") or {}).get("id") or ""),
             "owners": set(),
             "langs": defaultdict(int),
+            "specialties": defaultdict(int),
         })
+        spec = (group_specialty or {}).get(str(grp.get("id") or ""))
+        if spec:
+            c["specialties"][spec] += 1
         login = teachers.get((les.get("employee") or {}).get("id"))
         if login:
             c["owners"].add(login)
         lang = _clean(((grp.get("educationLang") or {}).get("name"))).lower()
         c["langs"]["ru" if lang.startswith("rus") else "en" if lang.startswith("ingliz") or lang.startswith("eng") else "uz"] += 1
     return courses
+
+
+def _short_specialty(text: str) -> str:
+    """"Stomatologiya (yo'nalishlar bo'yicha)" → "Stomatologiya"."""
+    return re.sub(r"\s*\(.*?\)\s*", " ", text or "").strip()
+
+
+def display_name(c: dict) -> str:
+    """"Farmakologiya — 5-semestr (Pediatriya)": fan, semestr va yo'nalish — ro'yxatda aralashmasin."""
+    name = c["name"]
+    if c.get("semester_name"):
+        name = f"{name} — {c['semester_name']}"
+    specs = [s for s, _ in sorted((c.get("specialties") or {}).items(), key=lambda kv: -kv[1]) if s]
+    if specs:
+        shown = ", ".join(_short_specialty(s) for s in specs[:2]) + (" …" if len(specs) > 2 else "")
+        name = f"{name} ({shown})"
+    return name[:255]
 
 
 def build_topics(items: list[dict], previous: list[dict] | None) -> list[dict]:
@@ -123,13 +145,11 @@ def build_topics(items: list[dict], previous: list[dict] | None) -> list[dict]:
 
 def sync(db: Session, *, education_year: int | str = "", dry_run: bool = False) -> dict:
     lessons = hemis_client.schedule(education_year)
-    group_curriculum = {
-        str(g.get("id")): str(g.get("_curriculum"))
-        for g in hemis_client.iter_all("/data/group-list")
-        if g.get("_curriculum")
-    }
+    groups = list(hemis_client.iter_all("/data/group-list"))
+    group_curriculum = {str(g.get("id")): str(g.get("_curriculum")) for g in groups if g.get("_curriculum")}
+    group_specialty = {str(g.get("id")): _clean((g.get("specialty") or {}).get("name")) for g in groups}
     teachers = teacher_map(db, hemis_client.teachers())
-    courses = plan_courses(lessons, group_curriculum, teachers)
+    courses = plan_courses(lessons, group_curriculum, teachers, group_specialty)
     deps = {
         d.hemis_id: d.id
         for d in db.execute(select(AcademicDepartment).where(AcademicDepartment.hemis_id != "")).scalars()
@@ -155,7 +175,7 @@ def sync(db: Session, *, education_year: int | str = "", dry_run: bool = False) 
         code = subject_code(curr, subj, sem)
         syl = existing.get(code)
         topics = build_topics(items, syl.topics if syl else None)
-        name = f"{c['name']} · {c['semester_name']}" if c["semester_name"] else c["name"]
+        name = display_name(c)
         lang = max(c["langs"], key=c["langs"].get) if c["langs"] else "uz"
         owners = sorted(c["owners"])
         if dry_run:

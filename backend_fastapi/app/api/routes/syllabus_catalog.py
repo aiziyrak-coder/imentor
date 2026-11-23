@@ -479,7 +479,11 @@ def set_my_teaching_subjects(
     """
     ids = sorted({int(x) for x in payload.syllabus_ids})
     if not ids:
-        db.execute(delete(StaffCourseSelection).where(StaffCourseSelection.owner_key == auth.user.username))
+        hemis_sids = select(CourseSyllabus.id).where(CourseSyllabus.subject_code.like("hemis-%"))
+        db.execute(delete(StaffCourseSelection).where(
+            StaffCourseSelection.owner_key == auth.user.username,
+            StaffCourseSelection.syllabus_id.not_in(hemis_sids),
+        ))
         db.commit()
         return []
 
@@ -523,8 +527,16 @@ def set_my_teaching_subjects(
     ).scalars().all()
     have = {row.syllabus_id for row in existing}
     wanted = set(ids)
+    # HEMIS fanlari (2026-11-23) server tomonidan biriktiriladi — o'qituvchining eski ochiq sahifasi
+    # o'z (eskirgan) ro'yxatini saqlaganda ular o'chib ketardi. Ular faqat HEMIS sinxroni orqali o'zgaradi.
+    hemis_ids = set(db.execute(
+        select(CourseSyllabus.id).where(
+            CourseSyllabus.id.in_([r.syllabus_id for r in existing] or [0]),
+            CourseSyllabus.subject_code.like("hemis-%"),
+        )
+    ).scalars())
     for row in existing:
-        if row.syllabus_id not in wanted:
+        if row.syllabus_id not in wanted and row.syllabus_id not in hemis_ids:
             db.delete(row)
     now = dt.datetime.now(dt.timezone.utc)
     for sid in ids:

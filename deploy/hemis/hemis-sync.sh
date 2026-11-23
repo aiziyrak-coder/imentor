@@ -25,3 +25,5 @@ run kontingent /app/scripts/sync_hemis_students.py "$@"
 run kafedralar /app/scripts/sync_hemis_departments.py "$@"
 # Profil: bo'sh kafedra/lavozim va ish holati (ta'tildagilar hisobotda ayblanmaydi).
 run xodimlar /app/scripts/sync_hemis_staff.py "$@"
+# HEMIS mavzulari → o'qituvchi fanlari (2026-11-23).
+run mavzular /app/scripts/sync_hemis_topics.py

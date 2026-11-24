@@ -216,15 +216,11 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
         )
         .order_by(PreparedContent.created_at.desc())
     ).all()
-    own_latest = next((r for r in rows if r.owner_key == owner_key
-                       and getattr(r, "syllabus_id", syllabus_id) == syllabus_id), None)
-    blocked = {
-        _key(str(q.get("question") or ""))
-        for q in ((own_latest.payload or {}).get("questions") or [] if own_latest else [])
-        if isinstance(q, dict)
-    }
-    if own_latest is not None:
-        blocked.update(_key(str(q.get("question") or "")) for q in _questions_in(own_latest.payload or {}, language))
+    # 2026-11-24 (foydalanuvchi qarori): testlar MAVZUGA biriktiriladi — shu mavzudagi savollar har qanday
+    # o'qituvchi va guruhga beriladi (AI'siz, tezroq). Ilgari o'qituvchining o'z oxirgi testi unga qayta
+    # berilmasdi ("ketma-ket ikki guruh bir xil test olmasin") va bazada savol bo'la turib yangisi yozilardi.
+    own_latest = None
+    blocked: set[str] = set()
     seen: set[str] = set()
     no_lab = lab_free(getattr(syllabus, "subject_name", "") or "")
     # Kafedrada kitob bo'lsa — bankdan faqat kitob parchasiga tayangan savollar (`grounded`, 2026-11-18).

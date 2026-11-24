@@ -27,3 +27,5 @@ run kafedralar /app/scripts/sync_hemis_departments.py "$@"
 run xodimlar /app/scripts/sync_hemis_staff.py "$@"
 # HEMIS mavzulari → o'qituvchi fanlari (2026-11-23).
 run mavzular /app/scripts/sync_hemis_topics.py
+# Ertangi darslar mavzulariga test banki: 10 tadan savol oldindan (2026-11-24).
+run test_banki /app/scripts/prefill_question_bank.py --day tomorrow

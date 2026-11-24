@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 BANK_OWNER = "imentor-bank"
 TARGET = 10
+WORKERS = 4  # bir vaqtda nechta mavzu
 SPARE = 3
 PER_CALL = 4
 WORKERS = 6
@@ -185,6 +186,63 @@ def _call(api_key: str, tpl: dict, syl: CourseSyllabus, topic: str, n: int, part
     return [q for q in data.get("questions") or [] if isinstance(q, dict)], fragments
 
 
+
+
+def _longest_correct(q: dict) -> bool:
+    opts, ci = q["options"], q["correctOptionIndex"]
+    others = [len(o) for i, o in enumerate(opts) if i != ci]
+    return len(opts[ci]) >= max(others) * 0.95
+
+
+def balance(api_key: str, questions: list[dict], lang: str) -> int:
+    """Eng uzun javob doim to'g'ri bo'lmasin: to'g'ri javob eng uzun bo'lgan savollarda
+    2 ta chalg'ituvchini to'g'ri javobdan uzunroq qilib qayta yozdiradi (bitta arzon chaqiruv)."""
+    bad = [i for i, q in enumerate(questions) if _longest_correct(q)]
+    # ~30% savolda to'g'ri javob eng uzun bo'lishi tabiiy — hammasini emas, ortig'ini tuzatamiz.
+    keep = int(len(questions) * 0.25)
+    bad = bad[keep:]
+    if not bad:
+        return 0
+    lang_name = {"uz": "o'zbek (lotin)", "ru": "rus", "en": "ingliz"}.get(lang, lang)
+    items = []
+    for i in bad:
+        q = questions[i]
+        ci = q["correctOptionIndex"]
+        items.append({"i": i, "question": q["question"], "correct": q["options"][ci],
+                      "distractors": [o for j, o in enumerate(q["options"]) if j != ci]})
+    prompt = (f"Quyidagi test savollarida to'g'ri javob eng uzun variant bo'lib qolgan — bu talabaga javobni oshkor qiladi. "
+              f"Har bir savol uchun 4 ta noto'g'ri variantni qayta yoz: kamida 2 tasi to'g'ri javobdan UZUNROQ bo'lsin, "
+              f"qolganlari unga yaqin uzunlikda. Ular aniq NOTO'G'RI bo'lib qolsin, lekin ishonarli, mavzuga oid, "
+              f"to'g'ri javob bilan bir xil uslub va tuzilishda. Til: {lang_name}; boshqa tildagi so'z ishlatma. "
+              f"To'g'ri javobni o'zgartirma. JSON qaytar: {{\"items\":[{{\"i\":<son>,\"distractors\":[4 ta matn]}}]}}\n\n"
+              + json.dumps(items, ensure_ascii=False))
+    raw = oai.generate_openai_chat(api_key, messages=[{"role": "user", "content": prompt}], model="gpt-5.4-nano",
+                                   max_tokens=min(16000, len(items) * 700 + 300), temperature=0.3,
+                                   timeout_sec=oai.timeout_for("test_generate_brief"),
+                                   response_format={"type": "json_object"}, usage_kind="bank_prefill")
+    try:
+        out = json.loads(raw).get("items") or []
+    except (TypeError, ValueError, AttributeError):
+        return 0
+    fixed = 0
+    for it in out:
+        try:
+            i, ds = int(it["i"]), [str(d).strip() for d in it["distractors"]]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if i not in bad or len(ds) != 4 or not all(ds):
+            continue
+        q = questions[i]
+        ci = q["correctOptionIndex"]
+        new = list(ds)
+        new.insert(ci, q["options"][ci])
+        cand = {**q, "options": new}
+        if _longest_correct(cand) or not _usable(cand, lang):
+            continue
+        q["options"] = new
+        q.pop("optionExplanations", None)
+        fixed += 1
+    return fixed
 PARTS = (
     "QISM 1/3: savollar mavzuning ASOSIY jihatlariga qaratilsin — ta’rif, mexanizm/usul, asosiy belgilar va tasnif.",
     "QISM 2/3: savollar mavzuning TALQIN jihatlariga qaratilsin — tekshiruv natijalari talqini, diagnostika, qiyosiy tashxis.",
@@ -196,6 +254,13 @@ def fill_topic(db: Session, api_key: str, templates: dict, item: dict, *, dry_ru
     syl, t = item["syllabus"], item["topic"]
     code, title = str(t["id"]).lower(), str(t.get("title") or "").strip()
     lang = (syl.instruction_language or "uz").lower()
+    # Tez yo'l: shu mavzuning o'zida 10+ savol bo'lsa — to'liq (o'xshash nomlar qidiruvi sekin).
+    direct = db.execute(text(
+        "select coalesce(sum(jsonb_array_length(payload->'questions')),0) from core_preparedcontent "
+        "where kind='test' and retired_reason='' and syllabus_id=:s and lower(topic_code)=:c"),
+        {"s": syl.id, "c": code}).scalar() or 0
+    if direct >= TARGET:
+        return {"topic": title[:60], "bank": int(direct), "written": 0, "status": "full"}
     have = qp.pool(db, syllabus_id=syl.id, variant="", topic_code=code, language=lang, owner_key=BANK_OWNER)
     bank = len(have.get("questions") or [])
     need = TARGET - bank
@@ -210,37 +275,43 @@ def fill_topic(db: Session, api_key: str, templates: dict, item: dict, *, dry_ru
     if dry_run:
         res["status"] = f"yoziladi {need}"
         return res
-    total = need + SPARE
-    sizes = [total // 3 + (1 if i < total % 3 else 0) for i in range(3)]
-    sizes = [s for s in sizes if s]
-    with ThreadPoolExecutor(max_workers=len(sizes)) as pool:
-        parts = list(pool.map(lambda a: _call(api_key, tpl, syl, title, a[0], PARTS[a[1]]),
-                              [(s, i) for i, s in enumerate(sizes)]))
     seen = {qp._key(str(q.get("question") or "")) for q in have.get("questions") or []}
     questions: list[dict] = []
     refs: dict[str, dict] = {}
-    for qs, frags in parts:
-        by_id = {f["id"]: f for f in frags}
-        for q in qs:
-            if not _usable(q, lang):
-                continue
-            k = qp._key(str(q.get("question") or ""))
-            if not k or k in seen:
-                continue
-            seen.add(k)
-            src = str(q.get("source") or "").strip()
-            frag = by_id.get(src)
-            item_q = {"question": str(q["question"]).strip(), "options": [str(o).strip() for o in q["options"]],
-                      "correctOptionIndex": q["correctOptionIndex"], "explanation": str(q.get("explanation") or "").strip(),
-                      "level": q.get("level") if q.get("level") in ("hard", "medium", "easy") else "medium"}
-            if frag:
-                ref = {"kind": frag.get("kind") or "book", "title": frag.get("title") or "", "pages": frag.get("pages") or ""}
-                item_q["references"], item_q["grounded"] = [ref], True
-                refs[json.dumps(ref, ensure_ascii=False, sort_keys=True)] = ref
-            questions.append(item_q)
+    for _round in range(2):  # kam chiqsa — yana bir marta
+        if len(questions) >= need:
+            break
+        total = need - len(questions) + SPARE
+        sizes = [s for s in (total // 3 + (1 if i < total % 3 else 0) for i in range(3)) if s]
+        with ThreadPoolExecutor(max_workers=len(sizes)) as pool:
+            parts = list(pool.map(lambda a: _call(api_key, tpl, syl, title, a[0], PARTS[a[1]]),
+                                  [(s, i) for i, s in enumerate(sizes)]))
+        for qs, frags in parts:
+            by_id = {f["id"]: f for f in frags}
+            for q in qs:
+                if not _usable(q, lang):
+                    continue
+                k = qp._key(str(q.get("question") or ""))
+                if not k or k in seen:
+                    continue
+                seen.add(k)
+                src = str(q.get("source") or "").strip()
+                frag = by_id.get(src)
+                item_q = {"question": str(q["question"]).strip(), "options": [str(o).strip() for o in q["options"]],
+                          "correctOptionIndex": q["correctOptionIndex"], "explanation": str(q.get("explanation") or "").strip(),
+                          "level": q.get("level") if q.get("level") in ("hard", "medium", "easy") else "medium"}
+                if frag:
+                    ref = {"kind": frag.get("kind") or "book", "title": frag.get("title") or "", "pages": frag.get("pages") or ""}
+                    item_q["references"], item_q["grounded"] = [ref], True
+                    refs[json.dumps(ref, ensure_ascii=False, sort_keys=True)] = ref
+                questions.append(item_q)
     if not questions:
         res["status"] = "yozilmadi"
         return res
+    try:
+        balance(api_key, questions, lang)
+    except Exception:  # noqa: BLE001 — muvozanat ixtiyoriy
+        logger.exception("bank prefill balance")
     now = dt.datetime.now(dt.timezone.utc)
     db.add(PreparedContent(
         owner_key=BANK_OWNER, kind="test", topic=title[:255], topic_norm=f"{syl.id}::hemis::{code}"[:255],
@@ -263,14 +334,23 @@ def run(db: Session, api_key: str, day: dt.date, *, per_course: int = 2, limit: 
     stats: dict[str, int] = defaultdict(int)
     stats["mavzular"] = len(items)
     stats["shablonlar"] = len(templates)
-    for item in items:
+    from app.core.db import SessionLocal
+
+    def one(item: dict) -> dict:
+        s = SessionLocal()  # har oqimga o'z sessiya
         try:
-            r = fill_topic(db, api_key, templates, item, dry_run=dry_run)
+            return fill_topic(s, api_key, templates, item, dry_run=dry_run)
         except Exception:  # noqa: BLE001 — bitta mavzu yiqilsa qolganlari davom etadi
             logger.exception("bank prefill: %s", item["topic"].get("title"))
-            db.rollback()
-            stats["xato"] += 1
-            continue
-        stats[r["status"].split(" (")[0]] += 1
-        stats["yozilgan_savol"] += r["written"]
+            s.rollback()
+            return {"status": "xato", "written": 0}
+        finally:
+            s.close()
+
+    with ThreadPoolExecutor(max_workers=1 if dry_run else WORKERS) as pool:
+        for i, r in enumerate(pool.map(one, items), 1):
+            stats[r["status"].split(" (")[0]] += 1
+            stats["yozilgan_savol"] += r["written"]
+            if not dry_run and r["written"]:
+                print(f"[{i}/{len(items)}] {r.get('topic', '')} +{r['written']}", flush=True)
     return dict(stats)

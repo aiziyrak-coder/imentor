@@ -1861,8 +1861,8 @@ const NEW_QUESTIONS_PER_TEST = 2;
 const MAX_SPARE_QUESTIONS = 10;
 /** Ekspert tekshiruvi (`test_repair`) bir so'rovda shuncha savolni ko'radi; bo'laklar parallel (2026-10-26). */
 const REVIEW_CHUNK = 4;
-/** Shuncha va undan ko'p savol reja-siz yozilsa — ikki parallel so'rovga bo'linadi (2026-11-19, tezlik). */
-const PARALLEL_TEST_MIN = 8;
+/** Bitta AI so'roviga ko'pi bilan shuncha savol (2026-11-24: 10+ savollik so'rov 130–146 s edi); ko'prog'i parallel. */
+const MAX_PER_CALL = 4;
 const TEST_PART_NOTES = [
   'QISM 1/3: savollar mavzuning ASOSIY jihatlariga qaratilsin — ta’rif, mexanizm/usul, asosiy belgilar va tasnif.',
   'QISM 2/3: savollar mavzuning TALQIN jihatlariga qaratilsin — tekshiruv natijalari talqini, diagnostika, qiyosiy tashxis.',
@@ -3439,11 +3439,11 @@ export const aiService = {
      * takrorlar keyingi bosqichda (`dropDuplicateQuestions`) tushadi. Har yarmi o'z kitob parchalariga tayanadi.
      */
     const generateFast = async (requestedCount: number, extraUser = ''): Promise<TestSession> => {
-      if (requestedCount < PARALLEL_TEST_MIN) return generate(requestedCount, extraUser);
+      if (requestedCount <= MAX_PER_CALL) return generate(requestedCount, extraUser);
       if (plan) {
         // Reja rejimi ham parallel (2026-11-23: mavzu banki bo'sh bo'lsa 10+5 savol bitta so'rovda — 107–117 s).
         // Darajalar va bog'lash bo'laklarga taqsimlanadi; har bo'lak o'z yo'nalishida yozadi.
-        const n = TEST_PART_NOTES.length;
+        const n = Math.max(TEST_PART_NOTES.length, Math.ceil(requestedCount / MAX_PER_CALL));
         const parts: Array<{ plan: TestPlan; count: number }> = Array.from({ length: n }, () => ({
           plan: { ...plan, levels: { hard: 0, medium: 0, easy: 0 }, linked: 0, need: 0 },
           count: 0,
@@ -3466,7 +3466,7 @@ export const aiService = {
         });
         const live = parts.map((p, i) => ({ ...p, i })).filter((p) => p.count > 0);
         const settled = await Promise.allSettled(
-          live.map((p) => generate(p.count, `${extraUser}${TEST_PART_NOTES[p.i]}\n\n`, p.plan)),
+          live.map((p) => generate(p.count, `${extraUser}${TEST_PART_NOTES[p.i % TEST_PART_NOTES.length]}\n\n`, p.plan)),
         );
         const okParts = settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
         if (!okParts.length) return generate(requestedCount, extraUser);
@@ -3476,11 +3476,11 @@ export const aiService = {
       }
       // 2026-11-23 ("test yaratish juda uzoq"): yozish vaqti chiqish tokeniga bog'liq — 2 bo'lakda har biri
       // 40–67 s edi. 3 parallel bo'lak (har biri 3–4 savol) kutishni sezilarli qisqartiradi.
-      const n = TEST_PART_NOTES.length;
+      const n = Math.max(TEST_PART_NOTES.length, Math.ceil(requestedCount / MAX_PER_CALL));
       const base = Math.floor(requestedCount / n);
-      const sizes = TEST_PART_NOTES.map((_, i) => base + (i < requestedCount % n ? 1 : 0));
+      const sizes = Array.from({ length: n }, (_, i) => base + (i < requestedCount % n ? 1 : 0));
       const parts = await Promise.allSettled(
-        sizes.flatMap((size, i) => (size > 0 ? [generate(size, `${extraUser}${TEST_PART_NOTES[i]}\n\n`)] : [])),
+        sizes.flatMap((size, i) => (size > 0 ? [generate(size, `${extraUser}${TEST_PART_NOTES[i % TEST_PART_NOTES.length]}\n\n`)] : [])),
       );
       const ok = parts.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
       if (!ok.length) return generate(requestedCount, extraUser);
@@ -3643,7 +3643,7 @@ export const aiService = {
         const missing = needed - have.length;
         const existing = have.map((q, i) => `${i + 1}. ${q.question}`).join('\n');
         try {
-          const more = await generate(
+          const more = await (plan ? generate : generateFast)(
             missing + (plan ? 2 : 3),
             (lastFlawNote ? `${lastFlawNote}\n\n` : '') +
               (existing

@@ -1862,7 +1862,22 @@ const MAX_SPARE_QUESTIONS = 10;
 /** Ekspert tekshiruvi (`test_repair`) bir so'rovda shuncha savolni ko'radi; bo'laklar parallel (2026-10-26). */
 const REVIEW_CHUNK = 4;
 /** Bitta AI so'roviga ko'pi bilan shuncha savol (2026-11-24: 10+ savollik so'rov 130–146 s edi); ko'prog'i parallel. */
-const MAX_PER_CALL = 4;
+const MAX_PER_CALL = 3;
+
+/**
+ * "10 ta test 1 daqiqada" (2026-11-24, rektorat: dars 80 daqiqa, talabalar kutib qoladi). Butun zanjir uchun
+ * muddat: sifat tekshiruvi, qayta yozish va variant tenglash faqat vaqt qolgan bo'lsa. Asosiy yozish va
+ * qoidaga asoslangan (AI'siz) sifat filtri doim ishlaydi.
+ */
+const TEST_BUDGET_MS = 55_000;
+let testBudgetStart = 0;
+function startTestBudget(): void {
+  testBudgetStart = Date.now();
+}
+/** Test boshlanganiga `ms` dan ko'p bo'ldimi. */
+function testElapsedOver(ms: number): boolean {
+  return testBudgetStart > 0 && Date.now() - testBudgetStart > Math.min(ms, TEST_BUDGET_MS);
+}
 const TEST_PART_NOTES = [
   'QISM 1/3: savollar mavzuning ASOSIY jihatlariga qaratilsin — ta’rif, mexanizm/usul, asosiy belgilar va tasnif.',
   'QISM 2/3: savollar mavzuning TALQIN jihatlariga qaratilsin — tekshiruv natijalari talqini, diagnostika, qiyosiy tashxis.',
@@ -3304,6 +3319,8 @@ export const aiService = {
     plan?: TestPlan,
   ): Promise<TestSession> {
     assertOpenAiApiKey();
+    // composeTest tashqarisidan chaqirilsa (online kabinet) — o'z muddati.
+    if (Date.now() - testBudgetStart > TEST_BUDGET_MS * 2) startTestBudget();
     const domain = scope.domain;
     const scopeBlock = buildScopePrompt(scope);
     const safeCount = plan
@@ -3663,7 +3680,7 @@ export const aiService = {
               !flaws.some((f) => UNGRADABLE.has(f))
             );
           });
-          const reviewed = await review(fresh);
+          const reviewed = testElapsedOver(40_000) ? fresh : await review(fresh);
           // Mavjudlariga takror bo'lganlari qo'shilmaydi.
           const merged = dropDuplicateQuestions([...have, ...reviewed]).kept;
           out = {
@@ -3690,7 +3707,7 @@ export const aiService = {
       let regenerations = 1;
       // Til nazorati: model boshqa tilda (ko'pincha kirilcha o'zbekchada)
       // qaytarsa — bir marta qayta so'raymiz.
-      if (sessionLanguageWrong(data) && regenerations-- > 0) {
+      if (sessionLanguageWrong(data) && !testElapsedOver(25_000) && regenerations-- > 0) {
         console.warn(`Test ${language} tilida emas, qayta urinilmoqda`);
         try {
           const retry = await generateFast(safeCount);
@@ -3699,7 +3716,7 @@ export const aiService = {
           console.warn('Test tili bo\'yicha qayta urinish muvaffaqiyatsiz:', err);
         }
       }
-      if (isPatientFree(domain) && sessionHasClinicalLeak(data, domain) && regenerations-- > 0) {
+      if (isPatientFree(domain) && sessionHasClinicalLeak(data, domain) && !testElapsedOver(25_000) && regenerations-- > 0) {
         try {
           const retry = await generateFast(safeCount,`${patientRetryBan(domain)}\n\n`);
           if (retry.questions?.length && !sessionHasClinicalLeak(retry, domain)) data = retry;
@@ -3717,7 +3734,7 @@ export const aiService = {
           ),
         );
       const offShare = sessionOffTopic(data);
-      if (offShare !== null && offShare > OFF_TOPIC_THRESHOLD && regenerations-- > 0) {
+      if (offShare !== null && offShare > OFF_TOPIC_THRESHOLD && !testElapsedOver(25_000) && regenerations-- > 0) {
         console.warn(`Test mavzudan chetga chiqdi (${Math.round(offShare * 100)}%), qayta urinilmoqda`);
         try {
           const retry = await generateFast(safeCount, `${OFF_TOPIC_RETRY_NOTE}\n\n`);
@@ -3825,7 +3842,7 @@ export const aiService = {
 
       // Birinchi tekshiruv: sifatsizlar chiqariladi va `topUp` ularning
       // o'rniga yangisini so'raydi — modelga nimasi noto'g'ri bo'lgani aytiladi.
-      data = { ...data, questions: dropDuplicateQuestions(await review(data.questions || [])).kept };
+      data = { ...data, questions: dropDuplicateQuestions(testElapsedOver(30_000) ? data.questions || [] : await review(data.questions || [])).kept };
       const checked = judge(data.questions || []);
       let overuseNote = '';
       // Variantlari boshqa savollardan ko'chirilgan savollar zaxiraga o'tadi
@@ -3862,7 +3879,7 @@ export const aiService = {
       // ketardi, oxirida esa o'sha kuchsizlar baribir qaytib qo'shilardi: testga
       // ~3.3 generatsiya va ~3.1 ekspert tekshiruvi chaqiruvi. Kuchsizlar ham
       // ekspert tekshiruvidan (`review`) o'tgan.
-      if (checked.good.length + checked.weak.length < needed) data = await topUp(data);
+      if (checked.good.length + checked.weak.length < needed && !testElapsedOver(35_000)) data = await topUp(data);
       // Oxirgi tekshiruv: to'ldirilganlar ham o'tadi. Avval chetga qo'yilgan
       // savollar shu yerda qaytib qo'shiladi — tartibi bo'yicha, ya'ni
       // yaxshisi oldinda. Baholab bo'lmaydiganlari qaytmaydi.
@@ -3878,7 +3895,7 @@ export const aiService = {
         );
         // Kuchsiz va nuqsonlilar ham qo'shilgandan keyin hamon kam bo'lsa —
         // yana so'raladi. 10 tadan kam test o'qituvchiga berilmaydi.
-        data = await topUp(data);
+        if (!testElapsedOver(35_000)) data = await topUp(data);
         const again = judge([...(data.questions || []), ...finalCheck.rough]);
         let kept = again.kept;
         // Toza savollar baribir yetmasa — 10 talik talab (2026-10-16) uchun
@@ -3939,13 +3956,13 @@ export const aiService = {
     context?: { syllabusId: number; topicCode: string; variantLabel?: string } | null;
   }): Promise<TestSession> {
     const { topic, language, subjectCode, scope } = params;
+    startTestBudget();
+    let freshAll: TestQuestion[] = [];
     // To'g'ri javob eng uzun variant bo'lmasin (2026-11-18) — bankdan olingan savollarda ham.
-    const full = async () =>
-      balanceOptionLengths(
-        await aiService.generateTests(topic, DEFAULT_TEST_QUESTION_COUNT, language, subjectCode, DEFAULT_TEST_DIFFICULTY, scope, undefined, true),
-        language,
-        scope.domain,
-      );
+    const full = async () => {
+      const s = await aiService.generateTests(topic, DEFAULT_TEST_QUESTION_COUNT, language, subjectCode, DEFAULT_TEST_DIFFICULTY, scope, undefined, true);
+      return testElapsedOver(45_000) ? s : balanceOptionLengths(s, language, scope.domain);
+    };
     const pool = params.context ? await fetchQuestionPool(params.context, language) : null;
     if (!pool?.plan.current) return full();
 
@@ -3980,7 +3997,7 @@ export const aiService = {
         references,
         true,
       );
-      const balanced = await balanceOptionLengths(session, language, scope.domain);
+      const balanced = testElapsedOver(45_000) ? session : await balanceOptionLengths(session, language, scope.domain);
       return withExpandedAbbreviations({
         ...balanced,
         primaryLanguage: language,
@@ -4062,6 +4079,7 @@ export const aiService = {
           topic, missing + spareCount, language, subjectCode, DEFAULT_TEST_DIFFICULTY, scope, undefined, true,
           { ...plan, need: missing },
         );
+        freshAll = fresh.questions || [];
         const second = pickByPlan((fresh.questions || []).filter(fits), need, taught);
         // Yangi yozilgan qiyin savol bazadan olingani bilan bir narsani so'ramasin (2026-10-23):
         // ular bir-birini bilmasdan tanlanadi. Takror tashlanadi, o'rni zaxiradan to'ldiriladi.
@@ -4085,7 +4103,19 @@ export const aiService = {
       seen.add(key);
       chosen.push({ ...q, level: estimateLevel(q) });
     }
-    if (chosen.length < DEFAULT_TEST_QUESTION_COUNT) {
+    // Vaqt tugagan bo'lsa (2026-11-24, "10 ta test 1 daqiqada"): yangi so'rov o'rniga shu safar yozilgan,
+    // reja darajasiga to'liq tushmagan savollar bilan to'ldiriladi.
+    if (chosen.length < DEFAULT_TEST_QUESTION_COUNT && testElapsedOver(35_000)) {
+      for (const q of freshAll) {
+        if (chosen.length >= DEFAULT_TEST_QUESTION_COUNT) break;
+        const key = q.question.trim().toLowerCase();
+        if (seen.has(key) || !questionUsable(q, language)) continue;
+        seen.add(key);
+        chosen.push({ ...q, level: estimateLevel(q) });
+        generated += 1;
+      }
+    }
+    if (chosen.length < DEFAULT_TEST_QUESTION_COUNT && !testElapsedOver(35_000)) {
       // Faqat yetishmagani — bitta so'rov (2026-10-22). Ilgari bu yerda to'liq 10 savollik
       // yo'lga (`full`) o'tilardi: o'lchovda yozish chaqiruvlarining 30% i shu yerdan,
       // bitta test uchun 5–8 ta chaqiruv.
@@ -4106,7 +4136,7 @@ export const aiService = {
       } catch (err) {
         console.warn('Test: yetishmagan savollarni qayta yozib bo\'lmadi', err);
       }
-      if (chosen.length < DEFAULT_TEST_QUESTION_COUNT) return full();
+      if (chosen.length < DEFAULT_TEST_QUESTION_COUNT && !testElapsedOver(35_000)) return full();
     }
     console.info(`Test: ${chosen.length - generated} savol zaxiradan, ${generated} tasi yangi yozildi`);
     // Yangi yozilgan, lekin testga kirmagan savollar zaxira sifatida saqlanadi.

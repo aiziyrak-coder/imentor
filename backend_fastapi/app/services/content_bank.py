@@ -117,18 +117,26 @@ def similar_ids(db: Session, kind: str, title: str, *, since=None, exclude_sylla
         .where(PreparedContent.kind == kind, PreparedContent.retired_reason == "",
                CourseSyllabus.is_active.is_(True), PreparedContent.syllabus_id != exclude_syllabus)
     )
-    if anchor.department_id:
-        stmt = stmt.where(CourseSyllabus.department_id == anchor.department_id)
+    # 2026-11-24 (HEMIS fanlari): HEMIS sillabusi kafedraning HEMIS bilan bog'langan yozuviga, eski sillabus esa
+    # o'sha kafedraning boshqa yozuviga tegishli bo'lishi mumkin — faqat kafedra bo'yicha qidirilsa, mos savollar
+    # topilmasdi (bugungi HEMIS testlarining 14/20 ida bank 10 dan kam edi). Endi: kafedra YOKI fan nomi mos.
+    stmt = stmt.add_columns(CourseSyllabus.department_id)
     if since is not None:
         stmt = stmt.where(PreparedContent.created_at >= since)
     rows = db.execute(stmt.order_by(PreparedContent.created_at.desc())).all()
     subject = _subject_words(anchor.subject_name)
     out = []
-    for pk, topic, _sid, subject_name, allowed in rows:
-        if username and not visible_to(allowed, username, role):
+    for pk, topic, _sid, subject_name, allowed, dep_id in rows:
+        # Test savollari — institut banki: o'qituvchi sillabusni emas, savolni ko'radi (ko'rinish cheklovi faqat
+        # ma'ruza/taqdimot kabi butun material uchun).
+        if username and kind != "test" and not visible_to(allowed, username, role):
             continue
-        # Kafedrasi yozilmagan sillabus — fan nomi ham mos bo'lsin.
-        if not anchor.department_id and similarity(subject, _subject_words(subject_name)) < 0.5:
+        same_dep = bool(anchor.department_id) and dep_id == anchor.department_id
+        other = _subject_words(subject_name)
+        # Qamrov: qisqa nomning so'zlari uzunida bormi ("Terapevtik stomatologiya" ⊂ "Stomatologiya 2025 … Terapevtik
+        # stomatologiya") — Jaccard uzun eski nomlarda past chiqardi.
+        overlap = len(subject & other) / min(len(subject), len(other)) if subject and other else 0.0
+        if not same_dep and overlap < 0.75:
             continue
         if same_topic(title, topic):
             out.append(pk)

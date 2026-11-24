@@ -3682,7 +3682,7 @@ export const aiService = {
               !flaws.some((f) => UNGRADABLE.has(f))
             );
           });
-          const reviewed = testElapsedOver(40_000) ? fresh : await review(fresh);
+          const reviewed = await review(fresh);
           // Mavjudlariga takror bo'lganlari qo'shilmaydi.
           const merged = dropDuplicateQuestions([...have, ...reviewed]).kept;
           out = {
@@ -3844,7 +3844,8 @@ export const aiService = {
 
       // Birinchi tekshiruv: sifatsizlar chiqariladi va `topUp` ularning
       // o'rniga yangisini so'raydi — modelga nimasi noto'g'ri bo'lgani aytiladi.
-      data = { ...data, questions: dropDuplicateQuestions(testElapsedOver(30_000) ? data.questions || [] : await review(data.questions || [])).kept };
+      // AI ekspert tekshiruvi MAJBURIY (2026-11-24): yangi savol bir marta tekshirilib bazaga tushadi, keyin bepul.
+      data = { ...data, questions: dropDuplicateQuestions(await review(data.questions || [])).kept };
       const checked = judge(data.questions || []);
       let overuseNote = '';
       // Variantlari boshqa savollardan ko'chirilgan savollar zaxiraga o'tadi

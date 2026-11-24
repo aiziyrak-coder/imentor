@@ -2434,7 +2434,9 @@ export async function balanceOptionLengths(
           failed.push(qi);
           return;
         }
-        out[qi] = { ...out[qi], options };
+        // Noto'g'ri variantlar qayta yozildi — eski variant izohlari endi boshqa matnni tushuntiradi (2026-11-24):
+        // olib tashlanadi, fonda (`enrichTestSession`) yangi variantlar uchun yoziladi.
+        out[qi] = { ...out[qi], options, optionExplanations: undefined };
       });
       return failed;
     } catch (err) {
@@ -3961,7 +3963,7 @@ export const aiService = {
     // To'g'ri javob eng uzun variant bo'lmasin (2026-11-18) — bankdan olingan savollarda ham.
     const full = async () => {
       const s = await aiService.generateTests(topic, DEFAULT_TEST_QUESTION_COUNT, language, subjectCode, DEFAULT_TEST_DIFFICULTY, scope, undefined, true);
-      return testElapsedOver(45_000) ? s : balanceOptionLengths(s, language, scope.domain);
+      return balanceOptionLengths(s, language, scope.domain);
     };
     const pool = params.context ? await fetchQuestionPool(params.context, language) : null;
     if (!pool?.plan.current) return full();
@@ -3997,7 +3999,8 @@ export const aiService = {
         references,
         true,
       );
-      const balanced = testElapsedOver(45_000) ? session : await balanceOptionLengths(session, language, scope.domain);
+      // "Eng uzuni har doim to'g'ri bo'lmasin" — majburiy, muddat o'tkazib yubormaydi (2026-11-24).
+      const balanced = await balanceOptionLengths(session, language, scope.domain);
       return withExpandedAbbreviations({
         ...balanced,
         primaryLanguage: language,

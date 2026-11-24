@@ -129,6 +129,26 @@ def targets(db: Session, day: dt.date, per_course: int = 2) -> list[dict]:
     return list(out.values())
 
 
+def targets_all(db: Session) -> list[dict]:
+    """Barcha faol HEMIS fanlarining HAMMA amaliy/klinik/lab mavzulari (bazani to'liq to'ldirish uchun).
+    Tartib: fanlar aralash — avval har fanning 1-mavzusi, keyin 2-si va h.k. (yaqin darslar birinchi)."""
+    full = {(r[0], r[1]) for r in db.execute(text(
+        "select syllabus_id, lower(topic_code) from core_preparedcontent where kind='test' and retired_reason='' "
+        "group by 1, 2 having coalesce(sum(jsonb_array_length(payload->'questions')),0) >= :n"), {"n": TARGET}).all()}
+    per_syl: list[list[dict]] = []
+    for syl in db.execute(select(CourseSyllabus).where(
+            CourseSyllabus.subject_code.like("hemis-%"), CourseSyllabus.is_active.is_(True))).scalars():
+        items = [{"syllabus": syl, "topic": t, "owners": set()} for t in (syl.topics or [])
+                 if isinstance(t, dict) and t.get("type") in HANDS_ON and t.get("id")
+                 and (syl.id, str(t["id"]).lower()) not in full]
+        if items:
+            per_syl.append(items)
+    out: list[dict] = []
+    for i in range(max((len(x) for x in per_syl), default=0)):
+        out.extend(x[i] for x in per_syl if i < len(x))
+    return out
+
+
 # ------------------------------------------------------------------ yozish
 
 def _domain_for(db: Session, syl: CourseSyllabus) -> str:
@@ -268,7 +288,8 @@ def fill_topic(db: Session, api_key: str, templates: dict, item: dict, *, dry_ru
     if need <= 0:
         return res
     domain = _domain_for(db, syl)
-    tpl = templates.get(f"{domain}-{lang}")
+    tpl = templates.get(f"{domain}-{lang}") or next(
+        (templates[k] for k in sorted(templates) if k.endswith(f"-{lang}")), None)
     if tpl is None:
         res["status"] = f"shablon yo'q ({domain}-{lang})"
         return res
@@ -326,9 +347,11 @@ def fill_topic(db: Session, api_key: str, templates: dict, item: dict, *, dry_ru
     return res
 
 
-def run(db: Session, api_key: str, day: dt.date, *, per_course: int = 2, limit: int = 0, dry_run: bool = False) -> dict:
+def run(db: Session, api_key: str, day: dt.date | None, *, per_course: int = 2, limit: int = 0,
+        dry_run: bool = False) -> dict:
+    """`day=None` — barcha amaliy mavzular (targets_all)."""
     templates = refresh_templates()
-    items = targets(db, day, per_course)
+    items = targets_all(db) if day is None else targets(db, day, per_course)
     if limit:
         items = items[:limit]
     stats: dict[str, int] = defaultdict(int)

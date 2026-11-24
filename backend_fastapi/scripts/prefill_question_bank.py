@@ -24,9 +24,10 @@ def main() -> int:
     ap.add_argument("--per-course", type=int, default=2)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--all", action="store_true", help="barcha faol fanlarning hamma amaliy mavzulari")
     args = ap.parse_args()
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=5))).date()
-    day = {"today": today, "tomorrow": today + dt.timedelta(days=1)}.get(args.day) or dt.date.fromisoformat(args.day)
+    day = None if args.all else {"today": today, "tomorrow": today + dt.timedelta(days=1)}.get(args.day) or dt.date.fromisoformat(args.day)
     api_key = (get_settings().openai_api_key or "").strip()
     if not api_key:
         print("OpenAI kaliti yo'q")
@@ -36,7 +37,7 @@ def main() -> int:
         stats = bank_prefill.run(db, api_key, day, per_course=args.per_course, limit=args.limit, dry_run=args.dry_run)
     finally:
         db.close()
-    print(f"kun: {day}")
+    print(f"kun: {day or 'hammasi'}")
     for k, v in stats.items():
         print(f"  {k}: {v}")
     return 0

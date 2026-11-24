@@ -598,6 +598,12 @@ def online_test_student_login(
     user_info = ot["user"]
     first_name, last_name = otc.split_person_name(str(user_info.get("name") or ""))
     sid = str(user_info.get("id") or student_id).strip()
+    # Ism HEMIS kontingentidan (2026-11-24): onlinetest ismni qisqartirib/teskari bo'lib beradi ("Raj Ravi" —
+    # aslida "Sofia Ravi Raj") va har kirishda iMentor'dagi to'g'rilangan ismni bosib ketardi.
+    row = db.execute(select(StudentContingent).where(StudentContingent.student_id == sid)).scalars().first()
+    if row is not None and (row.first_name or "").strip() and (row.last_name or "").strip():
+        first_name = " ".join(w.capitalize() for w in row.first_name.split())[:150]
+        last_name = " ".join(w.capitalize() for w in row.last_name.split())[:150]
     username = f"ot_{sid}"[:150]
 
     user = auth_service.get_user_by_username(db, username)

@@ -39,7 +39,9 @@ LEVELS = ("hard", "medium", "easy")
 DEFAULT_BANK_TARGET = 10
 #: Foydalanuvchi qarori (2026-10-26): har testda faqat shuncha savol YANGI yoziladi, qolgani
 #: (10 dan) shu mavzu bankidan; 22-oktabrdan beri 4 ta edi. `.env`: IMENTOR_TEST_NEW_QUESTIONS.
-DEFAULT_NEW_QUESTIONS = 2
+#: 2026-11-24 (foydalanuvchi qarori): "avval bazadan, yo'q bo'lsa keyin generatsiya, xarajat oshmasin" — majburiy
+#: yangi savol yo'q (0): AI faqat bazada yetishmagan o'rinlarni yozadi.
+DEFAULT_NEW_QUESTIONS = 0
 
 
 #: Oddiy (klinik bo'lmagan) farmakologiya — o'quv dasturida laboratoriya mashg'uloti yo'q (2026-11-18, kafedra:

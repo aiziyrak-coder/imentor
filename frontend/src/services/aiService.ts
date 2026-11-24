@@ -1862,7 +1862,7 @@ const MAX_SPARE_QUESTIONS = 10;
 /** Ekspert tekshiruvi (`test_repair`) bir so'rovda shuncha savolni ko'radi; bo'laklar parallel (2026-10-26). */
 const REVIEW_CHUNK = 4;
 /** Bitta AI so'roviga ko'pi bilan shuncha savol (2026-11-24: 10+ savollik so'rov 130–146 s edi); ko'prog'i parallel. */
-const MAX_PER_CALL = 3;
+const MAX_PER_CALL = 4;
 
 /**
  * "10 ta test 1 daqiqada" (2026-11-24, rektorat: dars 80 daqiqa, talabalar kutib qoladi). Butun zanjir uchun
@@ -3895,7 +3895,7 @@ export const aiService = {
         );
         // Kuchsiz va nuqsonlilar ham qo'shilgandan keyin hamon kam bo'lsa —
         // yana so'raladi. 10 tadan kam test o'qituvchiga berilmaydi.
-        if (!testElapsedOver(35_000)) data = await topUp(data);
+        data = await topUp(data); // 10 ta qat'iy — muddatdan qat'i nazar
         const again = judge([...(data.questions || []), ...finalCheck.rough]);
         let kept = again.kept;
         // Toza savollar baribir yetmasa — 10 talik talab (2026-10-16) uchun
@@ -4115,7 +4115,7 @@ export const aiService = {
         generated += 1;
       }
     }
-    if (chosen.length < DEFAULT_TEST_QUESTION_COUNT && !testElapsedOver(35_000)) {
+    if (chosen.length < DEFAULT_TEST_QUESTION_COUNT) {
       // Faqat yetishmagani — bitta so'rov (2026-10-22). Ilgari bu yerda to'liq 10 savollik
       // yo'lga (`full`) o'tilardi: o'lchovda yozish chaqiruvlarining 30% i shu yerdan,
       // bitta test uchun 5–8 ta chaqiruv.
@@ -4136,7 +4136,8 @@ export const aiService = {
       } catch (err) {
         console.warn('Test: yetishmagan savollarni qayta yozib bo\'lmadi', err);
       }
-      if (chosen.length < DEFAULT_TEST_QUESTION_COUNT && !testElapsedOver(35_000)) return full();
+      // 10 ta savol QAT'IY (2026-11-24) — muddat o'tgan bo'lsa ham.
+      if (chosen.length < DEFAULT_TEST_QUESTION_COUNT) return full();
     }
     console.info(`Test: ${chosen.length - generated} savol zaxiradan, ${generated} tasi yangi yozildi`);
     // Yangi yozilgan, lekin testga kirmagan savollar zaxira sifatida saqlanadi.

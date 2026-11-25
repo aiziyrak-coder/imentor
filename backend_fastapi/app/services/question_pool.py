@@ -186,6 +186,25 @@ def key_length_rank(q: dict) -> int:
     return 2 if key > longest_other * 1.35 and key - longest_other > 15 else 1
 
 
+def _foreign_book_titles(db: Session, syllabus) -> list[str]:
+    """Kafedraning BOSHQA fanga bog'langan kitoblari nomlari (tozalangan, kichik harfda)."""
+    dept_id = getattr(syllabus, "department_id", None)
+    if not dept_id:
+        return []
+    try:
+        from app.models.book import SubjectBook
+        from app.services import book_retrieval as br
+
+        ids = br.books_not_for_subject(db, int(dept_id), getattr(syllabus, "subject_name", "") or "")
+        if not ids:
+            return []
+        titles = db.execute(select(SubjectBook.title).where(SubjectBook.id.in_(ids))).scalars().all()
+        out = {_key(br.clean_book_title(t) or t) for t in titles} | {_key(t) for t in titles}
+        return [t for t in out if len(t) >= 6]
+    except Exception:  # noqa: BLE001 — filtr ishlamasa ham savollar berilsin
+        return []
+
+
 def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, language: str,
          owner_key: str, rng: random.Random | None = None) -> dict:
     """Joriy mavzu bo'yicha qayta ishlatsa bo'ladigan savollar + mavzular rejasi.
@@ -228,11 +247,25 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
     # Mavzu banki hajmi — o'qituvchining oxirgi testi ham kiradi (u faqat shu o'qituvchiga bloklangan).
     bank: set[str] = set()
     out: list[dict] = []
+    # Boshqa FANNING kitobidan yozilgan savollar berilmaydi (2026-11-25, Tibbiy kimyo kafedrasi: "testlar
+    # Analitik kimyo va Biokimyo darsliklaridan — o'quv dasturimizda yo'q"). Kitoblar fanga bog'langach
+    # (`subject_keywords`) yangi savollar to'g'ri kitobdan yoziladi, lekin bazadagi eskilari qolardi.
+    foreign = _foreign_book_titles(db, syllabus)
+
+    def from_foreign_book(q: dict) -> bool:
+        if not foreign:
+            return False
+        for ref in q.get("references") or []:
+            title = _key(str(ref.get("title") if isinstance(ref, dict) else ref))
+            if title and any(title == f or title.startswith(f) or f.startswith(title) for f in foreign):
+                return True
+        return False
+
     for r in rows:
         payload = r.payload or {}
         for q in _questions_in(payload, language) + _spares_in(payload, language):
             key = _key(str(q.get("question") or ""))
-            if key and _usable(q, language):
+            if key and _usable(q, language) and not from_foreign_book(q):
                 bank.add(key)
         # O'qituvchining oxirgi testidan faqat zaxira savollar: ular o'sha guruhda bo'lmagan.
         own_last = own_latest is not None and r.id == own_latest.id
@@ -244,6 +277,8 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
             if not key or key in seen or key in blocked or not _usable(q, language):
                 continue
             if no_lab and lab_question(str(q.get("question") or "")):
+                continue
+            if from_foreign_book(q):
                 continue
             seen.add(key)
             level = q.get("level") if q.get("level") in LEVELS else None

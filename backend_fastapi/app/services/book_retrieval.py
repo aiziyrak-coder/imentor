@@ -239,7 +239,8 @@ def book_fits_subject(keywords: list | None, subject_name: str) -> bool:
     name = _norm_subject(subject_name)
     if not words or not name:
         return True
-    return any(w in name for w in words)
+    # So'z boshidan (2026-11-25): "organik kimyo" kaliti "Noorganik kimyo" faniga mos kelmasin.
+    return any(re.search(r"(?<!\w)" + re.escape(w), name) for w in words)
 
 
 def _subject_name(db: Session, subject_code: str, syllabus_id: int | None = None) -> str:

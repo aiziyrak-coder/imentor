@@ -923,8 +923,12 @@ export type LessonModules = {
   case_minutes: number;
   /** Sikl bo'lsa — ketma-ket paralar soni (test/keys butun sikl bo'yicha), aks holda 0. */
   cycle: number;
-  /** test / case — yaratilmagan; test_time / case_time — kerakli daqiqadan kam. */
-  gaps: Array<'test' | 'case' | 'test_time' | 'case_time'>;
+  /** 27-noyabrdan: no_answers — talabalar test yechmagan; no_reveal — keys tahlili ochilmagan; case_time — keysda kam.
+   * Undan oldingi darslar: test / case — yaratilmagan; test_time / case_time — kerakli daqiqadan kam. */
+  gaps: Array<'test' | 'case' | 'test_time' | 'case_time' | 'no_answers' | 'no_reveal'>;
+  /** Testni yechgan talabalar soni va keys tahlili ochilgani (real foydalanish, 2026-11-27). */
+  students: number;
+  case_reveal: boolean;
   need_test: number;
   need_case: number;
   /** Sikl hali davom etmoqda — test/keys sikl oxirida tekshiriladi (2026-11-19). */
@@ -1050,7 +1054,7 @@ export type BotFeedItem = {
   returned_at?: string;
   minutes?: number | null;
   /** «Noto'g'ri foydalanildi» (2026-11-19): nima yetishmadi. */
-  gaps?: Array<'test' | 'case' | 'test_time' | 'case_time'>;
+  gaps?: Array<'test' | 'case' | 'test_time' | 'case_time' | 'no_answers' | 'no_reveal'>;
   test_minutes?: number | null;
   case_minutes?: number | null;
 };

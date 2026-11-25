@@ -592,6 +592,16 @@ def proof_line(db: Session, blocks_t: list[Block], acts, *, worked: bool) -> str
 def module_lines(info: dict) -> list[str]:
     out = []
     gaps = info.get("gaps") or []
+    # Real foydalanish qoidasi (2026-11-27): talabalar test yechdimi, keys tahlili ochildimi.
+    if "no_answers" in gaps:
+        out.append("❌ Talabalar test yechmadi")
+    if "no_reveal" in gaps:
+        out.append(f"❌ Keys tahlili ochilmadi (keysda {int(info.get('case_minutes') or 0)} daqiqa)")
+    if "case_time" in gaps and "case" not in gaps:
+        out.append(f"⏱ Keysda atigi <b>{int(info.get('case_minutes') or 0)} daqiqa</b> (kamida {info.get('need_case', 10)})")
+    if "no_answers" in gaps or "no_reveal" in gaps or ("case_time" in gaps and "case" not in gaps and "test" not in gaps
+                                                       and "test_time" not in gaps):
+        return out
     if "test" in gaps:
         out.append("❌ Test yaratilmadi")
     elif "test_time" in gaps:

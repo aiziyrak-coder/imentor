@@ -114,6 +114,8 @@ export function moduleGapsText(l: ScheduledLessonRow): string {
   const md = l.modules;
   if (!md || !md.gaps.length) return 'test va keys talabi bajarilmagan';
   const parts = md.gaps.map((g) => {
+    if (g === 'no_answers') return 'talabalar test yechmagan';
+    if (g === 'no_reveal') return `keys tahlili ochilmagan (keysda ${md.case_minutes} daqiqa)`;
     if (g === 'test') return 'test yaratilmagan';
     if (g === 'case') return 'keys yaratilmagan';
     if (g === 'test_time') return `testga atigi ${md.test_minutes} daqiqa (kerak: ${md.need_test})`;
@@ -132,10 +134,28 @@ function ModuleChips({ md }: { md: NonNullable<ScheduledLessonRow['modules']> })
       </span>
     );
   };
+  // Real foydalanish qoidasi (2026-11-27): test — talabalar yechdimi, keys — tahlil ochildimi va necha daqiqa.
+  const real = md.gaps.some((g) => g === 'no_answers' || g === 'no_reveal') || md.students > 0 || md.case_reveal;
+  const fact = (label: string, ok: boolean, text: string) => (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${ok ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-amber-50 text-amber-800 ring-amber-300'}`}>
+      {ok ? <Check size={11} /> : <X size={11} />}
+      {label} · {text}
+    </span>
+  );
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1" data-testid="lesson-modules">
-      {chip('Test', md.test, md.test_minutes, md.need_test)}
-      {chip('Keys', md.case, md.case_minutes, md.need_case)}
+      {real ? (
+        <>
+          {fact('Test', md.students > 0, md.students > 0 ? `${md.students} talaba yechdi` : 'talabalar yechmadi')}
+          {fact('Keys', md.case_reveal && md.case_minutes >= md.need_case,
+            md.case_reveal ? `tahlil ochildi · ${md.case_minutes} daq` : `tahlil ochilmadi · ${md.case_minutes} daq`)}
+        </>
+      ) : (
+        <>
+          {chip('Test', md.test, md.test_minutes, md.need_test)}
+          {chip('Keys', md.case, md.case_minutes, md.need_case)}
+        </>
+      )}
       {md.cycle > 1 && (
         <span className="text-[11px] text-slate-500">
           {md.open ? `sikl davom etmoqda (${md.cycle} para) — test va keys sikl oxirida tekshiriladi` : `sikl: ${md.cycle} para birga`}

@@ -225,7 +225,7 @@ function FeedCard({ item }: { item: BotFeedItem }) {
       {item.alert === 'short' && <p className="mt-1 text-[12px] text-violet-700">⏱ iMentor’da {item.minutes ?? 0} daqiqa ishladi</p>}
       {item.alert === 'misuse' && (
         <p className="mt-1 text-[12px] text-amber-800">
-          ⚠️ {(item.gaps || []).map((g) => (g === 'test' ? 'test yaratilmadi' : g === 'case' ? 'keys yaratilmadi'
+          ⚠️ {(item.gaps || []).map((g) => (g === 'no_answers' ? 'talabalar test yechmadi' : g === 'no_reveal' ? 'keys tahlili ochilmadi' : g === 'test' ? 'test yaratilmadi' : g === 'case' ? 'keys yaratilmadi'
             : g === 'test_time' ? `testga ${item.test_minutes ?? 0} daq` : `keysga ${item.case_minutes ?? 0} daq`)).join(', ')}
         </p>
       )}

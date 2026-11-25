@@ -609,7 +609,7 @@ def _module_raw(db: Session, lessons: list) -> dict[int, dict] | None:
         live = "test_live" in kinds
         if live:
             kinds = kinds | {"test"}
-        out[x.id] = {"test_live": live,
+        out[x.id] = {"test_live": live, "case_reveal": "case_used" in kinds,
                      "test": "test" in kinds or "test" in ready,
                      "case": "case" in kinds or "case_used" in kinds or "case" in ready,
                      "case_used": "case_used" in kinds and "case" not in kinds,
@@ -633,7 +633,10 @@ def _attach_modules(lessons: list, raw: dict[int, dict], mods: dict[int, dict], 
     blank = {"test": False, "case": False, "test_sec": 0, "case_sec": 0}
     for x in lessons:
         if x.id in raw:
-            raw[x.id]["modules"] = {**blank, **(mods.get(x.id) or {}), "cycle": 0}
+            # Testni yechgan talabalar soni (o'qituvchining jonli testi, dars oynasida) — asosiy dalil (2026-11-26).
+            raw[x.id]["modules"] = {**blank, **(mods.get(x.id) or {}), "cycle": 0,
+                                    "students": int(raw[x.id].get("students") or 0),
+                                    "day": x.lesson_date.isoformat()}
     measured = {x.id for x in lessons}
     # `kin` — siklning hisobotda baholanmaydigan turdagi paralari ("Klinik mashg'ulot", 2026-11-23): sikl ular
     # bilan yig'iladi, tugagan bo'lsa "ochiq" hisoblanmaydi.
@@ -647,7 +650,10 @@ def _attach_modules(lessons: list, raw: dict[int, dict], mods: dict[int, dict], 
             continue
         rows = [mods.get(x.id) or blank for x in chain]
         total = {"test": any(r["test"] for r in rows), "case": any(r["case"] for r in rows),
-                 **{k: any(r.get(k) for r in rows) for k in ("test_live", "test_ready", "case_ready", "case_used")},
+                 **{k: any(r.get(k) for r in rows) for k in ("test_live", "test_ready", "case_ready", "case_used",
+                                                             "case_reveal")},
+                 "students": sum(int((raw.get(x.id) or {}).get("students") or 0) for x in chain),
+                 "day": chain[0].lesson_date.isoformat(),
                  "test_sec": sum(r["test_sec"] for r in rows), "case_sec": sum(r["case_sec"] for r in rows),
                  "cycle": len(chain), "open": any(x.id not in measured for x in chain)}
         for x in chain:
@@ -665,6 +671,31 @@ def module_gaps(m: dict | None) -> list[str]:
     # test va keysni qayta yaratish shart emas, o'shani ko'rsatsa bo'ldi"): avval yaratilgan test/keysni
     # ko'rsatish uchun 10 daqiqa emas, `READY_MIN_MINUTES` yetarli. Jonli test o'tkazilgani yoki keys javobi
     # talabalarga ochilgani — o'zi foydalanish isboti, vaqt talab qilinmaydi.
+    #
+    # REAL FOYDALANISH (2026-11-26, foydalanuvchi: "yaratdimi-yo'qmi muhim emas — test hozir bazadan keladi,
+    # o'qituvchi yaratmaydi; «yaratmadi» degan yolg'on ayb kerak emas"). Endi faqat dars vaqtida nima bo'lgani:
+    #   test — talabalar o'qituvchining jonli testini YECHGANMI (kamida bitta javob). Yechmagan bo'lsa — test
+    #          qismi bajarilmagan ("no_answers"), test qayerdan olingani ahamiyatsiz;
+    #   keys — keys tahlili (javobi) talabalarga OCHILGANMI va keys sahifasida qancha vaqt ishlangan.
+    # O'qituvchilar yangi qoidani bilmagan kunlar eski qoidada qoladi — orqaga qarab ayb qo'yilmaydi.
+    if md.get("day") and md["day"] < REAL_USE_SINCE.isoformat():
+        return _legacy_gaps(md)
+    out = []
+    if int(md.get("students") or 0) < 1:
+        out.append("no_answers")
+    if not md.get("case_reveal"):
+        out.append("no_reveal")
+    elif int(md.get("case_sec") or 0) < MIN_CASE_MINUTES * 60:
+        out.append("case_time")
+    return out
+
+
+#: Real foydalanish qoidasi shu kundan (2026-11-27) — undan oldingi darslar `_legacy_gaps` bilan baholanadi.
+REAL_USE_SINCE = dt.date.fromisoformat(os.environ.get("IMENTOR_REAL_USE_SINCE") or "2026-11-27")
+
+
+def _legacy_gaps(md: dict) -> list[str]:
+    """27-noyabrgacha amal qilgan qoida (test/keys bor va bo'limda vaqt) — o'tgan kunlar o'zgarmasin."""
     test_need = (READY_MIN_MINUTES if md.get("test_ready") else MIN_TEST_MINUTES) * 60
     case_need = (READY_MIN_MINUTES if md.get("case_ready") else MIN_CASE_MINUTES) * 60
     out = []
@@ -689,6 +720,8 @@ def module_info(m: dict | None) -> dict | None:
     if not md:
         return None
     return {"test": bool(md.get("test")), "case": bool(md.get("case")),
+            # Real foydalanish (2026-11-26): testni yechgan talabalar va keys tahlili ochilgani.
+            "students": int(md.get("students") or 0), "case_reveal": bool(md.get("case_reveal")),
             "test_minutes": int(md.get("test_sec") or 0) // 60, "case_minutes": int(md.get("case_sec") or 0) // 60,
             "cycle": int(md.get("cycle") or 0), "gaps": module_gaps(m), "open": bool(md.get("open")),
             "need_test": MIN_TEST_MINUTES, "need_case": MIN_CASE_MINUTES}

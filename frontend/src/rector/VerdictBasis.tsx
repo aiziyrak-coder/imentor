@@ -32,6 +32,18 @@ export function basisRows(l: ScheduledLessonRow): Row[] {
     const cyc = md.cycle > 1 ? ` (${md.cycle} paralik sikl bo‘yicha)` : '';
     if (md.open) {
       rows.push({ ok: null, title: 'Test va keys', fact: `sikl davom etmoqda — ${md.cycle} para tugagach tekshiriladi` });
+    } else if (md.gaps.some((g) => g === 'no_answers' || g === 'no_reveal') || md.students > 0 || md.case_reveal) {
+      // Real foydalanish qoidasi (2026-11-27): yaratilgani emas, darsda ishlatilgani.
+      rows.push({
+        ok: md.students > 0,
+        title: 'Talabalar dars vaqtida testni yechgan',
+        fact: md.students > 0 ? `${md.students} talaba yechgan${cyc}` : `birorta talaba yechmagan${cyc}`,
+      });
+      rows.push({
+        ok: md.case_reveal && md.case_minutes >= md.need_case,
+        title: `Keys tahlili talabalarga ochilgan, keysda kamida ${md.need_case} daqiqa`,
+        fact: `${md.case_reveal ? 'tahlil ochilgan' : 'tahlil ochilmagan'}, keysda ${md.case_minutes} daqiqa${cyc}`,
+      });
     } else {
       rows.push({
         ok: md.test && md.test_minutes >= md.need_test,

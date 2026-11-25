@@ -1139,6 +1139,14 @@ const CASE_BIOMEDICAL_FIELDS =
   '   "recommendations" (40–80 so\'z) — talabalar odatda qiladigan xato va undan qochish; klinik ahamiyati bitta gapda.\n' +
   '3. TAQIQLANGAN: individual bemor (yosh + shikoyat + tashxis + dori); davolash rejasi; "xavfsizlik va standartlarga ' +
   'rioya qilish", "malaka oshirish", "kalibrlash" kabi umumiy gap (mavzu aynan shu haqda bo\'lmasa).\n' +
+  // 2026-11-25 (kafedralar: "keys umuman amaliy emas"): prod keyslarining aksariyati hayvon tajribasi edi
+  // ("laboratoriyada sichqonlar…", stomatologiya talabasiga ham). Talaba bunday tajriba o'tkazmaydi.
+  '   HAYVON TAJRIBASI (sichqon, kalamush, quyon, baqa, it), ilmiy laboratoriya eksperimenti va talaba o\'quv dasturida ' +
+  'o\'tkazmaydigan murakkab usullar YOZILMAYDI. Vaziyat talabaning kelajakdagi kasbiy amaliyotiga yaqin bo\'lsin: ' +
+  'odamdan olingan tahlil natijasi yoki preparat (biopsiya, surtma, qon/siydik tahlili), anatomik soha, ' +
+  'farmatsevtik yoki biotexnologik ishlab chiqarish bosqichi, sanitariya holati. Fan nomida yo\'nalish bo\'lsa ' +
+  '(masalan Stomatologiya, Pediatriya, Farmatsiya) — misol o\'sha yo\'nalishdan (stomatologiyada og\'iz bo\'shlig\'i, ' +
+  'tish, jag\'). Qisqa amaliy vaziyat mumkin, lekin to\'liq bemor kartasi va davolash rejasi emas.\n' +
   '4. Atama, me\'yor va usul darslikdagidek aniq bo\'lsin (masalan nerv o\'tkazuvchanligi — ENMG, EEG emas). ' +
   'Ishonchingiz komil bo\'lmagan raqamni yozmang.\n' +
   '5. QALIN: hal qiluvchi kuzatuv yoki me\'yordan chetga chiqqan qiymatni `**...**` ichiga oling, jami 3–8 ta; ' +

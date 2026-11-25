@@ -274,6 +274,25 @@ describe('Xalq tabobati va farmakologiya kafedrasi', () => {
     ).toBe('clinical');
   });
 
+  it('klinik bo‘lmagan kafedrada fan nomidagi yo‘nalish (Stomatologiya) klinik qilmaydi', () => {
+    expect(
+      resolveSubjectDomain({
+        departmentName: 'Patologik fiziologiya va patologik anatomiya',
+        departmentIsClinical: false,
+        subjectName: 'Patologik fiziologiya — 5-semestr (Stomatologiya)',
+        topic: 'Endokrin tizim patofiziologiyasi. Qandli diabet',
+      }),
+    ).toBe('biomedical');
+    expect(
+      resolveSubjectDomain({
+        departmentName: 'Tibbiy va biologik kimyo',
+        departmentIsClinical: false,
+        subjectName: 'Biokimyo (Davolash ishi)',
+        topic: 'Fermentlar',
+      }),
+    ).not.toBe('clinical');
+  });
+
   it('rasmiy klinik kafedra ilgarigidek klinik', () => {
     expect(
       resolveSubjectDomain({

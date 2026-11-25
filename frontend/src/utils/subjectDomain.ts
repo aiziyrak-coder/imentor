@@ -168,9 +168,17 @@ export function resolveSubjectDomain(input: {
   const rest = foldDomainText(`${input.topic || ''} ${(input.lectureText || '').slice(0, 2500)}`);
 
   const subjectMeta = foldDomainText(input.subjectName || '');
+  // Rasmiy bayroq bor bo'lsa — faqat u (2026-11-25). Ilgari bayroq `false` bo'lsa ham qolip FAN NOMIGA
+  // qo'llanardi: "Patologik fiziologiya — 5-semestr (Stomatologiya)", "Biokimyo (Davolash ishi)" dagi
+  // yo'nalish nomi klinik kafedra qolipiga tushib, nazariy fanga bemor kartali keys yozilardi
+  // (7 kunda ~250 keys: biokimyo, gigiyena, fiziologiya, anatomiya). Bayroq kelmagan bo'lsa — faqat
+  // KAFEDRA nomi tekshiriladi, fan nomidagi yo'nalish emas.
+  // Kafedra nomi umuman yo'q (eski kontekst) — fan nomi qoladi, aks holda "Onkologiya" fani klinik bo'lmay qolardi.
+  const deptMeta = input.departmentName ? foldDomainText(input.departmentName) : meta;
   const deptClinical =
     input.departmentIsClinical === true ||
-    (!!meta && CLINICAL_DEPT_RE.test(meta) && !BASIC_SCIENCE_DEPT_RE.test(meta));
+    (input.departmentIsClinical === undefined && !!deptMeta &&
+      CLINICAL_DEPT_RE.test(deptMeta) && !BASIC_SCIENCE_DEPT_RE.test(deptMeta));
   // Bemor yonida dars o'tiladigan fan: rasmiy klinik kafedra YOKI nomining
   // o'zi klinik ("Klinik farmakologiya"). Shu bayroqsiz oddiy farmakologiya
   // mavzusidagi "davolash"/"retsept" so'zi butun fanni klinik qilib yuborardi

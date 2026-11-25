@@ -45,7 +45,12 @@ _PERIODS = {
 
 @lru_cache
 def _redis() -> redis.Redis:
-    return redis.Redis.from_url(get_settings().redis_url, decode_responses=True)
+    # Vaqt chegarasi SHART (2026-11-25): usiz Redis javobi kechiksa yoki ulanish yarim ochiq qolsa, oqim abadiy
+    # kutardi. Cheklov har so'rovda chaqiriladi — bir ishchining 40 ta oqimi shu yerda osilib, u baza
+    # ulanishlarini (25 ta "idle in transaction") egallab, umuman javob bermay qolardi. Xatoda `enforce`
+    # jarayon ichidagi hisoblagichga o'tadi.
+    return redis.Redis.from_url(get_settings().redis_url, decode_responses=True,
+                                socket_connect_timeout=1.0, socket_timeout=1.5, health_check_interval=30)
 
 
 def parse_rate(rate: str) -> tuple[int, int]:

@@ -734,6 +734,16 @@ def _apply_blocks(lessons: list, raw: dict[int, dict]) -> None:
             "student_proof": any(r.get("student_proof") for r in rows if r),
         }
         if not (any(r and time_taught(r) for r in rows) or time_taught(total)):
+            # Sikl yetarli o'tilmagan, lekin biror parasida iMentor ochilgan (2026-11-25, foydalanuvchi): qolgan
+            # paralar «ochilmagan» (qizil) emas — butun sikl «kirgan, lekin yetmagan» (sariq).
+            if any(r and (r.get("seconds") or r.get("covered") or r.get("signin")) for r in rows):
+                for x, r in zip(chain, rows):
+                    if r and (r.get("seconds") or r.get("covered") or r.get("signin")):
+                        continue
+                    row = raw.setdefault(x.id, {"seconds": 0, "students": 0, "signin": False,
+                                                "covered": 0, "buckets": 0})
+                    row["block_seen"] = True
+                    row["block_size"] = len(chain)
             continue
         for x, r in zip(chain, rows):
             if r is not None and time_taught(r):
@@ -766,23 +776,32 @@ def measure_map(db: Session, lessons: list[HemisLesson], *, schedule: list | Non
     Qaror `is_taught` da — shunda o'lchov va qaror bir-biridan ajralgan
     bo'ladi va hisobot "nega" degan savolga javob berolsin.
     """
-    raw = _work_map_raw(db, lessons)
-    undecided = [x for x in lessons
+    # SIKL (2026-11-25, foydalanuvchi: "1-parada foydalanmasa 2 yoki 3-da foydalanishi mumkin — qizil chiqmasin"):
+    # HEMIS siklning 1-parasini "Amaliy", 2–3-parasini "Klinik mashg'ulot" deb yozadi. Ilgari vaqt bloki
+    # (`_apply_blocks`) faqat baholanadigan paralardan yig'ilardi — o'qituvchi 2- yoki 3-parada (klinik)
+    # ishlasa, 1-para (amaliy) qizil qolardi. Endi sikldagi barcha paralar o'lchanadi va blok ular bilan
+    # yig'iladi; baholanmaydigan paralarning o'zi natijaga chiqmaydi.
+    kin = _cycle_kin(db, lessons)
+    every = [*lessons, *kin]
+    raw = _work_map_raw(db, every)
+    undecided = [x for x in every
                  if x.id not in raw or not time_taught(raw[x.id])]
     for lesson_id in _student_proof(db, undecided):
         row = raw.setdefault(lesson_id, {"seconds": 0, "students": 0, "signin": False,
                                          "covered": 0, "buckets": 0})
         row["student_proof"] = True
-    _apply_blocks(lessons, raw)
+    _apply_blocks(every, raw)
+    kin_ids = {x.id for x in kin}
     # Test va keys (2026-11-19): har qayd bor dars uchun — qaror faqat vaqt bo'yicha o'tilganlarda (`is_taught`),
     # lekin rektor kartasida "kirib chiqqan" darsda ham test/keys yaratilgani ko'rinadi.
-    if raw:
+    if any(k not in kin_ids for k in raw):
         # Sikl butunligicha: o'tilgan darsning sikldagi qo'shnilari ham o'lchanadi.
-        kin = _cycle_kin(db, lessons)
         chained = {x.id for c in lesson_blocks([*lessons, *kin]) if any(y.id in raw for y in c) for x in c}
         mods = _module_raw(db, [x for x in [*lessons, *kin] if x.id in chained or x.id in raw])
         if mods is not None:
             _attach_modules(lessons, raw, mods, schedule, kin)
+    for k in kin_ids:
+        raw.pop(k, None)
     return raw
 
 
@@ -906,7 +925,7 @@ def lesson_verdict(m: dict, *, waiting: bool = False) -> str:
         return "full"
     if m.get("block_proof"):
         return "block"
-    if m.get("seconds") or m.get("covered") or m.get("signin"):
+    if m.get("seconds") or m.get("covered") or m.get("signin") or m.get("block_seen"):
         return "short"
     # O'qituvchi o'zi kirmagan, lekin guruh talabalari dars vaqtida iMentor'da ishlagan — chala (2026-11-17).
     return "group" if m.get("student_proof") else "none"
@@ -977,12 +996,16 @@ def lesson_rows(db: Session, start_day: dt.date, end_day: dt.date, *, teacher: s
     raw = {**measure_map(db, [x for x in lessons if x.id not in scored_ids]), **scored_raw}
     used = {k: (True, m["students"]) for k, m in raw.items() if is_taught(m)}
     topics = _lesson_topics(db, lessons)
+    # Sikl davom etayotgan bo'lsa (keyingi parasi hali tugamagan), o'tilgan paralari ham hali baholanmaydi
+    # (2026-11-25): 1-parada ochmagan o'qituvchi 2- yoki 3-parada ochishi mumkin — oldindan qizil chiqmasin.
+    cycle_open = {x.id for c in lesson_blocks(lessons) if len(c) > 1 and not all(is_over(y, now) for y in c)
+                  for x in c}
     lessons.sort(key=lambda x: (x.lesson_date, x.para, x.teacher_name))
     out = []
     for lesson in lessons:
         hit = used.get(lesson.id)
         m = raw.get(lesson.id) or {}
-        waiting = not is_over(lesson, now)
+        waiting = not is_over(lesson, now) or lesson.id in cycle_open
         counted = is_counted(lesson)
         if only_missed and (hit or waiting or not counted):
             continue

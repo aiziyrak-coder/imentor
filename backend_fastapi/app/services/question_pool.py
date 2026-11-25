@@ -20,7 +20,7 @@ import os
 import random
 import re
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.content import CourseSyllabus
@@ -152,7 +152,7 @@ def _spares_in(payload: dict, language: str) -> list[dict]:
     return [q for q in payload.get("spareQuestions") or [] if isinstance(q, dict)]
 
 
-def _usable(q: dict, language: str) -> bool:
+def _usable(q: dict, language: str, min_words: int = 20) -> bool:
     options = q.get("options")
     idx = q.get("correctOptionIndex")
     text = str(q.get("question") or "")
@@ -162,7 +162,7 @@ def _usable(q: dict, language: str) -> bool:
         return False
     if len({_key(str(o)) for o in options}) != 5:
         return False
-    if text.count("?") > 1 or len(text.split()) < 20:
+    if text.count("?") > 1 or len(text.split()) < min_words:
         return False
     if ci.uzbek_left(text, language) or any(ci.uzbek_left(str(o), language) for o in options):
         return False
@@ -222,8 +222,17 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
     # Boshqa sillabusdagi o'xshash nomli mavzu ham (2026-10-22, "bir mavzuga bir marta").
     from app.services import content_bank
 
-    similar = content_bank.similar_ids(db, KIND_TEST, plan["current"]["title"], since=QUALITY_SINCE,
-                                       exclude_syllabus=syllabus_id, username=owner_key)
+    # Mavzuning O'Z banki bor bo'lsa (Claude oldindan yozgan) o'xshash nomli mavzular qidirilmaydi (2026-11-25):
+    # `similar_ids` har so'rovda bazadagi BARCHA testlarni ko'rib chiqadi (~1–2 s) — test "darhol" chiqmasdi,
+    # bank kattalashgani sari yana sekinlashardi.
+    own_bank = db.execute(
+        select(func.count()).select_from(PreparedContent).where(
+            PreparedContent.kind == KIND_TEST, PreparedContent.owner_key == "imentor-bank",
+            PreparedContent.retired_reason == "", PreparedContent.syllabus_id == syllabus_id,
+            func.lower(PreparedContent.topic_code) == plan["current"]["code"])).scalar() or 0
+    similar = [] if own_bank else content_bank.similar_ids(
+        db, KIND_TEST, plan["current"]["title"], since=QUALITY_SINCE,
+        exclude_syllabus=syllabus_id, username=owner_key)
     rows = db.execute(
         select(PreparedContent.id, PreparedContent.owner_key, PreparedContent.payload, PreparedContent.created_at,
                PreparedContent.syllabus_id)
@@ -263,9 +272,12 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
 
     for r in rows:
         payload = r.payload or {}
+        # Claude oldindan yozgan bank savollari qisqa va aniq (2026-11-25): 20 so'zlik chegara ularning 99% ini
+        # rad etib, bank to'la bo'lsa ham test har safar AI bilan yozilardi. Chegara AI yozgan eski savollarga qoladi.
+        min_words = 5 if r.owner_key == "imentor-bank" else 20
         for q in _questions_in(payload, language) + _spares_in(payload, language):
             key = _key(str(q.get("question") or ""))
-            if key and _usable(q, language) and not from_foreign_book(q):
+            if key and _usable(q, language, min_words) and not from_foreign_book(q):
                 bank.add(key)
         # O'qituvchining oxirgi testidan faqat zaxira savollar: ular o'sha guruhda bo'lmagan.
         own_last = own_latest is not None and r.id == own_latest.id
@@ -274,7 +286,7 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
             candidates = _questions_in(payload, language) + candidates
         for q in candidates:
             key = _key(str(q.get("question") or ""))
-            if not key or key in seen or key in blocked or not _usable(q, language):
+            if not key or key in seen or key in blocked or not _usable(q, language, min_words):
                 continue
             if no_lab and lab_question(str(q.get("question") or "")):
                 continue

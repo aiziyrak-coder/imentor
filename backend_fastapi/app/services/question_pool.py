@@ -274,7 +274,7 @@ def pool(db: Session, *, syllabus_id: int, variant: str, topic_code: str, langua
         payload = r.payload or {}
         # Claude oldindan yozgan bank savollari qisqa va aniq (2026-11-25): 20 so'zlik chegara ularning 99% ini
         # rad etib, bank to'la bo'lsa ham test har safar AI bilan yozilardi. Chegara AI yozgan eski savollarga qoladi.
-        min_words = 5 if r.owner_key == "imentor-bank" else 20
+        min_words = 3 if r.owner_key == "imentor-bank" else 20
         for q in _questions_in(payload, language) + _spares_in(payload, language):
             key = _key(str(q.get("question") or ""))
             if key and _usable(q, language, min_words) and not from_foreign_book(q):

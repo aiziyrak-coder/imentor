@@ -3267,17 +3267,30 @@ export const aiService = {
             );
           } catch (err) {
             console.warn(`Case focus "${focus}" birinchi urinishda muvaffaqiyatsiz, qayta urinilmoqda:`, err);
-            return generateSingleCaseQuestion(
-              topic,
-              focus,
-              language,
-              keywordFocus,
-              avoid,
-              caseContextText,
-              caseSources,
-              scope,
-              themeSections,
-            );
+            try {
+              return await generateSingleCaseQuestion(
+                topic,
+                focus,
+                language,
+                keywordFocus,
+                avoid,
+                caseContextText,
+                caseSources,
+                scope,
+                themeSections,
+              );
+            } catch (again) {
+              // 2026-11-25: bitta yo'nalish ikki marta yiqilsa butun keys "xatolik" bo'lardi, garchi qolgan
+              // ikkitasi tayyor bo'lsa ham. Endi bo'sh joy qaytadi — `normalizeCaseSession` uni tashlaydi va
+              // jurnalga yozadi; birorta ham keys chiqmasagina xato.
+              console.warn(`Case focus "${focus}" ikkinchi urinishda ham muvaffaqiyatsiz:`, again);
+              return {
+                scenario: '',
+                answer: '',
+                focus,
+                rawSnippet: `focus=${focus} xato: ${String((again as Error)?.message || again).slice(0, 300)}`,
+              } as CaseStudyQuestion;
+            }
           }
         }),
       );

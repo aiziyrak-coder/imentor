@@ -41,6 +41,11 @@ ANSWER_GRACE = dt.timedelta(seconds=6)
 #: 3-savolda uzildi, qolgan 7 savol ko'r-ko'rona). Endi vaqt monitor oxirgi ko'ringan paytda (+ shu zaxira)
 #: muzlaydi; monitor qaytgach o'sha savol BOSHIDAN ko'rsatiladi. Monitor odatda 2 soniyada bir so'raydi.
 HOST_GRACE = dt.timedelta(seconds=int(os.environ.get("IMENTOR_MONITOR_HOST_GRACE_SECONDS") or 15))
+#: O'CHIQ (2026-11-25, o'sha kuni 10:20–10:40): server band bo'lib monitor so'rovlari javobsiz qolganda (baza
+#: ulanishlari osilib qolgan) sog'lom sinflarda ham test to'xtab, savol qayta-qayta boshidan boshlandi. Monitor
+#: so'rovi yetib kelmasligi — monitor interneti uzilganining isboti emas. Qayta yoqishdan oldin: monitor o'zi
+#: "aloqam yo'q edi" deb xabar berishi kerak (server tomondan taxmin emas). Yoqish: IMENTOR_MONITOR_HOST_PAUSE=1.
+PAUSE_ENABLED = (os.environ.get("IMENTOR_MONITOR_HOST_PAUSE") or "0").strip() == "1"
 #: Monitor so'rovi bazaga "ko'rindi" belgisini shundan tez-tez yozmaydi.
 HOST_BEAT = dt.timedelta(seconds=3)
 #: Monitor shuncha vaqt qaytmasa — kutish tugaydi: test vaqt bo'yicha yakunlanadi (tashlab ketilgan test
@@ -74,7 +79,7 @@ def timings(session) -> tuple[int, int, int]:
 def host_gone(session, now: dt.datetime) -> bool:
     """Test ketmoqda, lekin monitor `HOST_GRACE` dan beri ko'rinmadi (va hali kutish muddati ichida)."""
     seen = getattr(session, "monitor_host_seen_at", None)
-    if seen is None or session.is_closed or (session.monitor_phase or LOBBY) != RUNNING:
+    if not PAUSE_ENABLED or seen is None or session.is_closed or (session.monitor_phase or LOBBY) != RUNNING:
         return False
     return HOST_GRACE < now - seen <= HOST_MAX_PAUSE
 

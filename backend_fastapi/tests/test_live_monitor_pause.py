@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 from app.services import live_monitor as mon
 
+mon.PAUSE_ENABLED = True  # ishlab chiqarishda o'chiq (IMENTOR_MONITOR_HOST_PAUSE) — bu yerda mantiq tekshiriladi
+
 T0 = dt.datetime(2026, 11, 25, 4, 0, tzinfo=dt.timezone.utc)
 TOTAL = 10
 QUESTIONS = [{"question": f"q{i}", "options": ["a", "b", "c", "d"]} for i in range(TOTAL)]

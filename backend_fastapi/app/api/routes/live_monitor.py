@@ -237,7 +237,7 @@ def _own_session(db: Session, key: str, auth: AuthContext) -> LiveTestSession:
 def _host_beat(db: Session, obj: LiveTestSession, now: dt.datetime) -> bool:
     """Monitor ko'rindi. Uzoq yo'q bo'lgan bo'lsa (test to'xtab turgan) — to'xtagan savol HOZIR boshidan
     boshlanadi (`live_monitor.HOST_GRACE`); shunda True. Bazaga har so'rovda emas, `HOST_BEAT` da bir yoziladi."""
-    if obj.is_closed or obj.monitor_phase != mon.RUNNING:
+    if not mon.PAUSE_ENABLED or obj.is_closed or obj.monitor_phase != mon.RUNNING:
         return False
     seen = obj.monitor_host_seen_at
     if seen is not None and now - seen <= mon.HOST_BEAT:

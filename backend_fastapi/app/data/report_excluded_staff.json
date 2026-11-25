@@ -1,5 +1,224 @@
 {
-  "_comment": [
+  "staff" : [
+    {
+      "hemis_status" : "Bo‘shagan",
+      "since" : "2026-10-13",
+      "name" : "SHAKIROV S. A.",
+      "reason" : "Ishdan bo'shagan (xalqaro fakultet dekani), lekin jadvalda 32 darsi qolgan",
+      "employee_id" : "1039"
+    },
+    {
+      "employee_id" : "993",
+      "reason" : "Epidemiologiya: monitorli xonada dars o'tmaydi; HEMIS'da darslari 'YKSH 1-xona' (MON-257) ga yozilgan, kadrlar HEMIS'dan olib tashlaydi (rektorat)",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-17",
+      "name" : "ZAYNALOVA X. A."
+    },
+    {
+      "reason" : "Nevrologiya va psixiatriya: o'qituvchi xabari — xonasida iMentor (monitor) yo'q; rektorat chiqarishni so'radi",
+      "employee_id" : "1560",
+      "name" : "NOSIROV M. M.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-17"
+    },
+    {
+      "name" : "RASULOV F. M.",
+      "since" : "2026-11-17",
+      "hemis_status" : "Ishlamoqda",
+      "reason" : "Anesteziologiya va reanimatologiya, Pediatriya-2: monitorli xonada dars o'tmaydi; rektorat chiqarishni so'radi",
+      "employee_id" : "1627"
+    },
+    {
+      "reason" : "Akusherlik va ginekologiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); dars o'taveradi, nazorat qilinmaydi (rektorat)",
+      "employee_id" : "1048",
+      "since" : "2026-11-18",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "DADAJONOVA M. A."
+    },
+    {
+      "name" : "HAMDAMOV H. O.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-18",
+      "employee_id" : "11",
+      "reason" : "Normal anatomiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); hozircha nazorat qilinmaydi (rektorat)"
+    },
+    {
+      "reason" : "Stomatologiya va otoloringologiya: monitorli xonada dars o'tmaydi; eski darslari ham hisobotdan olib tashlanadi (foydalanuvchi)",
+      "employee_id" : "1654",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "ZOKIROV J. T."
+    },
+    {
+      "name" : "KURBANOV D. T.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "reason" : "Nevrologiya va psixiatriya: Viloyat ruhiy kasalliklar shifoxonasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1667"
+    },
+    {
+      "employee_id" : "373",
+      "reason" : "Endokrinologiya: Farovon klinikasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "XOJIRAXMATOV D. K."
+    },
+    {
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "GANIYEV S. S.",
+      "reason" : "Endokrinologiya: Obihayot klinikasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "83"
+    },
+    {
+      "reason" : "Endokrinologiya: Viloyat endokrinologiya dispanserida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1665",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "name" : "XALILOV R. T."
+    },
+    {
+      "reason" : "Fakultativ terapiya (UASH): Farovon klinikasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1121",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "name" : "MAXMUDOVA M. A."
+    },
+    {
+      "name" : "ALI SH. X.",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "employee_id" : "982",
+      "reason" : "Tibbiy va biologik kimyo: 9-bazada dars o'tadi, elektron doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)"
+    },
+    {
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "name" : "TURSUNALIYEVA H. G'.",
+      "employee_id" : "1300",
+      "reason" : "Gospital terapiya: xonasida interaktiv doska yo'q, shaxsiy kompyuterdan kiradi (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)"
+    },
+    {
+      "name" : "NAZIRXUJAYEV F. A.",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "employee_id" : "521",
+      "reason" : "Gospital terapiya: dars o'tadigan xonada interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)"
+    },
+    {
+      "employee_id" : "960",
+      "reason" : "Fakultativ terapiya (UASH): Shoshilinch (RSHTYIMFF) xonasida interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "name" : "SAYDAXMEDOV Z. I.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26"
+    },
+    {
+      "reason" : "Gospital terapiya: Farovon klinikasi/RSHTYIMFF, interaktiv doska yo'q, shaxsiy kompyuterdan kiradi (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "677",
+      "name" : "MIRQURBANOVA T. X.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26"
+    },
+    {
+      "employee_id" : "871",
+      "reason" : "Fakultativ terapiya (UASH): simulyatsion markazda dars o'tadi (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "name" : "DAVLATOV SH. Q.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26"
+    },
+    {
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "MELIQOSIMOVA B. T.",
+      "employee_id" : "1513",
+      "reason" : "Epidemiologiya: poliklinikada dars o'tadi (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)"
+    },
+    {
+      "name" : "MAMARAIMOV A. A.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "reason" : "Tibbiy va biologik kimyo: 9-bazada laboratoriyada dars o'tadi, elektron doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "698"
+    },
+    {
+      "reason" : "Gospital terapiya: Viloyat sil kasalliklari shifoxonasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "474",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "ALIYEV E. N."
+    },
+    {
+      "reason" : "Travmatologiya: Viloyat bolalar nogironlik markazida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1098",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "name" : "TOSHMATOV F. R."
+    },
+    {
+      "reason" : "Epidemiologiya: poliklinikada dars o'tadi (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "549",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "name" : "BOBOJONOVA N. I."
+    },
+    {
+      "name" : "RAXMONOV B. B.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "reason" : "Gospital terapiya: Uromed klinikasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "501"
+    },
+    {
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "MAMADJANOVA R. A.",
+      "reason" : "Travmatologiya: Premium klinikasida dars o'tadi (HEMIS'da boshqa xona yozilgan) (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1084"
+    },
+    {
+      "name" : "TURSUNOV M. F.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "reason" : "Endokrinologiya: Viloyat endokrinologiya dispanseri, elektron doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1446"
+    },
+    {
+      "employee_id" : "497",
+      "reason" : "Patologik fiziologiya: boshqa binoda dars o'tadi, HEMIS'da noto'g'ri xona (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "name" : "TURDIMATOV D. S."
+    },
+    {
+      "name" : "XOLMATOV M. F.",
+      "since" : "2026-11-26",
+      "hemis_status" : "Ishlamoqda",
+      "employee_id" : "537",
+      "reason" : "Nevrologiya va psixiatriya: Ona va bola markazida, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)"
+    },
+    {
+      "employee_id" : "1517",
+      "reason" : "Stomatologiya: klinikada (Denta Lux) dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26",
+      "name" : "NABIYEV SH. O."
+    },
+    {
+      "reason" : "Stomatologiya: Viloyat stomatologiya shifoxonasida dars o'tadi, interaktiv doska yo'q (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "772",
+      "name" : "RAXMONOVA SH. R.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26"
+    },
+    {
+      "reason" : "Gistologiya va biologiya: 7-xonada dars o'tadi (monitor yo'q), HEMIS'da 10-xona yozilgan (operator izohlari, foydalanuvchi: faqat monitorli xonadagi amaliy darslar nazoratda)",
+      "employee_id" : "1162",
+      "name" : "MIRKALAMOV M. M.",
+      "hemis_status" : "Ishlamoqda",
+      "since" : "2026-11-26"
+    }
+  ],
+  "_comment" : [
     "Rektor hisobotidan chiqarilgan XODIMLAR — HEMIS ichki `employee_id` bo'yicha.",
     "",
     "Nega kerak: xodim ishdan bo'shagan, lekin HEMIS dars jadvalida uning",
@@ -12,56 +231,5 @@
     "",
     "Olib tashlash: kadrlar darslarni haqiqiy o'qituvchiga o'tkazgach, shu",
     "yozuvni ro'yxatdan chiqarish kifoya."
-  ],
-  "staff": [
-    {
-      "employee_id": "1039",
-      "name": "SHAKIROV S. A.",
-      "hemis_status": "Bo‘shagan",
-      "reason": "Ishdan bo'shagan (xalqaro fakultet dekani), lekin jadvalda 32 darsi qolgan",
-      "since": "2026-10-13"
-    },
-    {
-      "employee_id": "993",
-      "name": "ZAYNALOVA X. A.",
-      "hemis_status": "Ishlamoqda",
-      "reason": "Epidemiologiya: monitorli xonada dars o'tmaydi; HEMIS'da darslari 'YKSH 1-xona' (MON-257) ga yozilgan, kadrlar HEMIS'dan olib tashlaydi (rektorat)",
-      "since": "2026-11-17"
-    },
-    {
-      "employee_id": "1560",
-      "name": "NOSIROV M. M.",
-      "hemis_status": "Ishlamoqda",
-      "reason": "Nevrologiya va psixiatriya: o'qituvchi xabari — xonasida iMentor (monitor) yo'q; rektorat chiqarishni so'radi",
-      "since": "2026-11-17"
-    },
-    {
-      "employee_id": "1627",
-      "name": "RASULOV F. M.",
-      "hemis_status": "Ishlamoqda",
-      "reason": "Anesteziologiya va reanimatologiya, Pediatriya-2: monitorli xonada dars o'tmaydi; rektorat chiqarishni so'radi",
-      "since": "2026-11-17"
-    },
-    {
-      "employee_id": "1048",
-      "name": "DADAJONOVA M. A.",
-      "hemis_status": "Ishlamoqda",
-      "reason": "Akusherlik va ginekologiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); dars o'taveradi, nazorat qilinmaydi (rektorat)",
-      "since": "2026-11-18"
-    },
-    {
-      "employee_id": "11",
-      "name": "HAMDAMOV H. O.",
-      "hemis_status": "Ishlamoqda",
-      "reason": "Normal anatomiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); hozircha nazorat qilinmaydi (rektorat)",
-      "since": "2026-11-18"
-    },
-    {
-      "employee_id": "1654",
-      "name": "ZOKIROV J. T.",
-      "hemis_status": "Ishlamoqda",
-      "reason": "Stomatologiya va otoloringologiya: monitorli xonada dars o'tmaydi; eski darslari ham hisobotdan olib tashlanadi (foydalanuvchi)",
-      "since": "2026-11-26"
-    }
   ]
 }

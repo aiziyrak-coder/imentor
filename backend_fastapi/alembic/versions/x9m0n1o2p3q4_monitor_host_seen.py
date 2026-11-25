@@ -1,6 +1,6 @@
 """Jonli test: monitor oxirgi ko'ringan payt — aloqasi uzilsa test to'xtab turadi (2026-11-25).
 
-Revision ID: a7b8c9d0e1f2
+Revision ID: x9m0n1o2p3q4
 Revises: w8l9m0n1o2p3
 """
 
@@ -9,7 +9,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a7b8c9d0e1f2"
+revision: str = "x9m0n1o2p3q4"
 down_revision: Union[str, None] = "w8l9m0n1o2p3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

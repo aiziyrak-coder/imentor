@@ -65,7 +65,11 @@ QUALITY_REASONING_EFFORT = "low"
 #: gpt-5.4 bahosi: test — sifat bir xil (xato 16% → 10%), 10% arzon va tezroq; keys —
 #: 17% arzon, baho pasaymadi. Ma'ruza va taqdimotda foyda yo'q, ekspert tekshiruvida
 #: fikrlash kerak — ular "low" da qoladi. `IMENTOR_NO_REASONING=0` — eski holat.
-NO_REASONING_PURPOSES = frozenset({"test_generate", "test_generate_brief", "case_generate"})
+#: 2026-11-25: `presentation_continue` ham fikrlashsiz. gpt-5.4-nano "low" da 16 so'rovdan 3 tasida butun
+#: 14000 tokenni fikrlashga sarflab, 80–205 soniyadan keyin BO'SH javob qaytardi (502) — o'qituvchi
+#: darsda "taqdimot yaratilmoqda" ga 5 daqiqa qarab turdi. Shu vazifada fikrlash chiqishning 80% i edi,
+#: `presentation_generate` da esa 3% — u "low" da qoladi.
+NO_REASONING_PURPOSES = frozenset({"test_generate", "test_generate_brief", "case_generate", "presentation_continue"})
 GENERATE_PURPOSES = frozenset({"test_generate", "test_generate_brief", "exam_generate"})
 REVIEW_PURPOSES = frozenset({"test_repair", "test_balance"})
 EXAM_REVIEW_PURPOSES = frozenset({"exam_review"})

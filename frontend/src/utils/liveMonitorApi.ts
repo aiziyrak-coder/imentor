@@ -44,6 +44,8 @@ export type StudentMonitorState = Timing & {
   my_answer: number;
   server_now_ms: number;
   submitted: boolean;
+  /** Monitor aloqasi uzilgan — test to'xtab turibdi; monitor qaytgach shu savol boshidan (2026-11-25). */
+  paused?: boolean;
 };
 
 export type HostMonitorState = Timing & {
@@ -60,6 +62,8 @@ export type HostMonitorState = Timing & {
   submitted: number;
   server_now_ms: number;
   is_closed: boolean;
+  /** Monitor uzoq yo'q bo'lib qaytdi — joriy savol shu so'rovda boshidan boshlandi. */
+  restarted?: boolean;
 };
 
 type Who = { participantKey: string; firstName?: string; lastName?: string };
@@ -147,12 +151,13 @@ export function nextMonitorPollDelay(
  * belgilashni o'z soati bilan ochadi. Variantlar qo'lda bo'lmasa — tez (0,7 s) qayta so'raydi.
  */
 export function nextStudentPollDelay(
-  st: Pick<Timing, 'stage' | 'read_ends_at_ms' | 'ends_at_ms'> & { phase: MonitorPhase; server_now_ms: number; submitted?: boolean },
+  st: Pick<Timing, 'stage' | 'read_ends_at_ms' | 'ends_at_ms'> & { phase: MonitorPhase; server_now_ms: number; submitted?: boolean; paused?: boolean },
   haveOptions: boolean,
   rand: () => number = Math.random,
 ): number | null {
   if (st.phase === 'done' || st.submitted) return null;
   if (st.phase !== 'running') return STUDENT_LOBBY_MS;
+  if (st.paused) return STUDENT_PAUSED_MS + Math.floor(rand() * 600);
   const now = st.server_now_ms;
   const readEnds = st.read_ends_at_ms ?? 0;
   const ends = st.ends_at_ms ?? 0;
@@ -166,6 +171,8 @@ export function nextStudentPollDelay(
 }
 
 export const STUDENT_LOBBY_MS = 2500;
+/** Test to'xtab turganda (monitor aloqasi yo'q) — monitor qaytganini bilish uchun. */
+export const STUDENT_PAUSED_MS = 3000;
 export const STUDENT_MAX_MS = 5000;
 export const STUDENT_FAST_MS = 700;
 /** Server belgilash vaqti tugagach javobni shuncha ms qabul qiladi (`live_monitor.ANSWER_GRACE`, 6 s); telefon

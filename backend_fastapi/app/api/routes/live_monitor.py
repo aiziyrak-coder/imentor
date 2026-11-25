@@ -234,14 +234,43 @@ def _own_session(db: Session, key: str, auth: AuthContext) -> LiveTestSession:
     return obj
 
 
+def _host_beat(db: Session, obj: LiveTestSession, now: dt.datetime) -> bool:
+    """Monitor ko'rindi. Uzoq yo'q bo'lgan bo'lsa (test to'xtab turgan) — to'xtagan savol HOZIR boshidan
+    boshlanadi (`live_monitor.HOST_GRACE`); shunda True. Bazaga har so'rovda emas, `HOST_BEAT` da bir yoziladi."""
+    if obj.is_closed or obj.monitor_phase != mon.RUNNING:
+        return False
+    seen = obj.monitor_host_seen_at
+    if seen is not None and now - seen <= mon.HOST_BEAT:
+        return False
+    try:
+        db.refresh(obj, with_for_update=True)
+        if obj.is_closed or obj.monitor_phase != mon.RUNNING:
+            db.rollback()
+            return False
+        index = mon.resume_index(obj, len(svc.questions_of(obj)), now)
+        if index is not None:
+            logger.info("live-monitor: %s monitor qaytdi — %s-savol qayta boshlandi", obj.session_key, index + 1)
+            obj.monitor_index, obj.monitor_started_at = index, now
+        obj.monitor_host_seen_at = now
+        db.commit()
+        return index is not None
+    except Exception:  # noqa: BLE001 — holat so'rovi yiqilmasin; keyingi so'rov yana yozadi
+        db.rollback()
+        logger.warning("live-monitor: %s monitor belgisi yozilmadi", obj.session_key, exc_info=True)
+        return False
+
+
 def _host_view(db: Session, obj: LiveTestSession, now: dt.datetime) -> dict:
     db.refresh(obj)
+    restarted = _host_beat(db, obj, now)
+    if restarted:
+        db.refresh(obj)
     questions = svc.questions_of(obj)
     st = mon.state(obj, len(questions), now)
     _auto_finalize(db, obj, st)
     st = mon.state(obj, len(questions), now)
     return {**mon.monitor_view(st, questions), **mon.roster(obj.drafts, obj.submissions, st),
-            "server_now_ms": int(now.timestamp() * 1000), "is_closed": bool(obj.is_closed)}
+            "restarted": restarted, "server_now_ms": int(now.timestamp() * 1000), "is_closed": bool(obj.is_closed)}
 
 
 @router.get("/live-tests/{session_key}/monitor/host/")
@@ -274,6 +303,7 @@ def control(
     if not r["can_start"]:
         raise HTTPException(status_code=409, detail=f"Hamma tayyor emas: {r['ready']}/{r['joined']}.")
     obj.monitor_phase, obj.monitor_index, obj.monitor_started_at = mon.RUNNING, 0, now
+    obj.monitor_host_seen_at = now
     # Joriy qoida shu test uchun qotiriladi (kutish zalida deploydan oldin ochilgan bo'lsa ham).
     obj.seconds_per_question = mon.CYCLE_SECONDS
     db.commit()

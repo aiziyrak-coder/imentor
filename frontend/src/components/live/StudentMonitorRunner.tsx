@@ -131,8 +131,9 @@ export default function StudentMonitorRunner({ sessionKey, participantKey, first
   // keyingi so'rovni kutmaydi (server ham shu vaqtni belgilash deb biladi; 2 s tarmoq zaxirasi bor).
   const readEndsMs = st?.read_ends_at_ms ?? 0;
   const endsMs = st?.ends_at_ms ?? 0;
+  const paused = Boolean(running && st?.paused);
   const localAnswering = Boolean(
-    st && running && endsMs && now < endsMs
+    st && running && !paused && endsMs && now < endsMs
       && (st.stage === 'answer' || (held !== null && held.index === st.index && readEndsMs && now >= readEndsMs)),
   );
   const answerKey = localAnswering && st ? st.index : -1;
@@ -268,6 +269,19 @@ export default function StudentMonitorRunner({ sessionKey, participantKey, first
           </button>
         )}
         {error && <p className="text-[13px] text-rose-600">{error}</p>}
+      </div>
+    );
+  }
+
+  if (paused) {
+    // Monitor (savol ekrani) aloqasi uzilgan: savolni ko'rmasdan belgilab bo'lmaydi — test kutadi (2026-11-25).
+    return (
+      <div className="space-y-3 rounded-2xl bg-amber-50 px-5 py-8 text-center ring-1 ring-amber-200" data-testid="monitor-paused">
+        <Loader2 size={36} className="mx-auto animate-spin text-amber-600" />
+        <p className="text-[clamp(17px,5.5vw,20px)] font-bold leading-snug text-slate-900">{ts('monitor.student.pausedTitle')}</p>
+        <p className="text-[13.5px] leading-relaxed text-slate-600">
+          {ts('monitor.student.pausedHint', { n: String(st.index + 1) })}
+        </p>
       </div>
     );
   }

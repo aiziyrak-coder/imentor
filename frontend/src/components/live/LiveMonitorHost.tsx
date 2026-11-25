@@ -32,6 +32,8 @@ const HOST_POLL_OPTS = { lobbyMs: 1500, maxMs: 2000, jitterMs: 200 };
  * natijalar) birga to'xtagan — kompyuter uxlagan, ekran qulflangan, oyna yashirilgan yoki internet uzilgan.
  */
 const STALE_MS = 12_000;
+/** "Aloqa tiklandi — savol qaytadan boshlandi" yozuvi shuncha vaqt turadi. */
+const RESTART_NOTE_MS = 10_000;
 /** Monitor yozuvlari ekran o'lchamiga qarab (kichik projektordan 4K televizorgacha bir xil ko'rinish). */
 const MON_HEAD = 'clamp(16px, min(1.6vw, 3vh), 44px)';
 const MON_SMALL = 'clamp(13px, min(1.25vw, 2.4vh), 34px)';
@@ -102,9 +104,12 @@ export default function LiveMonitorHost({ sessionKey, qr, fallback, onAnalyze }:
     setFitOverflow(!ok);
   }, [fitText, layoutTick]);
 
+  // Aloqa uzilib qaytgach server joriy savolni boshidan boshlaydi — sinfga bir necha soniya aytib turiladi.
+  const [restartedAt, setRestartedAt] = useState(0);
   const apply = useCallback((next: HostMonitorState) => {
     setOffset(next.server_now_ms - Date.now());
     setLastOkMs(Date.now());
+    if (next.restarted) setRestartedAt(Date.now());
     setSt(next);
   }, []);
 
@@ -272,6 +277,7 @@ export default function LiveMonitorHost({ sessionKey, qr, fallback, onAnalyze }:
   const readLeft = secondsLeft(readEnds, now);
   const answerLeft = secondsLeft(ends, now);
   const stale = now - offset - lastOkMs > STALE_MS;
+  const justRestarted = !stale && restartedAt > 0 && now - offset - restartedAt < RESTART_NOTE_MS;
   return (
     <div
       ref={boxRef}
@@ -287,6 +293,16 @@ export default function LiveMonitorHost({ sessionKey, qr, fallback, onAnalyze }:
           style={{ fontSize: MON_HEAD }}
         >
           {t('monitor.host.offline')}
+        </div>
+      )}
+      {justRestarted && (
+        <div
+          role="status"
+          data-testid="monitor-host-restarted"
+          className="shrink-0 bg-emerald-600 px-[3vw] py-[1.2vh] text-center font-bold text-white"
+          style={{ fontSize: MON_HEAD }}
+        >
+          {t('monitor.host.restarted')}
         </div>
       )}
       <div className="flex shrink-0 items-center gap-[2vw] px-[3vw] pt-[2.2vh]">

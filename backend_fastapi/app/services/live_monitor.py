@@ -35,6 +35,17 @@ CYCLE_SECONDS = READ_SECONDS + ANSWER_SECONDS
 #: "kech qoldi" deb tashlab yubordi — talaba belgilagan, natijada "javob belgilanmagan" chiqdi. Keyingi savol
 #: o'qilayotganda uning variantlari hali telefonda yo'q, oldingi savol esa monitordan ketgan — ustunlik bermaydi.
 ANSWER_GRACE = dt.timedelta(seconds=6)
+#: Monitor (o'qituvchi kompyuteri) shuncha vaqt holat so'ramasa — test HAMMA uchun to'xtaydi (2026-11-25).
+#: Savol matni faqat monitorda: uning interneti uzilsa ekranda eski savol qotib qolardi, telefonlar esa server
+#: soati bo'yicha keyingi savollarga o'taverardi — talabalar savolni ko'rmasdan belgilardi (Nevrologiya, 1-xona:
+#: 3-savolda uzildi, qolgan 7 savol ko'r-ko'rona). Endi vaqt monitor oxirgi ko'ringan paytda (+ shu zaxira)
+#: muzlaydi; monitor qaytgach o'sha savol BOSHIDAN ko'rsatiladi. Monitor odatda 2 soniyada bir so'raydi.
+HOST_GRACE = dt.timedelta(seconds=int(os.environ.get("IMENTOR_MONITOR_HOST_GRACE_SECONDS") or 15))
+#: Monitor so'rovi bazaga "ko'rindi" belgisini shundan tez-tez yozmaydi.
+HOST_BEAT = dt.timedelta(seconds=3)
+#: Monitor shuncha vaqt qaytmasa — kutish tugaydi: test vaqt bo'yicha yakunlanadi (tashlab ketilgan test
+#: abadiy ochiq qolmasin; talabalar belgilagan javoblari bilan baholanadi).
+HOST_MAX_PAUSE = dt.timedelta(minutes=int(os.environ.get("IMENTOR_MONITOR_MAX_PAUSE_MINUTES") or 30))
 LETTERS = "ABCDEFGH"
 
 
@@ -60,8 +71,33 @@ def timings(session) -> tuple[int, int, int]:
     return cycle - ANSWER_SECONDS, ANSWER_SECONDS, cycle
 
 
+def host_gone(session, now: dt.datetime) -> bool:
+    """Test ketmoqda, lekin monitor `HOST_GRACE` dan beri ko'rinmadi (va hali kutish muddati ichida)."""
+    seen = getattr(session, "monitor_host_seen_at", None)
+    if seen is None or session.is_closed or (session.monitor_phase or LOBBY) != RUNNING:
+        return False
+    return HOST_GRACE < now - seen <= HOST_MAX_PAUSE
+
+
 def state(session, total: int, now: dt.datetime) -> dict:
-    """{phase, stage, index, total, read_ends_at, ends_at} — vaqtdan hisoblanadi."""
+    """{phase, stage, index, total, read_ends_at, ends_at, paused} — vaqtdan hisoblanadi.
+
+    Monitor yo'qolgan bo'lsa vaqt u oxirgi ko'ringan paytda (+ `HOST_GRACE`) muzlaydi va `paused` = True."""
+    frozen = host_gone(session, now)
+    if frozen:
+        now = session.monitor_host_seen_at + HOST_GRACE
+    out = _state_at(session, total, now)
+    out["paused"] = frozen and out["phase"] == RUNNING
+    return out
+
+
+def resume_index(session, total: int, now: dt.datetime) -> int | None:
+    """Monitor qaytdi: qaysi savol boshidan qayta ko'rsatiladi (to'xtamagan bo'lsa — None)."""
+    st = state(session, total, now)
+    return st["index"] if st["paused"] else None
+
+
+def _state_at(session, total: int, now: dt.datetime) -> dict:
     phase = session.monitor_phase or LOBBY
     if session.is_closed:
         phase = DONE
@@ -109,8 +145,16 @@ def student_view(st: dict, questions: list, now: dt.datetime | None = None) -> d
     O'qish vaqtida (60 s) talaba faqat monitorga qarab savolni o'qiydi — ekranda variant yo'q). O'qishning
     oxirgi `PREFETCH_SECONDS` soniyasida joriy savol variantlari `next_options` da oldindan keladi — telefon
     ularni o'z soati bilan aynan belgilash boshlanganda ochadi, internetni kutmaydi."""
-    view = {**_base_view(st), "options": []}
+    view = {**_base_view(st), "options": [], "paused": bool(st.get("paused"))}
     if st["phase"] != RUNNING or not 0 <= st["index"] < len(questions):
+        return view
+    if view["paused"]:
+        # Monitor yo'q — variantlar berilmaydi. Vaqtlar "o'qish endi boshlandi" ko'rinishida: eski sahifali
+        # telefon (`paused` ni bilmaydi) tugagan muddatni ko'rib sekundiga 4 marta so'ramasin.
+        base = now or dt.datetime.now(dt.timezone.utc)
+        read_ends = base + dt.timedelta(seconds=st["read_seconds"])
+        view.update(stage=READ, read_ends_at_ms=_ms(read_ends),
+                    ends_at_ms=_ms(read_ends + dt.timedelta(seconds=st["answer_seconds"])))
         return view
     if st["stage"] == ANSWER:
         view["options"] = options_of(questions[st["index"]])
@@ -134,6 +178,8 @@ def monitor_view(st: dict, questions: list) -> dict:
 def can_answer(session, total: int, index: int, now: dt.datetime) -> bool:
     """Faqat JORIY savolga va faqat uning BELGILASH bosqichida (+ tarmoq kechikishi)."""
     st = state(session, total, now)
+    if st["paused"]:
+        return False  # monitor yo'q — savol qaytgach boshidan ko'rsatiladi, javob o'shanda
     if st["phase"] == RUNNING and st["index"] == index and st["stage"] == ANSWER:
         return True
     # Belgilash vaqti endigina tugagan (keyingi savol o'qilmoqda) — oxirgi soniyada bosilgan javob qabul qilinadi.
@@ -160,7 +206,7 @@ def answered_count(drafts, index: int) -> tuple[int, int]:
 def should_advance(session, total_questions: int, index: int, drafts, now: dt.datetime) -> bool:
     """Hamma talaba JORIY savolga javob belgilagan va hali uning belgilash bosqichi — kutish shart emas."""
     st = state(session, total_questions, now)
-    if st["phase"] != RUNNING or st["stage"] != ANSWER or st["index"] != index:
+    if st["paused"] or st["phase"] != RUNNING or st["stage"] != ANSWER or st["index"] != index:
         return False
     answered, people = answered_count(drafts, index)
     return people > 0 and answered >= people

@@ -133,6 +133,14 @@ export async function updateLibraryItem(
   });
 }
 
+/** Xato bergan yoki osilib qolgan hujjatni qayta indekslash (2026-11-25). */
+export async function reindexLibraryItem(id: number): Promise<LibraryItem> {
+  return httpJson<LibraryItem>(`${apiBaseUrl()}/v1/staff/library/${id}/reindex/`, {
+    method: 'POST',
+    headers: await authHeaders(),
+  });
+}
+
 export async function deleteLibraryItem(id: number): Promise<void> {
   const res = await fetch(`${apiBaseUrl()}/v1/staff/library/${id}/`, {
     method: 'DELETE',

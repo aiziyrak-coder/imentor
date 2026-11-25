@@ -37,6 +37,7 @@ import {
   type AbsenceSubstitute,
   fetchDepartments,
   fetchLibrary,
+  reindexLibraryItem,
   fetchMyProfile,
   fetchTestTiming,
   saveMyProfile,
@@ -824,7 +825,10 @@ function LibraryPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [kind, setKind] = useState<'book' | 'protocol'>('book');
   const [title, setTitle] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  // Bir nechta fayl birga (2026-11-25): navbat bilan bittadan yuklanadi.
+  const [files, setFiles] = useState<File[]>([]);
+  const file = files[0] ?? null;
+  const [progress, setProgress] = useState<{ done: number; total: number; failed: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -854,20 +858,35 @@ function LibraryPanel() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!files.length) return;
     setBusy(true);
     setMsg(null);
+    const failed: string[] = [];
+    setProgress({ done: 0, total: files.length, failed });
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files[i];
+      try {
+        // Nom faqat bitta fayl yuklanganda ishlatiladi; ko'p faylda — har birining o'z nomi.
+        await uploadLibraryItem(f, kind, files.length === 1 ? title.trim() : '');
+      } catch (err) {
+        failed.push(`${f.name}: ${errorText(err, s.uploadError)}`);
+      }
+      setProgress({ done: i + 1, total: files.length, failed: [...failed] });
+    }
+    setFiles([]);
+    setTitle('');
+    if (inputRef.current) inputRef.current.value = '';
+    setMsg(failed.length ? { kind: 'error', text: failed.join('\n') } : { kind: 'ok', text: s.uploaded });
+    setBusy(false);
+    await load();
+  };
+
+  const retry = async (item: LibraryItem) => {
     try {
-      await uploadLibraryItem(file, kind, title.trim());
-      setFile(null);
-      setTitle('');
-      if (inputRef.current) inputRef.current.value = '';
-      setMsg({ kind: 'ok', text: s.uploaded });
+      await reindexLibraryItem(item.id);
       await load();
     } catch (err) {
       setMsg({ kind: 'error', text: errorText(err, s.uploadError) });
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -936,18 +955,21 @@ function LibraryPanel() {
               </button>
             ))}
           </div>
-          <input
-            className={INPUT}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={s.titlePlaceholder}
-          />
+          {files.length <= 1 && (
+            <input
+              className={INPUT}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={s.titlePlaceholder}
+            />
+          )}
           {/* Brauzerning "Choose file / No file chosen" yozuvi o'rniga o'zbekcha tugma. */}
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept=".pdf,.docx,.doc,.txt"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            onChange={(e) => setFiles(Array.from(e.target.files || []))}
             className="hidden"
           />
           <div className="flex flex-wrap items-center gap-3">
@@ -955,13 +977,25 @@ function LibraryPanel() {
               <FileUp size={16} /> {s.chooseFile}
             </button>
             <span className="min-w-0 truncate text-[13px] text-slate-500">
-              {file ? `${file.name} · ${(file.size / (1024 * 1024)).toFixed(1)} MB` : s.fileHint}
+              {files.length > 1
+                ? `${files.length} · ${(files.reduce((a, f) => a + f.size, 0) / (1024 * 1024)).toFixed(1)} MB`
+                : file
+                  ? `${file.name} · ${(file.size / (1024 * 1024)).toFixed(1)} MB`
+                  : s.fileHint}
             </span>
           </div>
-          <button type="submit" className={BTN_PRIMARY} disabled={!file || busy}>
+          {files.length > 1 && (
+            <ul className="max-h-40 overflow-auto rounded-xl bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
+              {files.map((f) => (
+                <li key={f.name} className="truncate">{f.name}</li>
+              ))}
+            </ul>
+          )}
+          <button type="submit" className={BTN_PRIMARY} disabled={!files.length || busy}>
             {busy ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />} {s.upload}
+            {busy && progress ? ` ${progress.done}/${progress.total}` : ''}
           </button>
-          {msg && <Message kind={msg.kind}>{msg.text}</Message>}
+          {msg && <Message kind={msg.kind}><span className="whitespace-pre-line">{msg.text}</span></Message>}
         </form>
       </section>
 
@@ -1025,7 +1059,16 @@ function LibraryPanel() {
                     </div>
                     )}
                     {item.can_delete && editing?.id !== item.id && (
-                      <div className="flex shrink-0">
+                      <div className="flex shrink-0 items-center">
+                        {item.status === 'failed' && (
+                          <button
+                            type="button"
+                            onClick={() => void retry(item)}
+                            className="rounded-lg px-2 py-1.5 text-[12.5px] font-semibold text-sky-700 hover:bg-sky-50"
+                          >
+                            ↻
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setEditing({ id: item.id, title: item.title, kind: item.kind === 'protocol' ? 'protocol' : 'book' })}

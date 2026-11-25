@@ -41,8 +41,12 @@ router = APIRouter()
 TEACHER_ROLES = ("hodim", "admin")
 LIBRARY_KINDS = ("book", "protocol")
 LIBRARY_EXTENSIONS = (".pdf", ".docx", ".doc", ".txt")
-MAX_LIBRARY_BYTES = 40 * 1024 * 1024
-MAX_LIBRARY_UPLOADS_PER_DAY = 20
+#: 2026-11-25 (foydalanuvchi: "hamma kitoblarni yuklab imentorni boyita olsin"): 40 → 100 MB, kuniga 20 → 60 fayl.
+MAX_LIBRARY_BYTES = 100 * 1024 * 1024
+MAX_LIBRARY_UPLOADS_PER_DAY = 60
+#: Shuncha vaqtdan beri "indekslanmoqda" turgan hujjat qayta navbatga qo'yiladi (server qayta ishga tushsa
+#: fon vazifasi yo'qoladi — 2026-10 dan beri 2 ta kitob abadiy "indekslanmoqda" turgan edi).
+LIBRARY_STALE = dt.timedelta(minutes=30)
 
 
 # ============================================================ profil
@@ -210,7 +214,7 @@ def _library_item(book: SubjectBook, chunks: int, auth: AuthContext, uploader_na
         "title": book.title,
         "kind": book.kind or "book",
         "status": book.status or "ready",
-        "status_note": book.status_note or "",
+        "status_note": "" if (book.status_note or "").startswith(_REQUEUE_MARK) else (book.status_note or ""),
         "chunk_count": chunks,
         "owner_key": book.owner_key or "",
         "uploader_name": uploader_name,
@@ -219,11 +223,48 @@ def _library_item(book: SubjectBook, chunks: int, auth: AuthContext, uploader_na
     }
 
 
+_REQUEUE_MARK = "navbat:"
+#: Bu xatolar fayl aybi emas (AI xizmati vaqtincha ishlamagan) — qayta urinib ko'riladi.
+_RETRYABLE = ("Indekslab bo'lmadi",)
+
+
+def _requeue_stale(db: Session, background: BackgroundTasks, dept_id: int) -> None:
+    """Kafedraning osilib qolgan ("indekslanmoqda" 30+ daqiqa) va AI xatosi bilan to'xtagan hujjatlarini
+    qayta navbatga qo'yadi. Bir hujjat `LIBRARY_STALE` ichida bir martadan ko'p qo'yilmaydi."""
+    now = dt.datetime.now(dt.timezone.utc)
+    rows = db.execute(select(SubjectBook).where(
+        SubjectBook.department_id == dept_id, SubjectBook.status.in_(("processing", "failed")))).scalars().all()
+    for book in rows:
+        note = book.status_note or ""
+        if note.startswith(_REQUEUE_MARK):
+            try:
+                if now - dt.datetime.fromisoformat(note[len(_REQUEUE_MARK):]) < LIBRARY_STALE:
+                    continue
+            except ValueError:
+                pass
+        elif book.status == "processing" and book.created_at and now - book.created_at < LIBRARY_STALE:
+            continue
+        elif book.status == "failed" and not note.startswith(_RETRYABLE):
+            continue
+        book.status, book.status_note = "processing", f"{_REQUEUE_MARK}{now.isoformat()}"
+        background.add_task(_index_library_item, book.id)
+    db.commit()
+
+
 @router.get("/staff/library/")
-def list_library(db: Session = Depends(get_db), auth: AuthContext = Depends(require_roles(*TEACHER_ROLES))) -> dict:
+def list_library(
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles(*TEACHER_ROLES)),
+) -> dict:
     from app.models.user import User
 
     dept_id = _my_department_id(db, auth.user.username)
+    try:
+        _requeue_stale(db, background, dept_id)
+    except Exception:  # noqa: BLE001 — ro'yxat baribir chiqsin
+        db.rollback()
+        logger.exception("kutubxona: qayta navbat")
     rows = db.execute(
         select(SubjectBook, func.count(BookChunk.id))
         .join(BookChunk, BookChunk.book_id == SubjectBook.id, isouter=True)
@@ -264,7 +305,7 @@ async def upload_library_item(
     if not name.lower().endswith(LIBRARY_EXTENSIONS):
         raise HTTPException(status_code=400, detail="Faqat PDF, Word (.docx, .doc) yoki .txt fayl.")
     content = await storage.read_upload_limited(
-        file, MAX_LIBRARY_BYTES, too_large_detail="Fayl 40 MB dan katta."
+        file, MAX_LIBRARY_BYTES, too_large_detail="Fayl 100 MB dan katta."
     )
     if not content:
         raise HTTPException(status_code=400, detail="Fayl bo'sh.")
@@ -279,7 +320,7 @@ async def upload_library_item(
         )
     ).scalar() or 0
     if recent >= MAX_LIBRARY_UPLOADS_PER_DAY and auth.role != "admin":
-        raise HTTPException(status_code=429, detail="Bir kunda 20 tadan ortiq fayl yuklab bo'lmaydi.")
+        raise HTTPException(status_code=429, detail=f"Bir kunda {MAX_LIBRARY_UPLOADS_PER_DAY} tadan ortiq fayl yuklab bo'lmaydi.")
 
     clean_title = _safe_title(title) or _safe_title(name.rsplit(".", 1)[0])
     duplicate = db.execute(
@@ -307,6 +348,43 @@ async def upload_library_item(
     return _library_item(book, 0, auth, f"{auth.user.last_name} {auth.user.first_name}".strip())
 
 
+def _docx_xml_text(content: bytes) -> str:
+    """Word matni to'g'ridan-to'g'ri `word/document.xml` dan (rasmlar o'qilmaydi)."""
+    import io
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    with zipfile.ZipFile(io.BytesIO(content)) as z:
+        root = ET.fromstring(z.read("word/document.xml"))
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    lines = []
+    for p in root.iter(f"{ns}p"):
+        line = "".join(t.text or "" for t in p.iter(f"{ns}t")).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+@router.post("/staff/library/{book_id}/reindex/")
+def reindex_library_item(
+    book_id: int,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles(*TEACHER_ROLES)),
+) -> dict:
+    """Xato bergan yoki osilib qolgan hujjatni qayta indekslash (yuklagan o'qituvchi yoki admin)."""
+    book = db.get(SubjectBook, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Topilmadi.")
+    if auth.role != "admin" and (not book.owner_key or book.owner_key != auth.user.username):
+        raise HTTPException(status_code=403, detail="Faqat yuklagan o'qituvchi yoki admin.")
+    now = dt.datetime.now(dt.timezone.utc)
+    book.status, book.status_note = "processing", f"{_REQUEUE_MARK}{now.isoformat()}"
+    db.commit()
+    background.add_task(_index_library_item, book.id)
+    return _library_item(book, 0, auth, "")
+
+
 def _index_library_item(book_id: int) -> None:
     """Fonda: matnni ajratish, parchalash, embedding. Tugagach hujjat faollashadi."""
     from app.core.config import get_settings
@@ -320,7 +398,13 @@ def _index_library_item(book_id: int) -> None:
         try:
             with open(storage.absolute_path(book.file), "rb") as fh:
                 content = fh.read()
-            text = mk.extract_text(book.file, content)
+            try:
+                text = mk.extract_text(book.file, content)
+            except Exception:
+                # Word ichidagi buzilgan rasm (Bad CRC-32) butun faylni o'qitmasdi — matnni XML'dan olamiz.
+                if not book.file.lower().endswith(".docx"):
+                    raise
+                text = _docx_xml_text(content)
         except Exception as exc:  # noqa: BLE001
             book.status, book.status_note = "failed", f"Faylni o'qib bo'lmadi: {str(exc)[:180]}"
             db.commit()
@@ -349,6 +433,8 @@ def _index_library_item(book_id: int) -> None:
             except Exception:  # noqa: BLE001 — sahifa topilmasa ham hujjat ishlaydi
                 logger.exception("kutubxona: sahifalar aniqlanmadi (%s)", book.id)
         now = dt.datetime.now(dt.timezone.utc)
+        # Qayta indekslashda eski parchalar ikki marta qolmasin.
+        db.query(BookChunk).filter(BookChunk.book_id == book.id).delete(synchronize_session=False)
         for i, (piece, vec, (first, last)) in enumerate(zip(pieces, vectors, spans)):
             db.add(BookChunk(
                 book_id=book.id, department_id=book.department_id, chunk_index=i,

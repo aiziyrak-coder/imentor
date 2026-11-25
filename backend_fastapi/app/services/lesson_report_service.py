@@ -533,6 +533,8 @@ BLOCK_GAP = dt.timedelta(minutes=int(os.environ.get("IMENTOR_BLOCK_GAP_MINUTES")
 #: 7 kunlik o'lchov (12–18.11): 1086 yashil darsdan test+keys 371 tasida, ikkalasiga 10+ daqiqa — ~158 tasida.
 MIN_TEST_MINUTES = int(os.environ.get("IMENTOR_MIN_TEST_MINUTES") or 10)
 MIN_CASE_MINUTES = int(os.environ.get("IMENTOR_MIN_CASE_MINUTES") or 10)
+#: Avval tayyorlangan (boshqa guruhga, oldingi parada) test/keysni ko'rsatish uchun yetarli vaqt (2026-11-25).
+READY_MIN_MINUTES = int(os.environ.get("IMENTOR_READY_MIN_MINUTES") or 3)
 #: Test bo'limi: yaratish (`tests`) va jonli testni o'tkazish (`my-tests`); keys — `cases`.
 #: Dars oynasidan shuncha kun oldingacha o'qituvchi yaratgan test/keys «tayyor material» hisoblanadi (`_module_raw`).
 READY_DAYS = dt.timedelta(days=int(os.environ.get("IMENTOR_READY_CONTENT_DAYS") or 14))
@@ -567,7 +569,7 @@ def _module_raw(db: Session, lessons: list) -> dict[int, dict] | None:
             select(LiveTestSession.owner_key, LiveTestSession.created_at)
             .where(LiveTestSession.owner_key.in_(owners),
                    LiveTestSession.created_at >= since, LiveTestSession.created_at < hi)).all():
-        made[owner].append((when, "test"))
+        made[owner].append((when, "test_live"))
     # Keysdan FOYDALANILGANI (2026-11-19, "sahifada turishi emas, foydalanishi muhim"): savol javobi talabalarga
     # ochilgan — oldindan tayyorlangan keys ham hisobga kiradi. Faqat sahifada turish hisoblanmaydi.
     for owner, when in db.execute(text(
@@ -604,7 +606,11 @@ def _module_raw(db: Session, lessons: list) -> dict[int, dict] | None:
         ready = {k for when, k in made.get(x.teacher_username, ())
                  if k in ("test", "case") and b - READY_DAYS <= _aware_utc(when) < a}
         t_sec, c_sec = secs.get(x.id, (0, 0))
-        out[x.id] = {"test": "test" in kinds or "test" in ready,
+        live = "test_live" in kinds
+        if live:
+            kinds = kinds | {"test"}
+        out[x.id] = {"test_live": live,
+                     "test": "test" in kinds or "test" in ready,
                      "case": "case" in kinds or "case_used" in kinds or "case" in ready,
                      "case_used": "case_used" in kinds and "case" not in kinds,
                      "test_ready": "test" not in kinds and "test" in ready,
@@ -641,6 +647,7 @@ def _attach_modules(lessons: list, raw: dict[int, dict], mods: dict[int, dict], 
             continue
         rows = [mods.get(x.id) or blank for x in chain]
         total = {"test": any(r["test"] for r in rows), "case": any(r["case"] for r in rows),
+                 **{k: any(r.get(k) for r in rows) for k in ("test_live", "test_ready", "case_ready", "case_used")},
                  "test_sec": sum(r["test_sec"] for r in rows), "case_sec": sum(r["case_sec"] for r in rows),
                  "cycle": len(chain), "open": any(x.id not in measured for x in chain)}
         for x in chain:
@@ -654,14 +661,20 @@ def module_gaps(m: dict | None) -> list[str]:
     md = (m or {}).get("modules")
     if not md or md.get("open"):
         return []
+    # TAYYOR MATERIAL (2026-11-25, foydalanuvchi: "1-parada bir guruhga, 2-parada boshqa guruhga o'sha mavzu —
+    # test va keysni qayta yaratish shart emas, o'shani ko'rsatsa bo'ldi"): avval yaratilgan test/keysni
+    # ko'rsatish uchun 10 daqiqa emas, `READY_MIN_MINUTES` yetarli. Jonli test o'tkazilgani yoki keys javobi
+    # talabalarga ochilgani — o'zi foydalanish isboti, vaqt talab qilinmaydi.
+    test_need = (READY_MIN_MINUTES if md.get("test_ready") else MIN_TEST_MINUTES) * 60
+    case_need = (READY_MIN_MINUTES if md.get("case_ready") else MIN_CASE_MINUTES) * 60
     out = []
     if not md.get("test"):
         out.append("test")
-    elif int(md.get("test_sec") or 0) < MIN_TEST_MINUTES * 60:
+    elif not md.get("test_live") and int(md.get("test_sec") or 0) < test_need:
         out.append("test_time")
     if not md.get("case"):
         out.append("case")
-    elif int(md.get("case_sec") or 0) < MIN_CASE_MINUTES * 60:
+    elif not md.get("case_used") and int(md.get("case_sec") or 0) < case_need:
         out.append("case_time")
     return out
 

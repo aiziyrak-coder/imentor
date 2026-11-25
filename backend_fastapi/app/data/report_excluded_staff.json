@@ -55,6 +55,13 @@
       "hemis_status": "Ishlamoqda",
       "reason": "Normal anatomiya: monitorli xonada dars o'tmaydi (HEMIS'da darslari monitorli xonaga yozilgan); hozircha nazorat qilinmaydi (rektorat)",
       "since": "2026-11-18"
+    },
+    {
+      "employee_id": "1654",
+      "name": "ZOKIROV J. T.",
+      "hemis_status": "Ishlamoqda",
+      "reason": "Stomatologiya va otoloringologiya: monitorli xonada dars o'tmaydi; eski darslari ham hisobotdan olib tashlanadi (foydalanuvchi)",
+      "since": "2026-11-26"
     }
   ]
 }

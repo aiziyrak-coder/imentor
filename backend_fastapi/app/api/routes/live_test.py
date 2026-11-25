@@ -24,7 +24,7 @@ from app.schemas.live_test import (
     LiveTestUpsertRequest,
 )
 from app.services import live_test_service as svc
-from app.services.live_monitor import CYCLE_SECONDS as MONITOR_CYCLE_SECONDS, MODE as MONITOR_MODE
+from app.services.live_monitor import MODE as MONITOR_MODE, own_timings as mon_own_timings
 from app.services.analytics_service import DuplicateAttemptError, create_student_attempt_from_submission
 from app.services.pagination import paginate
 
@@ -137,6 +137,8 @@ def upsert_live_test(
         except Exception:  # eski sessiya muammosi yangi testni to'xtatmasin
             db.rollback()
             logger.exception("live-test: muddati o'tgan sessiyalarni yakunlab bo'lmadi (%s)", owner)
+        # O'qituvchining o'z vaqtlari (2026-11-25) — kutish zalida talabalar shu qoidani ko'radi.
+        own_read, own_answer = mon_own_timings(db, owner)
         existing = LiveTestSession(
             session_key=key,
             owner_key=owner,
@@ -148,7 +150,8 @@ def upsert_live_test(
             # Faqat monitor rejimi (2026-11-12, foydalanuvchi qarori): savol monitorda, telefonda variantlar.
             mode=MONITOR_MODE,
             monitor_phase="lobby",
-            seconds_per_question=MONITOR_CYCLE_SECONDS,
+            seconds_per_question=own_read + own_answer,
+            monitor_read_seconds=own_read,
         )
         db.add(existing)
     else:

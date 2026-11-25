@@ -44,6 +44,29 @@ export async function fetchMyProfile(): Promise<MyProfile> {
   return httpJson<MyProfile>(`${apiBaseUrl()}/v1/staff/me/profile/`, { headers: await authHeaders() });
 }
 
+/** Jonli test vaqtlari (2026-11-25): savolni o'qish va javob belgilash, soniya (10–120). */
+export type TestTiming = {
+  read_seconds: number;
+  answer_seconds: number;
+  custom: boolean;
+  default_read: number;
+  default_answer: number;
+  min: number;
+  max: number;
+};
+
+export async function fetchTestTiming(): Promise<TestTiming> {
+  return httpJson<TestTiming>(`${apiBaseUrl()}/v1/staff/me/test-timing/`, { headers: await authHeaders() });
+}
+
+export async function saveTestTiming(input: { read_seconds: number | null; answer_seconds: number | null }): Promise<TestTiming> {
+  return httpJson<TestTiming>(`${apiBaseUrl()}/v1/staff/me/test-timing/`, {
+    method: 'PUT',
+    headers: await authHeaders(),
+    body: input,
+  });
+}
+
 export async function saveMyProfile(input: {
   first_name: string;
   last_name: string;

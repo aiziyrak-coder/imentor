@@ -95,6 +95,49 @@ def _profile_out(db: Session, auth: AuthContext, prof: StaffProfile) -> ProfileO
     )
 
 
+# ============================================================ jonli test vaqtlari (2026-11-25)
+
+
+class TestTimingIO(BaseModel):
+    """Savol monitorda turishi (o'qish) va javob belgilash vaqti, soniya. 0/None — umumiy qiymat."""
+    read_seconds: int | None = Field(default=None, ge=0, le=120)
+    answer_seconds: int | None = Field(default=None, ge=0, le=120)
+
+
+def _timing_out(prof: StaffProfile) -> dict:
+    from app.services import live_monitor as mon
+
+    return {"read_seconds": mon.clamp_seconds(prof.test_read_seconds) or mon.READ_SECONDS,
+            "answer_seconds": mon.clamp_seconds(prof.test_answer_seconds) or mon.ANSWER_SECONDS,
+            "custom": bool(prof.test_read_seconds or prof.test_answer_seconds),
+            "default_read": mon.READ_SECONDS, "default_answer": mon.ANSWER_SECONDS,
+            "min": mon.MIN_OWN_SECONDS, "max": mon.MAX_OWN_SECONDS}
+
+
+@router.get("/staff/me/test-timing/")
+def my_test_timing(db: Session = Depends(get_db), auth: AuthContext = Depends(require_roles(*TEACHER_ROLES))) -> dict:
+    prof = _profile(db, auth.user.username)
+    db.commit()
+    return _timing_out(prof)
+
+
+@router.put("/staff/me/test-timing/")
+def update_my_test_timing(
+    payload: TestTimingIO,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(require_roles(*TEACHER_ROLES)),
+) -> dict:
+    """Keyingi jonli testlar shu vaqtlar bilan o'tadi; ketayotgan test o'z vaqtida tugaydi."""
+    from app.services import live_monitor as mon
+
+    prof = _profile(db, auth.user.username)
+    prof.test_read_seconds = mon.clamp_seconds(payload.read_seconds)
+    prof.test_answer_seconds = mon.clamp_seconds(payload.answer_seconds)
+    prof.updated_at = dt.datetime.now(dt.timezone.utc)
+    db.commit()
+    return _timing_out(prof)
+
+
 @router.get("/staff/me/profile/", response_model=ProfileOut)
 def my_profile(db: Session = Depends(get_db), auth: AuthContext = Depends(require_roles(*TEACHER_ROLES))) -> ProfileOut:
     prof = _profile(db, auth.user.username)

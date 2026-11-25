@@ -68,12 +68,41 @@ def timings(session) -> tuple[int, int, int]:
     Global qiymat o'zgarsa (deploy), allaqachon ketayotgan test eski tartibida tugaydi — savol
     vaqtlari test o'rtasida siljimaydi. Yangi test "Boshlash" bosilganda joriy qiymatni oladi."""
     cycle = int(getattr(session, "seconds_per_question", 0) or 0)
+    read_own = int(getattr(session, "monitor_read_seconds", 0) or 0)
+    if read_own and cycle > read_own:
+        return read_own, cycle - read_own, cycle
     if cycle in _KNOWN_CYCLES:
         read_s, answer_s = _KNOWN_CYCLES[cycle]
         return read_s, answer_s, cycle
     if cycle <= ANSWER_SECONDS:
         cycle = CYCLE_SECONDS
     return cycle - ANSWER_SECONDS, ANSWER_SECONDS, cycle
+
+
+#: O'qituvchi profilida sozlanadigan chegaralar (2026-11-25): har biri ko'pi bilan 2 daqiqa.
+MIN_OWN_SECONDS, MAX_OWN_SECONDS = 10, 120
+
+
+def clamp_seconds(value) -> int | None:
+    """Profildagi qiymat: None/0 — umumiy qiymat; aks holda 10–120 oralig'iga keltiriladi."""
+    try:
+        v = int(value or 0)
+    except (TypeError, ValueError):
+        return None
+    return max(MIN_OWN_SECONDS, min(MAX_OWN_SECONDS, v)) if v > 0 else None
+
+
+def own_timings(db, owner_key: str) -> tuple[int, int]:
+    """(o'qish, belgilash) — o'qituvchining profilidagi qiymatlar, bo'lmasa umumiy qiymatlar."""
+    from sqlalchemy import select
+
+    from app.models.staff_location import StaffProfile
+
+    row = db.execute(select(StaffProfile.test_read_seconds, StaffProfile.test_answer_seconds)
+                     .where(StaffProfile.owner_key == owner_key)).first()
+    read_s = clamp_seconds(row[0]) if row else None
+    answer_s = clamp_seconds(row[1]) if row else None
+    return read_s or READ_SECONDS, answer_s or ANSWER_SECONDS
 
 
 def host_gone(session, now: dt.datetime) -> bool:
@@ -106,7 +135,7 @@ def _state_at(session, total: int, now: dt.datetime) -> dict:
     phase = session.monitor_phase or LOBBY
     if session.is_closed:
         phase = DONE
-    if phase == RUNNING:
+    if phase == RUNNING or getattr(session, "monitor_read_seconds", None):
         read_s, answer_s, cycle_s = timings(session)
     else:
         read_s, answer_s, cycle_s = READ_SECONDS, ANSWER_SECONDS, CYCLE_SECONDS

@@ -85,6 +85,10 @@ class StaffProfile(Base):
     # HEMIS'dagi ish holati: "Ishlamoqda" / "Ta’tilda" / "Bo‘shagan" (`hemis_staff`).
     hemis_status: Mapped[str] = mapped_column(String(32), default="", server_default="")
     hemis_synced_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Jonli test vaqtlari (2026-11-25, o'qituvchi profilida sozlanadi): savol monitorda turishi va javob
+    #: belgilash, soniya (10–120). NULL — umumiy qiymat (`live_monitor.READ_SECONDS` / `ANSWER_SECONDS`).
+    test_read_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    test_answer_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
 
     academic_department = relationship("AcademicDepartment", lazy="joined")

@@ -305,6 +305,9 @@ def control(
     obj.monitor_phase, obj.monitor_index, obj.monitor_started_at = mon.RUNNING, 0, now
     obj.monitor_host_seen_at = now
     # Joriy qoida shu test uchun qotiriladi (kutish zalida deploydan oldin ochilgan bo'lsa ham).
-    obj.seconds_per_question = mon.CYCLE_SECONDS
+    # O'qituvchi profilida o'z vaqtlarini sozlagan bo'lsa — shular (2026-11-25).
+    read_s, answer_s = mon.own_timings(db, obj.owner_key)
+    obj.seconds_per_question = read_s + answer_s
+    obj.monitor_read_seconds = read_s
     db.commit()
     return _host_view(db, obj, now)

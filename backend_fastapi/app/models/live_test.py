@@ -29,6 +29,9 @@ class LiveTestSession(Base):
     monitor_index: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     monitor_started_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     seconds_per_question: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
+    #: O'qish vaqti (2026-11-25): o'qituvchi o'z vaqtlarini sozlagan bo'lsa — belgilash = tsikl − o'qish.
+    #: NULL — eski qoida (`live_monitor.timings`).
+    monitor_read_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Monitor (o'qituvchi ekrani) oxirgi marta holat so'ragan payt — uzoq jim qolsa test to'xtab turadi
     #: (`live_monitor.HOST_GRACE`, 2026-11-25). NULL — kuzatilmaydi (eski sessiya).
     monitor_host_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -38,7 +38,10 @@ import {
   fetchDepartments,
   fetchLibrary,
   fetchMyProfile,
+  fetchTestTiming,
   saveMyProfile,
+  saveTestTiming,
+  type TestTiming,
   updateLibraryItem,
   uploadLibraryItem,
   type Department,
@@ -277,6 +280,145 @@ function WorkplaceCard() {
   );
 }
 
+// Jonli test vaqtlari (2026-11-25): o'qituvchi o'zi sozlaydi, har biri ko'pi bilan 2 daqiqa.
+const TIMING_TEXT = {
+  uz: {
+    title: 'Jonli test vaqtlari',
+    hint: 'Har savol avval monitorda o‘qish uchun ko‘rsatiladi, keyin talabalar telefonda javob belgilaydi. Ikkala vaqtni o‘zingiz tanlang (har biri 10 soniyadan 2 daqiqagacha). Hamma javob belgilasa, keyingi savol darhol chiqadi.',
+    read: 'Savolni o‘qish vaqti',
+    answer: 'Javob belgilash vaqti',
+    perQuestion: 'Bir savolga jami',
+    reset: 'Umumiy qiymatga qaytarish',
+    saved: 'Saqlandi. Keyingi jonli testlar shu vaqtlar bilan o‘tadi.',
+    error: 'Saqlab bo‘lmadi.',
+    sec: 'soniya',
+    min: 'daq',
+  },
+  ru: {
+    title: 'Время живого теста',
+    hint: 'Каждый вопрос сначала показывается на мониторе для чтения, затем студенты отмечают ответ на телефоне. Выберите оба времени сами (каждое от 10 секунд до 2 минут). Если все ответили, следующий вопрос появляется сразу.',
+    read: 'Время на чтение вопроса',
+    answer: 'Время на ответ',
+    perQuestion: 'Всего на вопрос',
+    reset: 'Вернуть общее значение',
+    saved: 'Сохранено. Следующие живые тесты пройдут с этим временем.',
+    error: 'Не удалось сохранить.',
+    sec: 'сек',
+    min: 'мин',
+  },
+  en: {
+    title: 'Live test timing',
+    hint: 'Each question is first shown on the monitor for reading, then students mark an answer on their phones. Choose both times yourself (each from 10 seconds to 2 minutes). If everyone answers, the next question appears at once.',
+    read: 'Time to read the question',
+    answer: 'Time to answer',
+    perQuestion: 'Total per question',
+    reset: 'Back to the default',
+    saved: 'Saved. Your next live tests will use these times.',
+    error: 'Could not save.',
+    sec: 'sec',
+    min: 'min',
+  },
+};
+
+function TestTimingCard() {
+  const { language } = useUiText();
+  const t = TIMING_TEXT[(language as keyof typeof TIMING_TEXT)] || TIMING_TEXT.uz;
+  const s = useSettingsText();
+  const [data, setData] = useState<TestTiming | null>(null);
+  const [read, setRead] = useState(45);
+  const [answer, setAnswer] = useState(45);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    fetchTestTiming()
+      .then((d) => {
+        setData(d);
+        setRead(d.read_seconds);
+        setAnswer(d.answer_seconds);
+      })
+      .catch((err) => setMsg({ kind: 'error', text: errorText(err, t.error) }));
+  }, []);
+
+  const fmt = (v: number) => (v >= 60 ? `${Math.floor(v / 60)} ${t.min}${v % 60 ? ` ${v % 60} ${t.sec}` : ''}` : `${v} ${t.sec}`);
+
+  const save = async (next: { read_seconds: number | null; answer_seconds: number | null }) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const d = await saveTestTiming(next);
+      setData(d);
+      setRead(d.read_seconds);
+      setAnswer(d.answer_seconds);
+      setMsg({ kind: 'ok', text: t.saved });
+    } catch (err) {
+      setMsg({ kind: 'error', text: errorText(err, t.error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lo = data?.min ?? 10;
+  const hi = data?.max ?? 120;
+  const slider = (label: string, value: number, set: (v: number) => void) => (
+    <label className="block">
+      <span className="mb-1 flex items-baseline justify-between text-[12.5px] font-semibold text-slate-600">
+        {label}
+        <b className="text-[15px] tabular-nums text-slate-900">{fmt(value)}</b>
+      </span>
+      <input
+        type="range"
+        min={lo}
+        max={hi}
+        step={5}
+        value={value}
+        onChange={(e) => set(Number(e.target.value))}
+        className="w-full accent-sky-600"
+      />
+      <span className="flex justify-between text-[11.5px] text-slate-400">
+        <span>{fmt(lo)}</span>
+        <span>{fmt(hi)}</span>
+      </span>
+    </label>
+  );
+
+  return (
+    <section className={CARD}>
+      <h3 className="text-[15px] font-semibold text-slate-900">{t.title}</h3>
+      <p className="mt-1 text-[13px] leading-snug text-slate-500">{t.hint}</p>
+      {!data && !msg ? (
+        <div className="py-6 text-center"><Loader2 className="mx-auto animate-spin text-sky-600" /></div>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-5 sm:grid-cols-2">
+            {slider(t.read, read, setRead)}
+            {slider(t.answer, answer, setAnswer)}
+          </div>
+          <p className="text-[13px] text-slate-500">
+            {t.perQuestion}: <b className="text-slate-800">{fmt(read + answer)}</b>
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className={BTN_PRIMARY}
+              disabled={busy}
+              onClick={() => void save({ read_seconds: read, answer_seconds: answer })}
+            >
+              {busy && <Loader2 size={16} className="animate-spin" />} {s.save}
+            </button>
+            {data?.custom && (
+              <button type="button" className={BTN_SECONDARY} disabled={busy} onClick={() => void save({ read_seconds: null, answer_seconds: null })}>
+                {t.reset} ({fmt(data.default_read)} + {fmt(data.default_answer)})
+              </button>
+            )}
+          </div>
+          {msg && <Message kind={msg.kind}>{msg.text}</Message>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProfilePanel() {
   const s = useSettingsText();
   const topic = React.useContext(GlobalTopicContext);
@@ -290,6 +432,7 @@ function ProfilePanel() {
       {/* Bugungi dars rejasi (2026-11-23): dars sahifalarida xalaqit bermasin — faqat shu yerda. */}
       {topic && <LessonProgress topic={topic} language={language} mode="card" />}
       <WorkplaceCard />
+      <TestTimingCard />
       <UserProfile embedded />
     </Panel>
   );

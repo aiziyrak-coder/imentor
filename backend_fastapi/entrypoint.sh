@@ -37,8 +37,13 @@ TIMEOUT="${GUNICORN_TIMEOUT:-300}"
 # (2026-10-09). Xotira 94 GB dan 2.4 GB ishlatiladi, ya'ni tez-tez
 # yangilashning hojati yo'q. Jitter katta: hammasi BIR VAQTDA qayta
 # tug'ilmasin.
-MAX_REQ="${GUNICORN_MAX_REQUESTS:-20000}"
-MAX_REQ_JITTER="${GUNICORN_MAX_REQUESTS_JITTER:-5000}"
+# 2026-11-25: 20000 (+5000) ham kam chiqdi. Monitor rejimidagi jonli testlar bilan gavjum soatda bir ishchi
+# ~15 so'rov/soniya oladi — har ishchi 22–28 daqiqada qayta tug'ilardi; yopilishi 1–3,5 daqiqa (uzoq AI
+# so'rovlari tugashini kutadi), shu vaqtda o'rniga yangisi turmaydi. Konteyner qayta ishga tushgach hamma
+# ishchi bir xil sanaydi: 10:54–10:58 da oltitadan uchtasi birga yopildi — "server bilan aloqa yo'q".
+# Endi 100000 (+60000): gavjum soatda 2–3 soatda bir, tarqoq.
+MAX_REQ="${GUNICORN_MAX_REQUESTS:-100000}"
+MAX_REQ_JITTER="${GUNICORN_MAX_REQUESTS_JITTER:-60000}"
 
 exec gunicorn app.main:app \
   --bind 0.0.0.0:8000 \

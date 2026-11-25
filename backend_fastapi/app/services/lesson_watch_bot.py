@@ -1553,6 +1553,18 @@ def _slot_state(blocks: list[Block], acts, now, offsite, only: set[str] | None =
     return state
 
 
+def slot_para(sblocks: list[Block]) -> str:
+    """Slot sarlavhasidagi para — shu vaqtda BOSHLANADIGAN para (2026-11-25).
+
+    Ilgari birinchi blokning birinchi parasi olinardi: u sikl bo'lsa (2–3-para, sloti — oxirgi para boshi 11:00),
+    11:00 dagi hamma o'qituvchi posti «2-para (11:00)» bo'lib chiqardi. Sikl blokida — oxirgi parasi."""
+    names = [(b.para or "").split("–")[-1].strip() for b in sblocks]
+    names = [n for n in names if n]
+    if not names:
+        return sblocks[0].first_para or sblocks[0].para
+    return max(sorted(set(names)), key=names.count)
+
+
 def run_once(db: Session, now: dt.datetime | None = None, *, dry: bool = False) -> dict:
     """Bitta aylanish: yangi ogohlantirishlar, ochiq xabarlarni yangilash, kunlik hisobot.
 
@@ -1579,7 +1591,7 @@ def run_once(db: Session, now: dt.datetime | None = None, *, dry: bool = False) 
     for slot, sblocks in sorted(by_slot.items()):
         start = min(b.start for b in sblocks)
         end = max(b.end for b in sblocks)
-        para = sblocks[0].first_para or sblocks[0].para
+        para = slot_para(sblocks)
         total = len({b.teacher for b in sblocks})
         if dry:
             if start + dt.timedelta(minutes=FIRST_ALERT) <= now <= start + dt.timedelta(minutes=STALE_AFTER["alert10"]):

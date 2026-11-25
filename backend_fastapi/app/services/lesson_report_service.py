@@ -534,6 +534,8 @@ BLOCK_GAP = dt.timedelta(minutes=int(os.environ.get("IMENTOR_BLOCK_GAP_MINUTES")
 MIN_TEST_MINUTES = int(os.environ.get("IMENTOR_MIN_TEST_MINUTES") or 10)
 MIN_CASE_MINUTES = int(os.environ.get("IMENTOR_MIN_CASE_MINUTES") or 10)
 #: Test bo'limi: yaratish (`tests`) va jonli testni o'tkazish (`my-tests`); keys — `cases`.
+#: Dars oynasidan shuncha kun oldingacha o'qituvchi yaratgan test/keys «tayyor material» hisoblanadi (`_module_raw`).
+READY_DAYS = dt.timedelta(days=int(os.environ.get("IMENTOR_READY_CONTENT_DAYS") or 14))
 TEST_PAGES = ("tests", "my-tests")
 CASE_PAGES = ("cases",)
 
@@ -554,15 +556,17 @@ def _module_raw(db: Session, lessons: list) -> dict[int, dict] | None:
     lo = min(a for a, _ in windows.values())
     hi = max(b for _, b in windows.values())
     made: dict[str, list] = defaultdict(list)
+    # `READY_DAYS` orqaga ham olinadi: dars oynasidan OLDIN yaratilgan (tayyor) test/keys — `ready` (quyida).
+    since = lo - READY_DAYS
     for owner, kind, when in db.execute(
             select(PreparedContent.owner_key, PreparedContent.kind, PreparedContent.created_at)
             .where(PreparedContent.owner_key.in_(owners), PreparedContent.kind.in_(("test", "case")),
-                   PreparedContent.created_at >= lo, PreparedContent.created_at < hi)).all():
+                   PreparedContent.created_at >= since, PreparedContent.created_at < hi)).all():
         made[owner].append((when, kind))
     for owner, when in db.execute(
             select(LiveTestSession.owner_key, LiveTestSession.created_at)
             .where(LiveTestSession.owner_key.in_(owners),
-                   LiveTestSession.created_at >= lo, LiveTestSession.created_at < hi)).all():
+                   LiveTestSession.created_at >= since, LiveTestSession.created_at < hi)).all():
         made[owner].append((when, "test"))
     # Keysdan FOYDALANILGANI (2026-11-19, "sahifada turishi emas, foydalanishi muhim"): savol javobi talabalarga
     # ochilgan — oldindan tayyorlangan keys ham hisobga kiradi. Faqat sahifada turish hisoblanmaydi.
@@ -593,9 +597,19 @@ def _module_raw(db: Session, lessons: list) -> dict[int, dict] | None:
     for x in mine:
         a, b = windows[x.id]
         kinds = {k for when, k in made.get(x.teacher_username, ()) if a <= _aware_utc(when) < b}
+        # Tayyor material (2026-11-25): o'qituvchi shu mavzuni avval (boshqa guruhga, tanaffusda, kecha) yaratgan
+        # test/keysni ochib ishlaydi — yangi yozuv paydo bo'lmaydi. Ilgari bunday dars «yaratilmadi» chiqardi,
+        # garchi bo'limda 20–40 daqiqa ishlangan bo'lsa ham (23–24.11: «keys yaratilmadi» postlarining yarmi).
+        # Endi tayyor material ham «bor» — talab o'zgarmaydi: bo'limda kamida 10 daqiqa ishlash (`module_gaps`).
+        ready = {k for when, k in made.get(x.teacher_username, ())
+                 if k in ("test", "case") and b - READY_DAYS <= _aware_utc(when) < a}
         t_sec, c_sec = secs.get(x.id, (0, 0))
-        out[x.id] = {"test": "test" in kinds, "case": "case" in kinds or "case_used" in kinds,
-                     "case_used": "case_used" in kinds and "case" not in kinds, "test_sec": t_sec, "case_sec": c_sec}
+        out[x.id] = {"test": "test" in kinds or "test" in ready,
+                     "case": "case" in kinds or "case_used" in kinds or "case" in ready,
+                     "case_used": "case_used" in kinds and "case" not in kinds,
+                     "test_ready": "test" not in kinds and "test" in ready,
+                     "case_ready": not ({"case", "case_used"} & kinds) and "case" in ready,
+                     "test_sec": t_sec, "case_sec": c_sec}
     return out
 
 

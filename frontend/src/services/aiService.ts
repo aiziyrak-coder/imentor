@@ -13,6 +13,13 @@ import {
 import { currentAppVersion, reportClientError } from '../utils/clientErrorReporter';
 import { slideLanguageWrong } from '../utils/presentationLanguage';
 import { type AppLanguage, inferPdfLanguage } from '../i18n/language';
+import {
+  USMLE_SCENARIO_TITLES,
+  USMLE_SECTION_TITLES,
+  USMLE_SYSTEM,
+  isUsmlePathophysiology,
+  usmleUserPrompt,
+} from '../utils/usmleCase';
 import { translate } from '../i18n/translations';
 import type { PresentationContent } from '../utils/presentationContentSchema';
 import {
@@ -1043,9 +1050,10 @@ function joinCaseScenario(
   raw: CaseSections,
   language: AppLanguage = 'uz',
   domain: SubjectDomain = 'clinical',
+  titles?: string[],
 ): string {
   const table = caseScenarioTitles(domain);
-  const labels = table[language] ?? table.uz;
+  const labels = titles ?? table[language] ?? table.uz;
   return CASE_SCENARIO_PARTS.map((k, i) => {
     const text = localizeCaseLabels(stripCaseHtml(String(raw[k] || '')), language).trim();
     return text ? `### ${labels[i]}\n${text}` : '';
@@ -1374,9 +1382,10 @@ function joinCaseSections(
   raw: CaseSections,
   language: AppLanguage = 'uz',
   domain: SubjectDomain = 'clinical',
+  titles?: string[],
 ): string {
   const table = isPatientFree(domain) ? CASE_SECTION_TITLES_ACADEMIC : CASE_SECTION_TITLES;
-  const labels = table[language] ?? table.uz;
+  const labels = titles ?? table[language] ?? table.uz;
   return CASE_SECTION_KEYS.map((key, i) => {
     const text = localizeCaseLabels(stripCaseHtml(String(raw[key] || '')), language).trim();
     return text ? `${labels[i]}\n${text}` : '';
@@ -1421,8 +1430,32 @@ async function generateSingleCaseQuestion(
   // vaziyatni boshqa kalitga yoki ichma-ich obyektga yozadi. Asl shakli
   // jurnal uchun eslab qolinadi — "nega bo'sh" degan savolga javob bo'lsin.
   let lastShape = '';
-  const request = (strict: boolean, banClinicalLeak = false, offTopic = false, qualityNote = '') =>
+  // Patofiziologiya, ingliz tili — USMLE keysi (usmleCase.ts).
+  const usmle = isUsmlePathophysiology(scope.subjectName, language);
+  const usmleRequest = (strict: boolean, offTopic = false, qualityNote = '') =>
     openaiJson<CaseSections>({
+      model: OPENAI_CHAT,
+      purpose: 'case_generate',
+      system: USMLE_SYSTEM,
+      user: usmleUserPrompt(
+        topic,
+        focus,
+        `${keywordFocus}${avoid}` +
+          (hasContext ? `\nTEXTBOOK CONTEXT (use only if relevant, no citations needed):\n${contextText}\n` : '') +
+          (offTopic ? `\n${OFF_TOPIC_RETRY_NOTE}\n` : '') +
+          (qualityNote ? `\n${qualityNote}\n` : '') +
+          (strict ? '\nPrevious answer was invalid — follow the JSON fields exactly.\n' : ''),
+      ),
+      maxTokens: 6000,
+      temperature: strict ? 0.32 : 0.45,
+      responseFormat: { type: 'json_object' },
+      parse: (t) => parseJSONSafe(t),
+    }).then((r) => {
+      lastShape = caseShapeSummary(r);
+      return repairCaseShape<CaseSections>(r);
+    });
+  const request = (strict: boolean, banClinicalLeak = false, offTopic = false, qualityNote = '') =>
+    usmle ? usmleRequest(strict, offTopic, qualityNote) : openaiJson<CaseSections>({
       model: OPENAI_CHAT,
       purpose: 'case_generate',
       system:
@@ -1573,7 +1606,7 @@ async function generateSingleCaseQuestion(
   // Faqat klinik keysda: "FIKR YO'LI" va "QO'LLAB/RAD" klinik fikrlash shakli.
   // Bemorsiz fanlarda bu shakl lotin tili va tarix keyslariga ham "differensial"
   // tiqardi (2026-10-20); u yerda javob topshiriq savollariga beriladi.
-  const weak = domain === 'clinical' ? caseWeaknesses(String(raw.diagnosis || ''), String(raw.differential || '')) : [];
+  const weak = domain === 'clinical' && !usmle ? caseWeaknesses(String(raw.diagnosis || ''), String(raw.differential || '')) : [];
   if (weak.length && rewrites-- > 0) {
     console.warn(`Case focus "${focus}": fikrlash sifati past (${weak.join(', ')}), qayta urinilmoqda`);
     try {
@@ -1630,7 +1663,7 @@ async function generateSingleCaseQuestion(
   // Talqin gaplari (promptga qaramay qoldi) — ekspertdan oldin olib tashlanadi,
   // tekshiruv tozalangan vaziyatga qarab yechimni moslay oladi.
   const cleanScenario = (r: CaseSections): CaseSections => {
-    if (domain === 'academic') return r;
+    if (domain === 'academic' || usmle) return r;
     const next = { ...r };
     for (const key of ['patient', 'complaints', 'history', 'lifestyle', 'examination', 'labs'] as const) {
       if (next[key]) next[key] = stripScenarioInterpretation(String(next[key]));
@@ -1639,7 +1672,7 @@ async function generateSingleCaseQuestion(
   };
   raw = cleanScenario(raw);
 
-  if (!thin(raw)) {
+  if (!thin(raw) && !usmle) {
     const reviewed = await reviewCaseSections(raw, topic, focus, language, scope);
     raw = reviewed.sections;
     if (reviewed.offTopic && rewrites-- > 0) {
@@ -1658,8 +1691,8 @@ async function generateSingleCaseQuestion(
     }
   }
 
-  const answer = joinCaseSections(raw, language, domain);
-  const scenarioText = joinCaseScenario(raw, language, domain);
+  const answer = joinCaseSections(raw, language, domain, usmle ? USMLE_SECTION_TITLES : undefined);
+  const scenarioText = joinCaseScenario(raw, language, domain, usmle ? USMLE_SCENARIO_TITLES : undefined);
   // Yechim matni yo'q — adabiyotlar QO'SHILMAYDI: aks holda "yechim" faqat
   // manbalar ro'yxatidan iborat bo'lib, uzunlik tekshiruvidan o'tib ketardi
   // (2026-10-14, sinf doskasida).
@@ -1692,7 +1725,7 @@ async function generateSingleCaseQuestion(
   const referencesSection = buildReferencesSection(shownSources, language);
 
   return {
-    scenario: joinCaseScenario(raw, language, domain),
+    scenario: scenarioText,
     answer: answer + referencesSection,
     focus: normalizeCaseFocus(raw.focus, CASE_STUDY_FOCUS_ORDER.indexOf(focus)),
     ...(shownSources.length ? { references: sourcesToMedicalReferences(shownSources) } : {}),
@@ -3176,7 +3209,8 @@ export const aiService = {
   }): Promise<CaseStudySession> {
     const { topic, language, keywords, subjectCode, scope, context } = params;
     const fresh = () => aiService.generateCaseStudy(topic, language, keywords, subjectCode, scope);
-    if (keywords.length || !context) return fresh();
+    // USMLE patofiziologiya keysi bazadagi (boshqa shakldagi) keyslardan olinmaydi.
+    if (keywords.length || !context || isUsmlePathophysiology(scope.subjectName, language)) return fresh();
     const pool = await fetchCasePool({ ...context, subjectCode, title: topic }, language);
     const ready = (c: Record<string, unknown> | undefined) =>
       Boolean(c && String(c.scenario || '').trim() && String(c.answer || '').trim());
@@ -3223,6 +3257,10 @@ export const aiService = {
     /** Faqat shu yo'nalishlar yoziladi (qolgani bazadan, `composeCaseStudy`). */
     focuses?: readonly CaseStudyFocus[],
   ): Promise<CaseStudySession> {
+    // USMLE patofiziologiya keysi bemorli (klinik vinyeta) — fan "bemorsiz" bo'lsa ham.
+    if (isUsmlePathophysiology(scope.subjectName, language) && scope.domain !== 'clinical') {
+      scope = { ...scope, domain: 'clinical' };
+    }
     try {
       assertOpenAiApiKey();
       const avoid = await previousCaseAvoidBlock(topic);

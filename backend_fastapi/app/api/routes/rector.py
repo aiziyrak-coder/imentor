@@ -602,3 +602,45 @@ def rector_telegram_bot(
 
     start, end = _range(date_from, date_to)
     return lesson_bot_report.report(db, start, end, department=department)
+
+
+@router.get("/rector/monitor-rooms/")
+def rector_monitor_rooms(
+    db: Session = Depends(get_db),
+    ctx: dict = Depends(require_rector),
+) -> dict:
+    """Monitorli xonalar ro'yxati — faqat ko'rish uchun (2026-11-26, foydalanuvchi talabi).
+
+    Admin sahifasidagi ro'yxatning o'zi (`monitor_rooms_admin.snapshot`), lekin HEMIS so'rovisiz va faqat bugun
+    faol xonalar. Dekanga — faqat o'z kafedralari.
+    """
+    from app.services import monitor_rooms_admin
+
+    snap = monitor_rooms_admin.snapshot(db, with_hemis=False)
+    allowed = allowed_departments(ctx, db)
+    keys = {monitor_svc._norm(d) for d in allowed} if allowed else set()
+
+    def ok(name: str) -> bool:
+        if not keys:
+            return True
+        value = monitor_svc._norm(name)
+        return any(k in value or value in k for k in keys)
+
+    departments = []
+    for d in snap["departments"]:
+        if not ok(d["name"]):
+            continue
+        rooms = [
+            {"monitor_id": r["monitor_id"], "room": r["room_full"], "lessons_week": r["lessons_week"],
+             "scope_lessons": r["scope_lessons"], "scope_teachers": r["scope_teachers"]}
+            for r in d["rooms"] if r["active"]
+        ]
+        if rooms:
+            departments.append({"name": d["name"], "rooms": rooms})
+    departments.sort(key=lambda d: d["name"])
+    return {
+        "today": snap["today"],
+        "departments": departments,
+        "rooms_total": sum(len(d["rooms"]) for d in departments),
+        "lessons_week": sum(r["lessons_week"] for d in departments for r in d["rooms"]),
+    }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
 import ControlReport from './ControlReport';
 import TelegramBotReport from './TelegramBotReport';
+import MonitorRoomsReport from './MonitorRoomsReport';
 import { fetchPlatforms, type PlatformsReport, type ReportFilters } from './rectorApi';
 import './rector.css';
 
@@ -58,6 +59,9 @@ export default function PlatformPage({
     </button>
   );
 
+  if (platform === 'monitors') {
+    return <MonitorRoomsReport onUnauthorized={onUnauthorized} onBack={onBack} />;
+  }
   if (platform === 'telegram') {
     return <TelegramBotReport filters={filters} onUnauthorized={onUnauthorized} onBack={onBack} />;
   }

@@ -1144,3 +1144,22 @@ export type TelegramBotReport = {
 export function fetchTelegramBot(f: ReportFilters): Promise<TelegramBotReport> {
   return get(`/telegram-bot/?${query({ from: f.from, to: f.to, department: f.department })}`);
 }
+
+/** Monitorli xonalar — faqat ko'rish (2026-11-26). */
+export type MonitorRoomRow = {
+  monitor_id: string;
+  room: string;
+  lessons_week: number;
+  scope_lessons: number;
+  scope_teachers: number;
+};
+export type MonitorRoomsReport = {
+  today: string;
+  departments: Array<{ name: string; rooms: MonitorRoomRow[] }>;
+  rooms_total: number;
+  lessons_week: number;
+};
+
+export function fetchMonitorRooms(): Promise<MonitorRoomsReport> {
+  return get('/monitor-rooms/');
+}

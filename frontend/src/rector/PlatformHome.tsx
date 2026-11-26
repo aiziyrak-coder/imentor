@@ -7,6 +7,7 @@ import {
   HeartPulse,
   LayoutGrid,
   Lock,
+  Monitor,
   Send,
   type LucideIcon,
 } from 'lucide-react';
@@ -48,6 +49,12 @@ const LOOK: Record<string, { icon: LucideIcon; gradient: string; glow: string; a
     gradient: 'from-sky-400 via-cyan-500 to-blue-600',
     glow: 'shadow-sky-500/30',
     about: 'Dars nazorati boti: iMentor’ni ochmaganlar, mas’ullar bog‘lanishi, izohlar va xulosalar',
+  },
+  monitors: {
+    icon: Monitor,
+    gradient: 'from-amber-400 via-orange-500 to-rose-500',
+    glow: 'shadow-orange-500/30',
+    about: 'Nazoratdagi monitorli xonalar ro‘yxati, kafedralar bo‘yicha',
   },
   ishifo: {
     icon: HeartPulse,
@@ -116,7 +123,7 @@ export default function PlatformHome({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {/* «Telegram bot» (2026-11-18) — institutning o'z boti, tashqi tizim ro'yxatidan emas. */}
-          {[...data.platforms, { key: 'telegram', label: 'Telegram bot', ok: true }].map((p, i) => {
+          {[...data.platforms, { key: 'telegram', label: 'Telegram bot', ok: true }, { key: 'monitors', label: 'Monitorli xonalar', ok: true }].map((p, i) => {
             const look = LOOK[p.key] || FALLBACK;
             const Icon = look.icon;
             return (

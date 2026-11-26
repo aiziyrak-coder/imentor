@@ -1648,6 +1648,8 @@ def run_once(db: Session, now: dt.datetime | None = None, *, dry: bool = False) 
         body = daily_text(day, blocks, acts, offsite, block_measures(db, day, blocks))
         if dry:
             stats["texts"].append(body)
+        elif PDF_REPORTS:
+            chat = _pdf_reports(db, day, chat, body, stats)
         else:
             claimed = _claim(db, day, "daily", "")
             if claimed is not None:
@@ -1661,6 +1663,64 @@ def run_once(db: Session, now: dt.datetime | None = None, *, dry: bool = False) 
                     log.warning("lesson-bot: kunlik hisobot yuborilmadi: %s", exc.description)
                 db.commit()
     return stats
+
+
+#: Guruhga PDF hisobot (2026-11-26): kunlik har kuni, shanba — haftalik, oy oxiri — oylik. `.env`: LESSON_BOT_PDF=0 o'chiradi.
+PDF_REPORTS = os.environ.get("LESSON_BOT_PDF", "1") != "0"
+
+
+def _send_document(chat: int, data: bytes, filename: str, caption: str) -> int:
+    """PDF ni guruhga yuboradi; xabar id'si."""
+    token = bot_token()
+    if not token:
+        raise BotError(0, "LESSON_BOT_TOKEN berilmagan")
+    _throttle()
+    try:
+        res = requests.post(API.format(token=token, method="sendDocument"),
+                            data={"chat_id": chat, "caption": caption[:1000], "parse_mode": "HTML"},
+                            files={"document": (filename, data, "application/pdf")}, timeout=60)
+        body = res.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise BotError(0, type(exc).__name__) from None
+    if not body.get("ok"):
+        params = body.get("parameters") or {}
+        raise BotError(int(body.get("error_code") or res.status_code), str(body.get("description") or ""),
+                       params.get("migrate_to_chat_id"), params.get("retry_after"))
+    return int(body["result"]["message_id"])
+
+
+def _pdf_reports(db: Session, day: dt.date, chat: int, fallback_text: str, stats: dict) -> int:
+    """Kunlik (va kerak bo'lsa haftalik/oylik) PDF. Har biri bir marta (`_claim`). PDF tuzilmasa — eski matn."""
+    from app.services import lesson_pdf_report as pr
+
+    for kind in pr.kinds_for(day):
+        claimed = _claim(db, day, "daily" if kind == "daily" else kind, "")
+        if claimed is None:
+            continue
+        try:
+            built = pr.report(db, kind, day)
+            if built is None:
+                claimed.status = "empty"
+            else:
+                pdf, cap, name = built
+                msg = _send_document(chat, pdf, name, cap)
+                claimed.chat_id, claimed.message_ids, claimed.status = chat, [msg], "sent"
+                claimed.text_hash = _hash(cap)
+                stats["daily"] += 1
+        except Exception as exc:  # noqa: BLE001 — PDF bo'lmasa ham kunlik hisobot yetib borsin
+            log.exception("lesson-bot: %s PDF yuborilmadi", kind)
+            if kind == "daily":
+                try:
+                    chat, ids = _send(db, chat, fallback_text)
+                    claimed.chat_id, claimed.message_ids, claimed.status = chat, ids, "sent"
+                    claimed.text_hash = _hash(fallback_text)
+                    stats["daily"] += 1
+                except BotError as exc2:
+                    claimed.status, claimed.error = "failed", exc2.description[:500]
+            else:
+                claimed.status, claimed.error = "failed", str(exc)[:500]
+        db.commit()
+    return chat
 
 
 def run_once_locked() -> dict | None:

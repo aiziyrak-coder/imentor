@@ -71,7 +71,6 @@ ALWAYS_EXCLUDED = (
     "O‘zbek va xorijiy tillar",
     "Lotin tili, pedagogika va psixologiya",
     "Ijtimoiy fanlar",
-    "Xalq tabobati va farmakologiya",
 )
 
 

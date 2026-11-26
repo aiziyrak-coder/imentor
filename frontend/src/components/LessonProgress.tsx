@@ -15,7 +15,8 @@ export type LessonSection = 'lectures' | 'presentation' | 'videos' | 'handouts' 
 
 /** Bir para = 80 daqiqa. Amaliy darsda keys va test asosiy; ma'ruzada matn va taqdimot. */
 const PLANS: Record<'practical' | 'lecture', Array<[LessonSection, number]>> = {
-  practical: [['lectures', 10], ['presentation', 15], ['videos', 5], ['handouts', 5], ['cases', 20], ['tests', 20]],
+  // 2026-11-26 (foydalanuvchi): ma'ruza matni 2, video 15, tarqatma 3 daqiqa.
+  practical: [['lectures', 2], ['presentation', 15], ['videos', 15], ['handouts', 3], ['cases', 20], ['tests', 20]],
   lecture: [['lectures', 35], ['presentation', 30], ['videos', 5], ['tests', 10]],
 };
 

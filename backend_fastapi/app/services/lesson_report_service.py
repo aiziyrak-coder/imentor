@@ -309,7 +309,14 @@ def is_counted(lesson: HemisLesson) -> bool:
     Rektorat (2026-11-16): "faqat klinik kafedralardagi klinik fanlarni (klinik bo'lmagan
     kafedradagi klinik fanlarni ham), faqat amaliy mashg'ulotlarni nazorat qilamiz".
     Fan klinikmi — `clinical_subjects.is_clinical` (admin qarori yoki avtomatik qoida).
+
+    Faqat MONITORLI xonadagi dars (2026-11-26, foydalanuvchi: "faqat monitorda dars
+    o'tadigan amaliy mashg'ulot darslarini nazorat qilamiz"). Klinik baza, poliklinika,
+    SES, bo'lim xonalari HEMIS'da boshqa nom bilan keladi va monitor bog'lanmaydi —
+    u yerda iMentor ishlatib bo'lmaydi, o'qituvchi ayblanmaydi (bugun 755 dan 423 tasi).
     """
+    if not str(getattr(lesson, "monitor_id", "") or "").strip():
+        return False
     if not counts_lesson_type(getattr(lesson, "lesson_type", "")):
         return False
     if is_magistracy(lesson):
